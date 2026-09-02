@@ -1,0 +1,39 @@
+[project]
+name = "kaipi"
+version = "0.1.0"
+description = "A tiny, token-frugal coding agent that organises exploration as a DAG."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.3",
+    "httpx>=0.28",
+    "pydantic>=2.11",
+    "python-ulid>=3",
+    "typer>=0.15",
+]
+
+[project.scripts]
+kaipi = "kaipi.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9", "mypy>=1.14"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kaipi"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
