@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from kaipi import agent, context, graph, guard, summarize
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
@@ -155,7 +157,7 @@ def test_guard_warns_when_exploration_dirties_tree(log: Log, tmp_path: Path) -> 
     )
     assert "guard" in seen
     assert any(guard.WARNING in str(m) for m in log.state.nodes[nid].payload)
-    assert guard.Baseline.snapshot(tmp_path).clean(tmp_path) is not False
+    assert log.state.nodes[nid].paths == ["new.txt"]  # recorded even on an exploration
     guard.reset(tmp_path)
     assert not (tmp_path / "new.txt").exists()
 
@@ -240,3 +242,88 @@ def test_anthropic_request_shape() -> None:
     assert msgs[0]["content"][0].get("cache_control") is None  # never mutates the payload
     assert body["thinking"]["block_binding"]["prefix_mismatch_behavior"] == "drop_block"
     assert body["tools"] == [{"type": "bash_20250124", "name": "bash"}]
+
+
+def test_rewind_restores_only_agent_touched_files(log: Log, tmp_path: Path) -> None:
+    from kaipi import cli
+
+    _git_repo(tmp_path)
+    (tmp_path / "mine.txt").write_text("user v1")
+    p = FakeProvider(
+        [
+            call("t1", "printf one > a.txt"),
+            text("made a"),
+            call("t2", "printf two > a.txt; mkdir -p sub; printf c > sub/c.txt"),
+            text("changed a, made c"),
+        ]
+    )
+    n1 = agent.run_turn(log, p, None, [], "make a", exploration=False, cwd=tmp_path)
+    (tmp_path / "mine.txt").write_text("user v2")  # a manual edit between turns
+    n2 = agent.run_turn(log, p, n1, [], "change", exploration=False, cwd=tmp_path)
+    st = log.state
+    assert st.nodes[n1].paths == ["a.txt"] and st.nodes[n1].tree
+    assert st.nodes[n2].paths == ["a.txt", "sub/c.txt"]
+    assert cli.rewind_paths(st, n1) == ["a.txt", "sub/c.txt"]
+    assert cli.rewind_paths(st, n2) == []
+    restored = cli.rewind_code(st, tmp_path, n1)
+    assert restored == ["a.txt", "sub/c.txt"]
+    assert (tmp_path / "a.txt").read_text() == "one"
+    assert not (tmp_path / "sub" / "c.txt").exists()
+    assert (tmp_path / "mine.txt").read_text() == "user v2"  # never touched by the agent
+
+    def ref(name: str) -> int:
+        return subprocess.run(
+            ["git", "rev-parse", "--verify", "-q", name], cwd=tmp_path, capture_output=True
+        ).returncode
+
+    assert ref("refs/kaipi/undo") == 0  # pre-rewind state pinned for an undo
+    assert ref(f"refs/kaipi/s/{n1}") == 0  # every node tree survives git gc (per session)
+    assert (tmp_path / ".kaipi" / "index").exists()  # kaipi's private index, not the user's
+
+
+def test_guard_notices_a_commit_on_an_exploration(log: Log, tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    seen: list[str] = []
+    p = FakeProvider(
+        [
+            call("t1", "git -c user.email=t@t -c user.name=t commit -q --allow-empty -m wip"),
+            text("x"),
+        ]
+    )
+    agent.run_turn(
+        log,
+        p,
+        None,
+        [],
+        "explore",
+        exploration=True,
+        cwd=tmp_path,
+        hook=lambda k, t: seen.append(k),
+    )
+    assert "guard" in seen  # the tree is identical, but HEAD moved
+
+
+def test_rewind_from_a_subdirectory_restores_at_the_repo_root(log: Log, tmp_path: Path) -> None:
+    from kaipi import cli
+
+    _git_repo(tmp_path)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "f.txt").write_text("v0")
+    p = FakeProvider(
+        [call("t1", "printf v1 > f.txt"), text("a"), call("t2", "printf v2 > f.txt"), text("b")]
+    )
+    n1 = agent.run_turn(log, p, None, [], "one", exploration=False, cwd=sub)
+    n2 = agent.run_turn(log, p, n1, [], "two", exploration=False, cwd=sub)
+    assert log.state.nodes[n2].paths == ["sub/f.txt"]  # repo-root relative
+    cli.rewind_code(log.state, sub, n1)
+    assert (sub / "f.txt").read_text() == "v1"
+    assert not (sub / "sub").exists()  # no stray sub/sub/f.txt
+
+
+def test_restore_refuses_a_missing_snapshot(tmp_path: Path) -> None:
+    _git_repo(tmp_path)
+    (tmp_path / "keep.txt").write_text("k")
+    with pytest.raises(ValueError):
+        guard.restore(tmp_path, "0" * 40, ["keep.txt"])
+    assert (tmp_path / "keep.txt").exists()

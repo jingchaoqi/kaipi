@@ -68,6 +68,8 @@ class Node(BaseModel):
     grafts: list[GraftBlock] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)  # summed over every request of the turn
     context_tokens: int = 0  # context size measured by the API on the turn's last request
+    tree: str | None = None  # git tree of the working tree when the turn ended (rewind target)
+    paths: list[str] = Field(default_factory=list)  # files this turn changed on disk
     dropped_thinking: int = 0  # thinking blocks the API dropped (prefix-binding mismatch)
     summary: str | None = None
     completed: bool = False
@@ -104,6 +106,8 @@ class NodeCompleted(_Ev):
     usage: Usage
     context_tokens: int = 0
     dropped_thinking: int = 0
+    tree: str | None = None
+    paths: list[str] = Field(default_factory=list)
 
 
 class EdgeAdded(_Ev):
@@ -135,6 +139,8 @@ class SummaryGenerated(_Ev):
     type: Literal["summary_generated"] = "summary_generated"
     node_id: str
     summary: str
+    model: str = ""  # the cheap model, priced separately from the node's own model
+    usage: Usage = Field(default_factory=Usage)
 
 
 Event = Annotated[

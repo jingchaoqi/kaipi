@@ -1,10 +1,25 @@
 # USD per million tokens. Four explicit prices per model: cache economics are NOT a constant
 # multiple (Fable 5.1 reads at 0.025x, 1h-TTL writes at 2x), so no multipliers here.
-# Anthropic prices as of 2026-06; OpenAI prices as of 2025-08 - verify before trusting the ledger.
+# Anthropic prices as of 2026-06; others as of 2026-09 from public price pages - verify before
+# trusting the ledger. Unknown models cost 0 and the CLI warns.
+#
+# A model names its provider; a provider is a wire protocol + endpoint + key env var.
+# Built-in providers: anthropic, openai (Responses API), gemini; deepseek, kimi, glm, opencode,
+# opencode-go each in an OpenAI-compatible form and an `-anthropic` (Messages API) form; plus
+# qwen, openrouter, groq, ollama. Override or add under [providers].
+# Any model not listed here can still be used as KAIPI_MODEL=<provider>/<model id>.
+# <PROVIDER>_BASE_URL in the environment overrides a provider's base_url.
 
 [defaults]
 model = "claude-opus-5"
 summary_model = "claude-haiku-4-5"
+
+[providers.vllm]            # example of a self-hosted OpenAI-compatible endpoint
+api = "openai-chat"         # anthropic | openai-responses | openai-chat | gemini
+base_url = "http://localhost:8000/v1"
+api_key_env = "VLLM_API_KEY"
+
+# --- Anthropic (Messages API, explicit cache breakpoints) ---
 
 [models."claude-fable-5-1"]
 provider = "anthropic"
@@ -42,23 +57,111 @@ cache_write = 1.25
 cache_read = 0.1
 output = 5.0
 
-[models."gpt-5"]
-provider = "openai"
-input = 1.25
-cache_write = 0.0
-cache_read = 0.125
-output = 10.0
+# --- OpenAI (Responses API; automatic prefix caching, no write premium) ---
 
-[models."gpt-5-mini"]
+[models."gpt-5.6-sol"]
 provider = "openai"
-input = 0.25
-cache_write = 0.0
-cache_read = 0.025
-output = 2.0
+input = 5.0
+cache_read = 0.5
+output = 30.0
 
-[models."gpt-4.1"]
+[models."gpt-5.6-terra"]
 provider = "openai"
 input = 2.0
-cache_write = 0.0
-cache_read = 0.5
-output = 8.0
+cache_read = 0.2
+output = 12.0
+
+[models."gpt-5.6-luna"]
+provider = "openai"
+input = 0.2
+cache_read = 0.02
+output = 1.2
+
+# --- Google Gemini (generateContent; implicit caching reported as cachedContentTokenCount) ---
+
+[models."gemini-3.1-pro"]
+provider = "gemini"
+input = 2.0
+cache_read = 0.2
+output = 12.0
+
+[models."gemini-3.7-flash"]
+provider = "gemini"
+input = 0.75
+cache_read = 0.075
+output = 3.75
+
+# --- OpenAI-compatible vendors ---
+
+[models."deepseek-v4-flash"]
+provider = "deepseek"
+input = 0.14
+cache_read = 0.0028
+output = 0.28
+
+[models."deepseek-v4-pro"]
+provider = "deepseek"
+input = 0.435
+cache_read = 0.003625
+output = 0.87
+
+[models."deepseek-v4-flash-vision-exp"]
+provider = "deepseek"
+input = 0.14
+cache_read = 0.0028
+output = 0.28
+
+# --- Moonshot Kimi (international billing via api.moonshot.ai, 2026-09) ---
+
+[models."kimi-k3"]
+provider = "kimi"
+input = 3.0
+cache_read = 0.3
+output = 15.0
+
+[models."kimi-k2.7-code"]
+provider = "kimi"
+input = 0.95
+cache_read = 0.19
+output = 4.0
+
+[models."kimi-k2.6"]
+provider = "kimi"
+input = 0.95
+cache_read = 0.16
+output = 4.0
+
+[models."kimi-k2.5"]
+provider = "kimi"
+input = 0.6
+cache_read = 0.1
+output = 3.0
+
+# --- Z.ai GLM (pay-per-token API, 2026-09; the Coding Plan is a flat subscription) ---
+
+[models."glm-5.2"]
+provider = "glm"
+input = 1.4
+cache_read = 0.26
+output = 4.4
+
+[models."glm-5"]
+provider = "glm"
+input = 0.6
+cache_read = 0.11
+output = 1.92
+
+# --- OpenCode Go: flat $10/month, so per-token cost is 0 here; the ledger still counts tokens.
+# Model ids as listed by https://opencode.ai/zen/go/v1/models (2026-09).
+
+[models."opencode-go/kimi-k3"]
+provider = "opencode-go"
+
+[models."opencode-go/deepseek-v4-pro"]
+provider = "opencode-go"
+
+[models."opencode-go/glm-5.3"]
+provider = "opencode-go"
+
+[models."opencode-go/gpt-5.6-luna"]
+provider = "opencode-go"

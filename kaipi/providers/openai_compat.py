@@ -4,7 +4,6 @@ payloads at the boundary; thinking blocks are dropped; cached tokens read from u
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 import httpx
@@ -97,13 +96,13 @@ def usage_from(u: dict[str, Any]) -> Usage:
 
 
 class OpenAICompatProvider:
-    def __init__(self, model: str, *, max_tokens: int = 16_000) -> None:
+    def __init__(
+        self, model: str, *, base_url: str, api_key: str = "", max_tokens: int = 16_000
+    ) -> None:
         self.model = model
         self.max_tokens = max_tokens
-        base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        key = os.environ.get("OPENAI_API_KEY", "")
         self.client = httpx.Client(
-            base_url=base, headers={"Authorization": f"Bearer {key}"}, timeout=600
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}, timeout=600
         )
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:

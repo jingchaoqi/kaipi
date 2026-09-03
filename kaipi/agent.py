@@ -68,7 +68,8 @@ def run_turn(
 
     messages: list[Message] = list(ctx.messages)
     usage, last, dropped = Usage(), Usage(), 0
-    baseline = guard.Baseline.snapshot(cwd) if exploration and guard.is_repo(cwd) else None
+    tree0 = guard.snapshot(cwd)
+    baseline = (tree0, guard.head(cwd)) if exploration and tree0 else None
     for _ in range(max_steps):
         reply = provider.complete(ctx.system, messages, ctx.cache_points)
         usage, last, dropped = usage + reply.usage, reply.usage, dropped + reply.dropped_thinking
@@ -89,7 +90,7 @@ def run_turn(
             hook("out", out)
             results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
         user: Message = {"role": "user", "content": results}
-        if baseline is not None and not baseline.clean(cwd):
+        if baseline is not None and (guard.snapshot(cwd), guard.head(cwd)) != baseline:
             user["content"].append({"type": "text", "text": guard.WARNING})
             hook("guard", "working tree is dirty")
             baseline = None  # warn once per turn
@@ -97,6 +98,9 @@ def run_turn(
     else:
         hook("stop", "max_steps")
 
+    tree1 = guard.snapshot(cwd)
+    if tree1:
+        guard.keep(cwd, f"{log.state.session_id}/{node_id}", tree1)
     log.append(
         NodeCompleted(
             id=node_id,
@@ -105,6 +109,8 @@ def run_turn(
             usage=usage,
             context_tokens=last.context + last.output,
             dropped_thinking=dropped,
+            tree=tree1,
+            paths=guard.changed(cwd, tree0, tree1),
         )
     )
     return node_id

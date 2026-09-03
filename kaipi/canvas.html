@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kaipi 画布</title>
+<style>
+  :root {
+    --bg: #F4F6F2; --panel: #FFFFFF; --ink: #1B2420; --muted: #66716B; --line: #D3DAD5;
+    --trunk: #1E7A5A; --trunk-soft: #DCEFE6; --explore: #B26A3D; --explore-soft: #F4E4D5;
+    --graft: #3B6FB6; --graft-soft: #DDE8F8; --red: #B23A3A; --red-soft: #F6DCDC;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 20px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121614; --panel: #1B201D; --ink: #E3E9E4; --muted: #94A099; --line: #333D37;
+      --trunk: #4EC49A; --trunk-soft: #1E3A30; --explore: #DB9560; --explore-soft: #3D2A1D;
+      --graft: #83ABE8; --graft-soft: #1F2D44; --red: #E27272; --red-soft: #3F2323;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35); }
+  }
+  * { box-sizing: border-box; }
+  svg text, #tray, #legend, #drop .hint, header { user-select: none; }
+  body.dragging, body.dragging * { user-select: none !important; cursor: grabbing !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); display: flex; flex-direction: column; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--ink); }
+  button.primary { background: var(--trunk); border-color: var(--trunk); color: #fff; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  code, .mono { font-family: var(--mono); font-size: 12px; }
+
+  header { display: flex; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header .brand { font-weight: 700; letter-spacing: .04em; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  header .stat { display: flex; flex-direction: column; line-height: 1.2; }
+  header .stat b { font-family: var(--mono); font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  header .stat span { font-size: 11px; color: var(--muted); }
+  header .spacer { flex: 1; }
+  header .cur { color: var(--muted); font-size: 12px; }
+  header .cur b { color: var(--ink); font-family: var(--mono); font-weight: 500; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--trunk-soft); color: var(--trunk); }
+  .tag.explore { background: var(--explore-soft); color: var(--explore); }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 460px; min-height: 0; }
+  #wrap { position: relative; overflow: hidden; }
+  #svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #svg.panning { cursor: grabbing; }
+  .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .edge.trunk { stroke: var(--trunk); stroke-width: 3; }
+  .edge.explore { stroke: var(--explore); stroke-width: 1.5; }
+  .edge.archived { stroke-dasharray: 5 5; opacity: .55; }
+  .edge.graft { stroke: var(--graft); stroke-width: 1.5; stroke-dasharray: 3 4; }
+  .node { cursor: pointer; }
+  .node rect.card { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; rx: 8; }
+  .node.trunk rect.card { stroke: var(--trunk); }
+  .node.explore rect.card { stroke: var(--explore); }
+  .node.archived { opacity: .5; }
+  .node.archived rect.card { stroke-dasharray: 4 3; }
+  .node.current rect.card { stroke-width: 2.5; }
+  .node.current rect.halo { fill: none; stroke: var(--trunk); stroke-opacity: .25; stroke-width: 8; rx: 12; }
+  .node.explore.current rect.halo { stroke: var(--explore); }
+  .node text { fill: var(--ink); font-family: var(--sans); font-size: 13px; pointer-events: none; }
+  .node text.id { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .node text.own { font-family: var(--mono); font-size: 11px; fill: var(--muted); text-anchor: end; }
+  .node text.pin { font-size: 12px; }
+  .node rect.dot { fill: var(--graft); rx: 2; }
+  .node:hover rect.card { stroke: var(--ink); }
+  .node.dragging { opacity: .35; }
+
+  #empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); pointer-events: none; text-align: center; }
+  #empty b { font-size: 18px; color: var(--ink); }
+  #tray { position: absolute; left: 18px; bottom: 18px; padding: 14px 18px; border: 1.5px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; background: var(--panel); transition: all .15s; }
+  #tray.over { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+  body.dragging #tray { border-color: var(--muted); }
+  #legend { position: absolute; right: 18px; bottom: 18px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; }
+  #legend i { display: inline-block; width: 18px; border-top: 3px solid var(--trunk); vertical-align: middle; margin-right: 5px; }
+  #legend i.e { border-color: var(--explore); } #legend i.g { border-top: 2px dashed var(--graft); }
+  #ghost { position: fixed; pointer-events: none; z-index: 30; padding: 6px 12px; border-radius: 8px; background: var(--panel); border: 1.5px solid var(--graft); box-shadow: var(--shadow); font-size: 13px; display: none; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #menu { position: fixed; z-index: 40; display: none; flex-direction: column; min-width: 160px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; }
+  #menu button { border: 0; text-align: left; border-radius: 5px; padding: 6px 10px; }
+  #menu button:hover { background: var(--bg); }
+  #menu .sep { border-top: 1px solid var(--line); margin: 4px 0; }
+  #menu .title { padding: 4px 10px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+  aside { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+  #transcript { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  .turn { margin-bottom: 18px; }
+  .turn .who { font-size: 11px; color: var(--muted); font-family: var(--mono); display: flex; gap: 8px; align-items: center; }
+  .turn .who .exp { color: var(--explore); }
+  .turn .q { font-weight: 600; margin: 3px 0 6px; white-space: pre-wrap; }
+  .turn .a { white-space: pre-wrap; }
+  .turn .more { color: var(--graft); cursor: pointer; font-size: 12px; margin-top: 4px; }
+  .turn .full { display: none; margin-top: 6px; }
+  .turn.open .full { display: block; }
+  .turn.open .more { display: none; }
+  .ln { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+  .ln.cmd { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--bg); padding: 4px 8px; border-radius: 4px; }
+  .ln.cmd::before { content: "$ "; color: var(--muted); }
+  .ln.out { font-family: var(--mono); font-size: 11.5px; color: var(--muted); max-height: 160px; overflow: auto; padding-left: 8px; border-left: 2px solid var(--line); }
+  .ln.graft { font-size: 12px; color: var(--graft); border-left: 2px solid var(--graft); padding-left: 8px; max-height: 120px; overflow: auto; font-family: var(--mono); }
+  .ln.guard { font-size: 12px; color: var(--explore); }
+  .ln.sys { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .ln.ledger { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .ln.stop, .ln.error { color: var(--red); }
+  .thinking { color: var(--muted); font-size: 12px; }
+  .thinking::after { content: "…"; animation: blink 1s steps(3) infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+
+  #guardbar { display: none; margin: 0 18px 10px; padding: 10px 12px; border-radius: 8px; background: var(--red-soft); color: var(--red); font-size: 13px; }
+  #guardbar.show { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #composer { border-top: 1px solid var(--line); padding: 12px 18px 14px; }
+  #drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 8px 10px; min-height: 42px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; transition: all .15s; }
+  #drop.over, body.dragging #drop { border-color: var(--graft); background: var(--graft-soft); color: var(--graft); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 16px; background: var(--graft-soft); color: var(--ink); border: 1px solid var(--graft); font-size: 12px; position: relative; }
+  .chip .lab { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip select { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--graft); cursor: pointer; }
+  .chip .tools { cursor: pointer; color: var(--graft); border-bottom: 1px dotted var(--graft); }
+  .chip .x { cursor: pointer; color: var(--muted); padding: 0 4px; }
+  .chip .x:hover { color: var(--red); }
+  .pop { position: absolute; z-index: 20; left: 0; top: 110%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 10px; min-width: 260px; max-height: 220px; overflow: auto; }
+  .pop label { display: flex; gap: 8px; font-family: var(--mono); font-size: 11px; align-items: flex-start; margin: 4px 0; cursor: pointer; }
+  .pop label span { white-space: pre-wrap; word-break: break-all; }
+  #delta { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 6px 2px 0; min-height: 16px; }
+  #delta b { color: var(--trunk); font-weight: 500; }
+  #row { display: flex; gap: 8px; margin-top: 8px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-height: 44px; max-height: 200px; }
+  textarea:focus { outline: none; border-color: var(--trunk); }
+  #where { font-size: 11px; color: var(--muted); margin-top: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #where .help { margin-left: auto; cursor: help; }
+  #where label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--explore); }
+  #where label.off { display: none; }
+
+  .modal { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); display: none; align-items: center; justify-content: center; z-index: 48; }
+  .modal.show { display: flex; }
+  .modal .body { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 20px 24px; width: 520px; max-width: 92vw; }
+  .modal p { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .modal .files { font-family: var(--mono); font-size: 12px; max-height: 180px; overflow: auto; background: var(--bg); padding: 8px 10px; border-radius: 6px; margin-bottom: 12px; }
+  .modal .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  #overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 85%, transparent); display: none; align-items: center; justify-content: center; z-index: 50; text-align: center; }
+  #overlay.show { display: flex; }
+  #overlay div { background: var(--panel); padding: 28px 36px; border-radius: 12px; box-shadow: var(--shadow); max-width: 420px; }
+  #overlay b { font-size: 18px; display: block; margin-bottom: 8px; }
+  #overlay p { color: var(--muted); margin: 0; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; z-index: 45; max-width: 70vw; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">kaipi<small id="sess" class="mono"></small></div>
+  <div class="stat"><b id="burden">–</b><span>主干负担 · 每轮重付</span></div>
+  <div class="stat"><b id="cost">–</b><span>会话花费</span></div>
+  <div class="cur">当前 <b id="curid">root</b> <span id="curkind" class="tag">主干</span></div>
+  <div class="spacer"></div>
+  <button id="fit" title="适应画面">适应画面</button>
+  <button id="handoff" title="把会话交回终端（等同输入 /cli）">移交到终端 /cli</button>
+</header>
+<main>
+  <section id="wrap">
+    <svg id="svg"><g id="view"><g id="edges"></g><g id="nodes"></g></g></svg>
+    <div id="empty"><b>还没有节点</b><span>在右下角输入第一条任务，它会成为主干的根。</span></div>
+    <div id="tray">拖到这里归档整棵子树</div>
+    <div id="legend"><span><i></i>主干</span><span><i class="e"></i>探索</span><span><i class="g"></i>嫁接</span></div>
+  </section>
+  <aside>
+    <div id="transcript"></div>
+    <div id="guardbar"><span>探索分支改动了工作树。</span><button id="revert" class="danger">回滚 git checkout -- . &amp;&amp; git clean -fd</button><button id="pinhere">改钉本分支为主干</button></div>
+    <div id="composer">
+      <div id="drop"><span class="hint">把画布上的节点拖到这里，嫁接到下一条输入</span></div>
+      <div id="delta"></div>
+      <div id="row"><textarea id="input" placeholder="输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）"></textarea><button id="send" class="primary">发送</button></div>
+      <div id="where"><span>下一条输入将挂在 <b id="wherenode" class="mono">root</b> 之下</span><span id="whereex"></span><label id="explab" title="不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）"><input type="checkbox" id="explore"> 作为探索</label><span class="help" title="点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移">操作提示 ?</span></div>
+    </div>
+  </aside>
+</main>
+<div id="ghost"></div>
+<div id="menu"></div>
+<div id="rewind" class="modal"><div class="body"></div></div>
+<div id="overlay"><div><b>会话已移交到终端</b><p>回到运行 kaipi 的终端继续对话。这个页面可以关闭。</p></div></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const api = {
+  get: async (p) => { const r = await fetch(p); return r.json(); },
+  post: async (p, body) => { const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); const j = await r.json(); if (j.error) throw new Error(j.error); return j; },
+};
+const fmt = t => (t / 1000).toFixed(1) + 'k';
+const short = id => id ? id.slice(-6) : 'root';
+const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+// clip to a visual width: CJK glyphs count double
+function clip(s, w) { let out = '', used = 0; for (const ch of s) { const cw = /[\u1100-\uFFFF]/.test(ch) ? 2 : 1; if (used + cw > w) return esc(out) + '…'; out += ch; used += cw; } return esc(out); }
+let S = null;            // last /api/state
+let byId = {};
+let pending = [];        // ReferenceEdge[]
+let view = { x: 40, y: 40, k: 1 };
+let fitted = false;
+const NW = 196, NH = 58, GX = 250, GY = 88;
+
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms); }
+
+// ---------- state ----------
+async function refresh() {
+  S = await api.get('/api/state');
+  byId = Object.fromEntries(S.nodes.map(n => [n.id, n]));
+  pending = S.pending;
+  render();
+}
+function children(id) { return S.nodes.filter(n => n.parent_id === id && n.status !== 'tombstone').sort((a, b) => a.seq - b.seq); }
+function lineage(id) { const out = []; while (id) { const n = byId[id]; if (!n) break; out.unshift(n); id = n.parent_id; } return out; }
+function trunkSet() { return new Set(lineage(S.trunk).map(n => n.id)); }
+function isExploration() { return S.nodes.length > 0 && S.leaf !== S.trunk; }
+
+// ---------- layout ----------
+function layout() {
+  const pos = {}; let row = 0; const T = trunkSet();
+  const place = (n, depth) => {
+    const kids = children(n.id).sort((a, b) => (T.has(b.id) - T.has(a.id)) || (a.seq - b.seq));
+    if (!kids.length) { pos[n.id] = { x: depth, y: row++ }; return; }
+    kids.forEach(k => place(k, depth + 1));
+    pos[n.id] = { x: depth, y: kids.reduce((s, k) => s + pos[k.id].y, 0) / kids.length };
+  };
+  children(null).forEach(r => place(r, 0));
+  return pos;
+}
+
+// ---------- render ----------
+function render() {
+  const T = trunkSet();
+  const pos = layout();
+  const E = $('#edges'), N = $('#nodes');
+  E.innerHTML = ''; N.innerHTML = '';
+  const X = p => p.x * GX, Y = p => p.y * GY;
+  for (const n of S.nodes) {
+    if (n.status === 'tombstone' || !n.parent_id || !pos[n.id]) continue;
+    const a = pos[n.parent_id], b = pos[n.id];
+    const cls = ['edge', T.has(n.id) && T.has(n.parent_id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : ''].join(' ');
+    E.insertAdjacentHTML('beforeend', `<path class="${cls}" d="M${X(a) + NW} ${Y(a) + NH / 2} C ${X(a) + NW + 40} ${Y(a) + NH / 2}, ${X(b) - 40} ${Y(b) + NH / 2}, ${X(b)} ${Y(b) + NH / 2}"/>`);
+  }
+  for (const e of S.edges) {
+    const a = pos[e.src_id], b = pos[e.dst_id]; if (!a || !b) continue;
+    E.insertAdjacentHTML('beforeend', `<path class="edge graft" d="M${X(a) + NW / 2} ${Y(a) + NH} C ${X(a) + NW / 2} ${Y(a) + NH + 60}, ${X(b) + 20} ${Y(b) - 40}, ${X(b) + 20} ${Y(b)}"/>`);
+  }
+  for (const n of S.nodes) {
+    if (n.status === 'tombstone' || !pos[n.id]) continue;
+    const p = pos[n.id];
+    const cls = ['node', T.has(n.id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : '', n.id === S.leaf ? 'current' : ''].join(' ');
+    const label = clip(n.input, 24);
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', cls); g.setAttribute('transform', `translate(${X(p)},${Y(p)})`); g.dataset.id = n.id;
+    g.innerHTML = `<rect class="halo" x="-4" y="-4" width="${NW + 8}" height="${NH + 8}"/>
+      <rect class="card" width="${NW}" height="${NH}"/>
+      <text class="id" x="12" y="19">${short(n.id)}${n.status === 'archived' ? ' · 已归档' : ''}</text>
+      <text class="own" x="${NW - 12}" y="19">+${fmt(n.own)}</text>
+      <text x="12" y="41">${label}</text>
+      ${n.id === S.trunk ? `<text class="pin" x="${NW - 26}" y="43" title="主干叶子">📌</text>` : ''}
+      ${n.grafts.length ? `<rect class="dot" x="4" y="${NH - 8}" width="${Math.min(40, 8 * n.grafts.length)}" height="4"><title>${n.grafts.length} 处嫁接</title></rect>` : ''}`;
+    N.appendChild(g);
+  }
+  $('#empty').style.display = S.nodes.length ? 'none' : 'flex';
+  $('#sess').textContent = ' ' + S.session + ' · ' + S.model;
+  $('#burden').textContent = fmt(S.burden);
+  $('#cost').textContent = '$' + S.cost.toFixed(4);
+  $('#curid').textContent = short(S.leaf);
+  $('#wherenode').textContent = short(S.leaf);
+  const ex = isExploration();
+  $('#curkind').textContent = ex ? '探索' : '主干';
+  $('#curkind').className = 'tag' + (ex ? ' explore' : '');
+  $('#whereex').innerHTML = ex ? '<span class="tag explore">探索分支：只读，付一次</span>' : '<span class="tag">主干：可写盘，每轮重付</span>';
+  $('#explab').classList.toggle('off', ex || !S.nodes.length);  // only meaningful on the trunk leaf
+  $('#guardbar').classList.toggle('show', S.dirty);
+  $('#send').disabled = S.busy;
+  renderChips();
+  renderTranscript();
+  if (!fitted && S.nodes.length) { fit(); fitted = true; } else ensureVisible(pos);
+  applyView();
+}
+function applyView() { $('#view').setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
+function bbox() { const pos = layout(); const xs = Object.values(pos); if (!xs.length) return { w: 0, h: 0 }; return { w: Math.max(...xs.map(p => p.x)) * GX + NW, h: Math.max(...xs.map(p => p.y)) * GY + NH }; }
+function fit() {
+  const { w, h } = bbox(); const r = $('#svg').getBoundingClientRect();
+  const k = Math.min(1.15, (r.width - 80) / Math.max(w, 1), (r.height - 120) / Math.max(h, 1));
+  view = { k, x: 40, y: Math.max(40, (r.height - 60 - h * k) / 2) }; applyView();
+}
+function ensureVisible(pos) {
+  const p = pos[S.leaf]; if (!p) return; const r = $('#svg').getBoundingClientRect();
+  const sx = p.x * GX * view.k + view.x, sy = p.y * GY * view.k + view.y;
+  if (sx < 0 || sx + NW * view.k > r.width || sy < 0 || sy + NH * view.k > r.height - 80) {
+    view.x = r.width / 2 - (p.x * GX + NW / 2) * view.k; view.y = r.height / 2 - (p.y * GY + NH / 2) * view.k;
+  }
+}
+
+// ---------- pan / zoom ----------
+const svg = $('#svg');
+let pan = null;
+svg.addEventListener('pointerdown', e => { if (e.target.closest('.node')) return; pan = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); });
+svg.addEventListener('pointermove', e => { if (!pan) return; view.x = pan.vx + e.clientX - pan.x; view.y = pan.vy + e.clientY - pan.y; applyView(); });
+svg.addEventListener('pointerup', () => { pan = null; svg.classList.remove('panning'); });
+svg.addEventListener('wheel', e => { e.preventDefault(); const r = svg.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const k = Math.min(2.5, Math.max(.25, view.k * (e.deltaY < 0 ? 1.1 : 0.9))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; applyView(); }, { passive: false });
+$('#fit').onclick = fit;
+
+// ---------- drag nodes ----------
+let drag = null; const ghost = $('#ghost');
+document.addEventListener('pointerdown', e => {
+  const g = e.target.closest('.node'); if (!g || e.button !== 0) return;
+  e.preventDefault();
+  drag = { id: g.dataset.id, x: e.clientX, y: e.clientY, moved: false, g };
+});
+document.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+  if (!drag.moved) { drag.moved = true; document.body.classList.add('dragging'); drag.g.classList.add('dragging'); ghost.textContent = short(drag.id) + ' · ' + byId[drag.id].input.slice(0, 30); ghost.style.display = 'block'; }
+  ghost.style.left = Math.min(e.clientX + 14, window.innerWidth - ghost.offsetWidth - 8) + 'px'; ghost.style.top = (e.clientY + 10) + 'px';
+  const over = zoneAt(e.clientX, e.clientY);
+  $('#drop').classList.toggle('over', over === 'drop'); $('#tray').classList.toggle('over', over === 'tray');
+});
+document.addEventListener('pointerup', async e => {
+  if (!drag) return; const d = drag; drag = null;
+  document.body.classList.remove('dragging'); d.g.classList.remove('dragging'); ghost.style.display = 'none';
+  $('#drop').classList.remove('over'); $('#tray').classList.remove('over');
+  if (!d.moved) { if (byId[d.id].status === 'live') go(d.id); else toast('已归档的节点：右键可恢复'); return; }
+  const z = zoneAt(e.clientX, e.clientY);
+  if (z === 'drop') addGraft(d.id);
+  else if (z === 'tray') archive(d.id);
+});
+function zoneAt(x, y) { for (const [id, name] of [['#drop', 'drop'], ['#tray', 'tray']]) { const r = $(id).getBoundingClientRect(); if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return name; } return null; }
+
+// ---------- context menu ----------
+const menu = $('#menu');
+document.addEventListener('contextmenu', e => {
+  const g = e.target.closest('.node'); if (!g) return; e.preventDefault();
+  const n = byId[g.dataset.id]; const live = n.status === 'live';
+  menu.innerHTML = `<div class="title">${short(n.id)} · ${esc(n.input.slice(0, 24))}</div>
+    ${live ? `<button data-a="go">跳到这里，在其下继续</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入</button><button data-a="pin">钉为主干</button><div class="sep"></div><button data-a="archive" class="danger">归档整棵子树</button>` : `<button data-a="restore">恢复整棵子树</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入（快照）</button>`}`;
+  menu.style.display = 'flex'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+  menu.onclick = ev => { const a = ev.target.dataset.a; menu.style.display = 'none'; if (!a) return; ({ go, graft: addGraft, pin, archive, restore, rewind: rewindDialog })[a](n.id); };
+});
+document.addEventListener('click', e => { if (!e.target.closest('#menu')) menu.style.display = 'none'; if (!e.target.closest('.chip')) document.querySelectorAll('.pop').forEach(p => p.remove()); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { menu.style.display = 'none'; document.querySelectorAll('.pop').forEach(p => p.remove()); } });
+
+// ---------- actions ----------
+async function act(path, body, okMsg) { try { await api.post(path, body); await refresh(); if (okMsg) toast(okMsg); } catch (e) { toast(e.message); } }
+const go = id => act('/api/go', { id });
+const pin = id => act('/api/pin', { id }, '主干已改钉到 ' + short(id));
+const restore = id => act('/api/restore', { id }, '已恢复');
+async function archive(id) {
+  const n = byId[id]; const sub = S.nodes.filter(m => lineage(m.id).some(x => x.id === id) && m.status === 'live').length;
+  const before = S.burden;
+  await act('/api/archive', { id });
+  toast(`已归档 ${sub} 个节点（${short(n.id)}）· 主干负担 ${fmt(before)} → ${fmt(S.burden)} · 可在右键菜单恢复`);
+}
+async function addGraft(id) {
+  if (lineage(S.leaf).some(n => n.id === id)) { toast('这个节点已经在当前血缘里，不用嫁接'); return; }
+  if (pending.some(e => e.src_id === id)) { toast('已在待嫁接列表'); return; }
+  pending.push({ src_id: id, dst_id: '', depth: 'leaf+summary', include_tool_outputs: [] });
+  await savePending();
+}
+async function savePending() { await api.post('/api/pending', { edges: pending }); renderChips(); }
+
+// ---------- rewind (Claude-Code-style: only agent-touched files are restored) ----------
+async function rewindDialog(id) {
+  let info; try { info = await api.get('/api/rewind?id=' + id); } catch (e) { toast(e.message); return; }
+  const n = byId[id];
+  const box = $('#rewind'); box.classList.add('show');
+  box.querySelector('.body').innerHTML = `<b>回退到 ${short(id)} · ${esc(n.input.slice(0, 40))}</b>
+    <p>只回对话 = 光标跳回这里，代码不动。只回代码 = 把之后回合改过的文件写回当时的内容，其它文件（包括你手改的）不动。</p>
+    ${info.tree ? `<div class="files">${info.paths.length ? info.paths.map(esc).join('<br>') : '（之后的回合没有改过文件）'}</div>` : '<div class="files">这个节点没有代码快照（不是 git 仓库），只能回对话。</div>'}
+    <div class="row"><button data-m="both" class="primary" ${info.tree ? '' : 'disabled'}>对话与代码</button><button data-m="conversation">只回对话</button><button data-m="code" ${info.tree && info.paths.length ? '' : 'disabled'}>只回代码</button><button data-m="cancel">取消</button></div>`;
+  box.onclick = async ev => {
+    const m = ev.target.dataset.m; if (!m) return; box.classList.remove('show');
+    if (m === 'cancel') return;
+    await act('/api/rewind', { id, mode: m }, m === 'conversation' ? '已跳回 ' + short(id) : `已回退代码到 ${short(id)}（回退前的状态在 refs/kaipi/undo）`);
+  };
+}
+
+// ---------- chips ----------
+async function renderChips() {
+  const drop = $('#drop');
+  drop.querySelectorAll('.chip').forEach(c => c.remove());
+  drop.querySelector('.hint').style.display = pending.length ? 'none' : '';
+  let total = 0; const parts = [];
+  for (const [i, e] of pending.entries()) {
+    const n = byId[e.src_id]; if (!n) continue;
+    const chip = document.createElement('span'); chip.className = 'chip';
+    chip.innerHTML = `<span class="lab" title="${esc(n.input)}">${short(n.id)} ${esc(n.input.slice(0, 16))}</span>
+      <select><option value="leaf">leaf</option><option value="leaf+summary">leaf+summary</option><option value="branch">branch</option></select>
+      <span class="tools">${e.include_tool_outputs.length ? `+${e.include_tool_outputs.length} 工具输出` : (n.tools.length ? '工具输出' : '')}</span><span class="x" title="移除">×</span>`;
+    chip.querySelector('select').value = e.depth;
+    chip.querySelector('select').onchange = ev => { e.depth = ev.target.value; savePending(); };
+    chip.querySelector('.x').onclick = () => { pending.splice(i, 1); savePending(); };
+    chip.querySelector('.tools').onclick = ev => { ev.stopPropagation(); toolsPopover(chip, e, n); };
+    drop.appendChild(chip);
+    try {
+      const pv = await api.get(`/api/preview?src=${e.src_id}&tools=${e.include_tool_outputs.join(',')}`);
+      const sel = chip.querySelector('select');
+      for (const o of sel.options) o.textContent = `${o.value} +${fmt(pv.sizes[o.value])}`;
+      total += pv.sizes[e.depth]; parts.push(`${short(n.id)} ${e.depth} +${fmt(pv.sizes[e.depth])}`);
+    } catch (err) { parts.push(`${short(n.id)}: ${err.message}`); }
+  }
+  $('#delta').innerHTML = pending.length
+    ? `${parts.join(' · ')}<br>trunk burden: ${fmt(S.burden)} → <b>${fmt(isExploration() ? S.burden : S.burden + total)}</b> ${isExploration() ? '（嫁接到探索分支，不动主干）' : `(+${fmt(total)})`} · 追加型，缓存前缀不变`
+    : '';
+}
+function toolsPopover(chip, e, n) {
+  document.querySelectorAll('.pop').forEach(p => p.remove());
+  if (!n.tools.length) { toast('这个节点没有工具调用'); return; }
+  const pop = document.createElement('div'); pop.className = 'pop';
+  pop.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">勾选要带上的工具输出（默认全部省略）</div>` + n.tools.map(t => `<label><input type="checkbox" value="${t.id}" ${e.include_tool_outputs.includes(t.id) ? 'checked' : ''}><span>${esc(t.cmd.slice(0, 80))}</span></label>`).join('');
+  pop.onclick = ev => ev.stopPropagation();
+  pop.onchange = () => { e.include_tool_outputs = [...pop.querySelectorAll('input:checked')].map(i => i.value); savePending(); };
+  chip.appendChild(pop);
+}
+
+// ---------- transcript ----------
+const opened = new Set();
+function renderTranscript() {
+  const box = $('#transcript'); const T = trunkSet();
+  const live = box.querySelector('.live'); box.innerHTML = '';
+  for (const n of lineage(S.leaf)) {
+    const d = document.createElement('div'); d.className = 'turn' + (opened.has(n.id) ? ' open' : ''); d.dataset.id = n.id;
+    d.innerHTML = `<div class="who"><span>${short(n.id)}</span>${T.has(n.id) ? '' : '<span class="exp">探索</span>'}<span>+${fmt(n.own)}</span>${n.grafts.length ? `<span style="color:var(--graft)">嫁接 ${n.grafts.map(short).join(' ')}</span>` : ''}${n.dropped ? `<span style="color:var(--red)">丢弃 thinking ×${n.dropped}</span>` : ''}</div>
+      <div class="q">${esc(n.input)}</div><div class="a">${esc(n.answer)}</div>
+      ${n.tools.length || n.grafts.length ? `<div class="more">${n.tools.length ? `展开 ${n.tools.length} 条命令与完整记录` : '展开完整记录（含嫁接块）'}</div><div class="full"></div>` : ''}`;
+    const more = d.querySelector('.more');
+    if (more) more.onclick = async () => { opened.add(n.id); d.classList.add('open'); const full = d.querySelector('.full'); if (!full.childElementCount) full.innerHTML = (await api.get('/api/node/' + n.id)).map(line).join(''); };
+    if (opened.has(n.id)) more?.click();
+    box.appendChild(d);
+  }
+  if (live) box.appendChild(live);
+  box.scrollTop = box.scrollHeight;
+}
+function line(e) {
+  const k = e.kind === 'user' ? 'q' : e.kind === 'assistant' ? 'a' : e.kind;
+  const t = e.kind === 'out' ? e.text.slice(0, 4000) : e.text;
+  return `<div class="ln ${k}">${esc(t)}</div>`;
+}
+
+// ---------- composer & streaming ----------
+const input = $('#input');
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (e.altKey) $('#explore').checked = true; send(); } });
+input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(200, input.scrollHeight) + 'px'; });
+$('#send').onclick = send;
+$('#handoff').onclick = handoff;
+$('#revert').onclick = () => act('/api/reset', {}, '工作树已回滚');
+$('#pinhere').onclick = () => pin(S.leaf);
+async function send() {
+  const text = input.value.trim(); if (!text || S.busy) return;
+  input.value = ''; input.style.height = 'auto';
+  if (text.startsWith('/')) return command(text);
+  const explore = $('#explore').checked && !isExploration(); $('#explore').checked = false;
+  liveBlock(text, explore);
+  try { await api.post('/api/turn', { text, explore }); } catch (e) { toast(e.message); $('#transcript .live')?.remove(); }
+}
+async function command(text) {
+  const verb = text.split(/\s+/)[0];
+  if (verb === '/cli' || verb === '/quit' || verb === '/exit') return handoff();
+  try {
+    const r = await api.post('/api/command', { line: text });
+    sysLine(`${text}\n${r.output || '(ok)'}`); await refresh();
+  } catch (e) { toast(e.message); }
+}
+function sysLine(t) { const box = $('#transcript'); box.insertAdjacentHTML('beforeend', `<div class="turn"><div class="ln sys">${esc(t)}</div></div>`); box.scrollTop = box.scrollHeight; }
+function liveBlock(text, explore) {
+  $('#transcript .live')?.remove();
+  const d = document.createElement('div'); d.className = 'turn live';
+  d.innerHTML = `<div class="who"><span>正在运行</span>${explore || isExploration() ? '<span class="exp">探索</span>' : ''}</div><div class="q">${esc(text)}</div><div class="stream"></div><div class="thinking">模型思考中</div>`;
+  $('#transcript').appendChild(d); $('#transcript').scrollTop = $('#transcript').scrollHeight;
+}
+async function handoff() {
+  try { await api.post('/api/handoff', {}); } catch (e) { /* server is going away */ }
+  $('#overlay').classList.add('show');
+}
+const es = new EventSource('/api/events');
+es.onmessage = ev => {
+  const e = JSON.parse(ev.data); const live = $('#transcript .live');
+  if (e.type === 'handoff') { $('#overlay').classList.add('show'); es.close(); return; }
+  if (e.type === 'done') { live?.remove(); refresh().then(() => { if (e.dirty) toast('探索分支改动了工作树，请处理', 5000); }); return; }
+  if (e.type === 'error') { if (live) live.querySelector('.thinking')?.remove(); sysLine('错误：' + e.text); refresh(); return; }
+  if (!live) return;
+  const st = live.querySelector('.stream');
+  if (e.type === 'start') { $('#send').disabled = true; return; }
+  if (['text', 'cmd', 'out', 'guard', 'stop', 'ledger'].includes(e.type)) {
+    const map = { text: 'a', guard: 'guard' };
+    st.insertAdjacentHTML('beforeend', `<div class="ln ${map[e.type] || e.type}">${esc(e.type === 'out' ? e.text.slice(0, 4000) : e.text)}</div>`);
+    $('#transcript').scrollTop = $('#transcript').scrollHeight;
+  }
+};
+es.onerror = () => { if (!$('#overlay').classList.contains('show')) toast('与 kaipi 进程的连接断开了；它可能已退出', 6000); };
+
+refresh();
+</script>
+</body>
+</html>
