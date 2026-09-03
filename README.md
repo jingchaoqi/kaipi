@@ -140,11 +140,28 @@ survives a tool loop and a replay, and that a code rewind restores the right fil
 export ANTHROPIC_API_KEY=...
 uv run python scripts/smoke.py                      # default model from pricing.toml
 uv run python scripts/smoke.py --model gpt-5.6-terra --keep
-uv run python scripts/smoke.py --fake               # no API: only checks the script itself
 ```
 
 Exit code 0 means every check passed; checks that cannot apply to the chosen provider are
 reported SKIP. Run it for each provider you intend to support.
+
+Without a key, `--mock` runs the same scenario against `scripts/mockapi.py`: the real
+provider code over real HTTP to a local endpoint that validates request shapes strictly
+(a malformed tool schema, an unpaired `tool_result`, a fifth cache breakpoint or a system
+prompt that changed mid-conversation are all 400s), implements a genuine byte-keyed prefix
+cache with the 20-position lookback, and binds reasoning signatures to the conversation
+prefix so an accidental history edit is rejected the way preserved thinking rejects it.
+
+```sh
+uv run python scripts/smoke.py --mock                      # Anthropic Messages
+uv run python scripts/smoke.py --mock --model gpt-5.6-terra    # OpenAI Responses
+uv run python scripts/smoke.py --mock --model gemini-3.7-flash # Gemini
+uv run python scripts/smoke.py --mock --model deepseek-v4-flash # OpenAI Chat
+```
+
+All four are in the test suite. A mock run proves kaipi's requests are well formed and its
+prefixes are stable and shared; it cannot tell you whether the live API accepts them or what
+its cache really does. Only a key answers that.
 
 The core library must stay under 3000 lines (`wc -l kaipi/*.py kaipi/providers/*.py`).
 Non-goals: MCP, sub-agents, permission prompts, plan mode, plugins, RAG, memory,

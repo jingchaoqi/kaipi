@@ -89,6 +89,24 @@ switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of A
 Bedrock and Vertex for Claude are not wired: the Anthropic SDK offers dedicated clients
 for them but they pull in extra dependencies. `ANTHROPIC_BASE_URL` covers gateways.
 
+## Verifying a protocol without a key
+
+`scripts/mockapi.py` implements all four protocols strictly enough to be worth testing
+against: it rejects anything that deviates from the documented request shape, and its
+prefix cache is keyed on the actual bytes, with the same 20-position lookback the real one
+uses. `uv run python scripts/smoke.py --mock --model <id>` therefore answers "are kaipi's
+requests well formed, and are its prefixes stable and shared" for any protocol. It cannot
+answer "does the live endpoint accept this".
+
+What that run showed for each protocol, on the same scenario:
+
+| protocol | siblings share the fork prefix | reasoning state replayed |
+|---|---|---|
+| anthropic | yes, byte-identical reads (breakpoints land on the marked fork) | thinking blocks, signature verified on every replay |
+| openai-responses | yes, and the second reads further - the first warmed the shared read-only guard block | reasoning items with encrypted_content |
+| gemini | yes, byte-identical reads | thoughtSignature on the function-call part |
+| openai-chat | yes, byte-identical reads | none: the protocol carries no reasoning state |
+
 ## Verifying a new vendor
 
 1. `KAIPI_MODEL=<provider>/<model> uv run kaipi`, ask for a two-command task.

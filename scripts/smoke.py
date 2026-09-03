@@ -69,7 +69,8 @@ def test_under_limit() -> None:
 def test_over_limit() -> None:
     assert rate_limit(LIMIT + 1) is True
 """,
-    "AGENTS.md": "Run tests with `python -m pytest -q`. Keep changes minimal.\n",
+    "AGENTS.md": "Run the suite by importing test_app and calling its test_* functions.\n",
+    ".gitignore": "__pycache__/\n",
 }
 
 
@@ -97,6 +98,7 @@ class Tally:
         self.model = inner.model
         self.usage = Usage()
         self.replies: list[Reply] = []
+        self.turns: dict[str, list[Reply]] = {}  # node id -> the replies that built it
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         r = self.inner.complete(system, messages, cache_points)
@@ -214,7 +216,9 @@ def turn(
         elif kind in ("stop", "guard"):
             print(f"    {RED}{kind}: {t}{RESET}")
 
+    first = len(provider.replies)
     nid, dirty = cli.run_input(session, text, hook, explore=explore)
+    provider.turns[nid] = provider.replies[first:]
     session.save()
     n = session.log.state.nodes[nid]
     print(
@@ -234,12 +238,37 @@ def main() -> int:
     ap.add_argument("--dir", type=Path, help="use this directory instead of a temp one")
     ap.add_argument("--keep", action="store_true", help="keep the scratch repo for inspection")
     ap.add_argument(
+        "--mock",
+        action="store_true",
+        help="run against scripts/mockapi.py: the real provider code and real HTTP, with a "
+        "strict local endpoint that implements a genuine prefix cache and prefix-bound "
+        "reasoning signatures. Proves kaipi's requests are well formed and its prefixes are "
+        "stable; proves nothing about whether the live API accepts them.",
+    )
+    ap.add_argument(
         "--fake",
         action="store_true",
         help="exercise this script's own plumbing with a canned provider (NOT a smoke test: "
         "it proves nothing about any API, only that the script and the checks run)",
     )
     args = ap.parse_args()
+
+    mock = None
+    if args.mock:
+        import mockapi  # noqa: PLC0415 - only needed in this mode
+
+        mock, url = mockapi.start()
+        # every provider preset reads <PROVIDER>_BASE_URL, so one mock serves all of them
+        for env in ("ANTHROPIC", "OPENAI", "GEMINI", "DEEPSEEK", "KIMI", "GLM", "OLLAMA"):
+            os.environ[f"{env}_BASE_URL"] = url + ("/v1beta" if env == "GEMINI" else "/v1")
+            os.environ.setdefault(f"{env}_API_KEY", "mock-key")
+        os.environ["ANTHROPIC_BASE_URL"] = url  # the SDK appends /v1/messages itself
+        os.environ["GEMINI_API_KEY"] = "mock-key"
+        os.environ["MOONSHOT_API_KEY"] = os.environ["ZAI_API_KEY"] = "mock-key"
+        print(
+            f"{YELLOW}mock endpoint at {url}: request shapes and prefix stability are "
+            f"real, the API's acceptance and caching are not{RESET}"
+        )
 
     root = args.dir or Path(tempfile.mkdtemp(prefix="kaipi-smoke-"))
     made_temp = args.dir is None
@@ -265,7 +294,7 @@ def main() -> int:
     n1, _ = turn(
         session,
         tally,
-        "Read app.py and test_app.py and tell me what the bug is. Do not change anything yet.",
+        "Inspect app.py and test_app.py and tell me what the bug is. Change nothing yet.",
     )
     u1 = session.log.state.nodes[n1].usage
     c.add(u1.output > 0 and u1.context > 0, "turn 1 reports usage", f"context {u1.context}")
@@ -317,6 +346,21 @@ def main() -> int:
         )
     else:
         c.add(None, "the second exploration shares the fork-point cache", "no cache reporting")
+    first_reads = [
+        next((r.usage.cache_read for r in tally.turns[e] if r.usage.cache_read), 0)
+        for e in (e1, e2)
+    ]
+    if supports_cache and all(first_reads):
+        # With explicit breakpoints (Anthropic) the two are equal: reads land on the marked
+        # fork position. With automatic prefix caching the second reads at least as much,
+        # because the first exploration warmed the read-only guard block they both carry.
+        c.add(
+            first_reads[1] >= first_reads[0],
+            "the second exploration reads at least the prefix the first one read",
+            f"{first_reads[0]} then {first_reads[1]}",
+        )
+    else:
+        c.add(None, "the second exploration reuses the first's prefix", "no caching")
     c.add(
         graph.fork_point(session.log.state, e2) == n1,
         "the fork point is where both explorations branch",
@@ -375,7 +419,7 @@ def main() -> int:
     n3, _ = turn(
         session,
         tally,
-        "Using the grafted finding, add the missing boundary test and run the suite.",
+        "Using the grafted finding, add the missing boundary test and run the suite again.",
     )
     merged = session.log.state.nodes[n3]
     c.add(
@@ -422,7 +466,33 @@ def main() -> int:
     )
 
     # --- summary ---------------------------------------------------------------------------
+    if mock is not None:
+        api = mock.api
+        c.add(
+            len(api.requests) >= 8,
+            "every turn actually went over HTTP to the endpoint",
+            f"{len(api.requests)} requests",
+        )
+        c.add(
+            len(api.cache.entries) > 0 and any(r.usage.cache_read for r in tally.replies),
+            "the endpoint's prefix cache was hit by kaipi's breakpoints",
+            f"{len(api.cache.entries)} distinct prefixes stored",
+        )
+        c.add(
+            len(api.signer.issued) > 0 if api.carries_reasoning else None,
+            "reasoning signatures were issued and every replay verified",
+            f"{len(api.signer.issued)} issued, 0 rejected"
+            if api.carries_reasoning
+            else "this wire protocol carries no reasoning state",
+        )
+        mock.shutdown()
+
     print(f"\n{BOLD}{len(c.rows)} checks, {c.failed} failed{RESET}")
+    if args.mock:
+        print(
+            f"{YELLOW}mock run: this did NOT test whether the live API accepts these "
+            f"requests, or what its cache really does. Run with a key for that.{RESET}"
+        )
     for state, name, detail in c.rows:
         if state == "FAIL":
             print(f"  {RED}FAIL{RESET} {name}: {detail}")
