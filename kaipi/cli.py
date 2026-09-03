@@ -22,7 +22,7 @@ from kaipi.model import (
     new_id,
 )
 from kaipi.providers import Provider
-from kaipi.store import Log, State, list_sessions, sessions_dir
+from kaipi.store import Log, State, kaipi_dir, list_sessions, sessions_dir
 
 app = typer.Typer(add_completion=False, no_args_is_help=False, invoke_without_command=True)
 GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
@@ -80,8 +80,8 @@ def _alive(pid: int) -> bool:
 
 
 def set_lock(cwd: Path, surface: str, url: str = "") -> None:
+    kaipi_dir(cwd)
     p = _lock_path(cwd)
-    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"pid": os.getpid(), "surface": surface, "url": url}))
 
 
@@ -143,7 +143,7 @@ class Session:
         return log
 
     def save(self) -> None:
-        self.cursor_path.parent.mkdir(parents=True, exist_ok=True)
+        kaipi_dir(self.cwd)
         self.cursor_path.write_text(
             json.dumps(
                 {
@@ -527,6 +527,10 @@ def slash(s: Session, argv: list[str]) -> bool:
 def _session(new: bool = False, *, mutate: bool = True) -> Session:
     if mutate:
         refuse_if_open(Path.cwd())
+    elif not list_sessions(Path.cwd()):
+        # a read-only command must not conjure an empty session into `kaipi sessions`
+        typer.echo(f"{DIM}no session in this directory yet; run `kaipi` to start one{RESET}")
+        raise typer.Exit(0)
     return Session(Path.cwd(), new=new)
 
 

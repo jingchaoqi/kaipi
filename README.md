@@ -94,9 +94,10 @@ Or type `/canvas` inside a terminal session. The same process serves a local pag
 A session is open on exactly one surface at a time. The terminal prompt closes while
 the canvas is open and reopens when the canvas sends `/cli`; a second `kaipi` in the
 same directory is refused while either surface holds the session (`.kaipi/lock.json`).
-There is no separate server to run and nothing leaves the machine. The API refuses
-cross-origin requests and non-JSON bodies, so a web page you happen to have open cannot
-drive the agent through the local port.
+There is no separate server to run and nothing leaves the machine. The API runs bash, so it
+is guarded accordingly: loopback Host and port, a matching Origin, a per-run token that only
+the URL kaipi opened carries, and a JSON content type. A page you have open, a page that
+guessed the port, and another process on the machine are all refused.
 
 Endpoints, all under `127.0.0.1`: `GET /api/state`, `GET /api/node/<id>`,
 `GET /api/preview?src=&tools=`, `GET /api/rewind?id=`, `GET /api/events` (SSE),

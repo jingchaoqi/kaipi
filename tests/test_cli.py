@@ -173,3 +173,27 @@ def test_rewind_both_refuses_archived_target(repo: Path) -> None:
     r.invoke(cli.app, ["archive", two[-6:]])
     out = r.invoke(cli.app, ["rewind", two[-6:], "--mode", "both"])
     assert out.exit_code != 0 and "not live" in out.output
+
+
+def test_kaipi_dir_ignores_itself(repo: Path) -> None:
+    """Session state lives in the user's repo, so it has to stay out of their git status."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    CliRunner().invoke(cli.app, [], input="one\n/quit\n")
+    assert (repo / ".kaipi" / ".gitignore").read_text() == "*\n"
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout
+    assert ".kaipi" not in status, f"kaipi dirtied the user's working tree: {status}"
+
+
+def test_read_only_commands_do_not_create_a_session(repo: Path) -> None:
+    r = CliRunner()
+    for cmd in (["tree"], ["ledger"], ["trunk"]):
+        out = r.invoke(cli.app, cmd)
+        assert out.exit_code == 0 and "no session in this directory yet" in out.output
+    assert not (repo / ".kaipi" / "sessions").exists()
+    assert r.invoke(cli.app, ["sessions"]).output == ""
+    r.invoke(cli.app, [], input="one\n/quit\n")  # now there is one
+    assert "trunk burden" in r.invoke(cli.app, ["tree"]).output

@@ -117,10 +117,20 @@ class Log:
         self.state = fold(self.events)
 
 
+def kaipi_dir(cwd: Path) -> Path:
+    """`.kaipi/` holds session logs, the cursor and the snapshot index. It ignores itself, so
+    a kaipi session never shows up as untracked noise in the user's `git status`."""
+    d = cwd / ".kaipi"
+    if not d.exists():
+        d.mkdir(parents=True)
+        (d / ".gitignore").write_text("*\n")
+    return d
+
+
 def sessions_dir(cwd: Path) -> Path:
-    return cwd / ".kaipi" / "sessions"
+    return kaipi_dir(cwd) / "sessions"
 
 
 def list_sessions(cwd: Path) -> list[Path]:
-    d = sessions_dir(cwd)
+    d = cwd / ".kaipi" / "sessions"  # read-only: never create the directory just to look
     return sorted(d.glob("*.jsonl"), key=lambda p: p.stat().st_mtime) if d.exists() else []

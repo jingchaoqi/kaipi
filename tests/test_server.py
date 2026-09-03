@@ -27,13 +27,14 @@ def srv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-unt
         req = urllib.request.Request(base + path, method="POST" if body is not None else "GET")
         data = json.dumps(body).encode() if body is not None else None
         req.add_header("Content-Type", "application/json")
+        req.add_header("X-Kaipi-Token", httpd.token)
         try:
             with urllib.request.urlopen(req, data) as r:
                 return json.loads(r.read())  # type: ignore[no-any-return]
         except urllib.error.HTTPError as e:
             return json.loads(e.read())  # type: ignore[no-any-return]
 
-    yield canvas, call, base
+    yield canvas, call, base, httpd.token
     httpd.shutdown()
     httpd.server_close()
 
@@ -47,8 +48,8 @@ def _wait(canvas: server.Canvas) -> None:
 
 
 def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
-    canvas, call, base = srv
-    html = urllib.request.urlopen(base + "/").read().decode()
+    canvas, call, base, token = srv
+    html = urllib.request.urlopen(base + "/?t=" + token).read().decode()
     assert "kaipi" in html and "/api/events" in html
     st = call("/api/state")
     assert st["nodes"] == [] and st["leaf"] is None
@@ -133,7 +134,7 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
-    canvas, call, base = srv
+    canvas, call, base, token = srv
     q = canvas.hub.subscribe()
     assert call("/api/command", {"line": "/cli"})["output"].startswith("handing")
     assert canvas.handoff and json.loads(q.get(timeout=1))["type"] == "handoff"
@@ -147,32 +148,58 @@ def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyp
     assert not (tmp_path / ".kaipi" / "lock.json").exists()
 
 
-def test_cross_origin_requests_are_refused(srv) -> None:  # type: ignore[no-untyped-def]
-    canvas, call, base = srv
-    req = urllib.request.Request(base + "/api/turn", method="POST", data=b'{"text":"x"}')
-    req.add_header("Content-Type", "text/plain")  # a CORS "simple request" from any site
-    req.add_header("Origin", "http://evil.example")
+def test_the_api_refuses_everything_but_the_page_it_served(srv) -> None:  # type: ignore[no-untyped-def]
+    """This endpoint runs bash. Three separate things must hold, and each has been a real
+    vulnerability in something: a cross-origin page must not reach it, a DNS-rebound name
+    must not either (which is why Origin is compared to the port we bound, never to the
+    client's own Host header), and another local process must not drive it without the
+    per-run token from the URL we opened."""
+    canvas, call, base, token = srv
+    port = base.rsplit(":", 1)[1]
+
+    def attempt(path: str, **headers: str) -> int:
+        req = urllib.request.Request(base + path, method="POST", data=b'{"text":"x"}')
+        for k, v in headers.items():
+            req.add_header(k.replace("_", "-"), v)
+        try:
+            urllib.request.urlopen(req)
+            return 200
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    # a cross-origin page, sending the CORS "simple request" that needs no preflight
+    assert attempt("/api/turn", Content_Type="text/plain", Origin="http://evil.example") == 403
+    # the same page having rebound its own name to 127.0.0.1: Origin and Host agree, and an
+    # implementation that compared them to each other would have let this through
+    assert (
+        attempt(
+            "/api/turn",
+            Content_Type="application/json",
+            Origin=f"http://evil.example:{port}",
+            Host=f"evil.example:{port}",
+            X_Kaipi_Token=token,
+        )
+        == 403
+    )
+    # another local process that found the port but has no token
+    assert attempt("/api/turn", Content_Type="application/json") == 403
+    assert attempt("/api/reset", Content_Type="application/json") == 403
+    # reads are guarded too: the transcript is not public to the machine
+    req = urllib.request.Request(base + "/api/state")
     try:
         urllib.request.urlopen(req)
-        raise AssertionError("should have been refused")
+        raise AssertionError("/api/state must not be readable without the token")
     except urllib.error.HTTPError as e:
         assert e.code == 403
-    req = urllib.request.Request(base + "/api/state")
-    req.add_header("Origin", "http://evil.example")
-    try:
-        urllib.request.urlopen(req)
-        raise AssertionError("should have been refused")
-    except urllib.error.HTTPError as e:
-        assert e.code == 403
-    assert not canvas.busy
-    # same-origin JSON still works
-    req = urllib.request.Request(base + "/api/state")
-    req.add_header("Origin", base.replace("http://", "http://"))
-    assert "nodes" in json.loads(urllib.request.urlopen(req).read())
+    assert not canvas.busy, "nothing that was refused may have started a turn"
+
+    # the page we served, carrying its token, still works
+    assert "nodes" in call("/api/state")
+    assert attempt("/api/turn", Content_Type="application/json", X_Kaipi_Token=token) == 200
 
 
 def test_curl_cli_handoff_stops_the_server(srv) -> None:  # type: ignore[no-untyped-def]
-    canvas, call, base = srv
+    canvas, call, base, token = srv
     stopped: list[bool] = []
     canvas.on_handoff = lambda: stopped.append(True)
     call("/api/command", {"line": "/cli"})

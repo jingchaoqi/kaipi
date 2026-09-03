@@ -110,8 +110,22 @@ canvas and reopens the prompt. Both surfaces call the same verbs; the canvas add
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
-same directory while a surface is open. The canvas API only accepts same-origin JSON
-requests, so other pages in the user's browser cannot reach the agent. Slash commands that
+same directory while a surface is open.
+
+The canvas API can run bash, so it accepts a request only when all three hold: the Host
+header names loopback and the port actually bound (comparing Origin to the client's own Host
+would accept a DNS-rebound name, where both say `evil.com`); Origin, if present, is the
+address served; and the request carries the per-run token that appears only in the URL kaipi
+opened. Together these keep out a page the user happens to have open, a page that guessed
+the port, and another process on the same machine. Requests must also be `application/json`,
+which forces a preflight the server never answers.
+
+Endpoint configuration is trusted differently from prices. `.kaipi/pricing.toml` inside a
+project may set prices and pick a model; its `[providers]` table is ignored with a warning,
+because that table names a URL and an environment variable to send there as a credential -
+a cloned repository could otherwise collect the user's API key and then answer as the model,
+whose tool calls kaipi executes. Endpoints come only from `~/.config/kaipi/pricing.toml` or
+the packaged defaults. Slash commands that
 would prompt on the terminal (`/rewind` without a mode) are answered with the information
 instead; `/explore` on the canvas runs as a normal streamed turn. Read-only commands (`tree`, `ledger`, `trunk`,
 `sessions`) are always allowed.

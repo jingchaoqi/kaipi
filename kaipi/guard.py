@@ -48,7 +48,9 @@ def snapshot(cwd: Path) -> str | None:
     top = root(cwd)
     if top is None:
         return None
-    (cwd / ".kaipi").mkdir(exist_ok=True)
+    from kaipi.store import kaipi_dir
+
+    kaipi_dir(cwd)
     skip = (cwd.resolve() / ".kaipi").relative_to(top.resolve()).as_posix()
     _git(cwd, "add", "-A", "--", f":(top,exclude){skip}", ":(top)")
     return _git(cwd, "write-tree").strip() or None

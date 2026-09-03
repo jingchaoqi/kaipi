@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -13,7 +14,25 @@ from kaipi import context, graph
 from kaipi.model import Depth, ReferenceEdge, Usage
 from kaipi.store import State
 
-DEFAULT_PRICING = Path(__file__).resolve().parent.parent / "pricing.toml"
+PACKAGED_PRICING = Path(__file__).resolve().parent / "pricing.toml"
+
+
+def user_pricing() -> Path:
+    root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return root / "kaipi" / "pricing.toml"
+
+
+def pricing_path(cwd: Path | None = None) -> Path:
+    """Prices are a thing users need to correct without editing site-packages, so a project
+    file wins over a user file, which wins over the copy shipped with the package."""
+    # `.kaipi/pricing.toml`, not a bare `pricing.toml`: plenty of projects have one of those
+    # already and it has nothing to do with model prices.
+    for candidate in ((cwd or Path.cwd()) / ".kaipi" / "pricing.toml", user_pricing()):
+        if candidate.is_file():
+            return candidate
+    return PACKAGED_PRICING
+
+
 Color = Literal["green", "red"]
 Estimator = Callable[[str], int]
 
@@ -42,13 +61,22 @@ class Pricing(BaseModel):
     providers: dict[str, Any] = Field(default_factory=dict)  # [providers.<name>] overrides
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_PRICING) -> Pricing:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        return cls(
-            **raw.get("defaults", {}),
-            models=raw.get("models", {}),
-            providers=raw.get("providers", {}),
-        )
+    def load(cls, path: Path | None = None) -> Pricing:
+        chosen = path or pricing_path()
+        raw = tomllib.loads(chosen.read_text(encoding="utf-8"))
+        providers = raw.get("providers", {})
+        if providers and chosen not in (PACKAGED_PRICING, user_pricing()):
+            # A `[providers]` table names an endpoint URL and an environment variable to send
+            # to it as a credential. Honouring that from a file inside the repository being
+            # worked on would let any cloned project point kaipi at its own server, collect
+            # the user's API key, and then answer as the model - whose tool calls kaipi runs.
+            # Prices from a project file are harmless; endpoints and secrets are not.
+            print(
+                f"{chosen}: ignoring its [providers] table. Endpoints and key names are only "
+                "read from ~/.config/kaipi/pricing.toml or the packaged defaults."
+            )
+            providers = {}
+        return cls(**raw.get("defaults", {}), models=raw.get("models", {}), providers=providers)
 
     def price(self, model: str) -> Price:
         """Unknown models cost 0 so the ledger still adds up in tokens; the CLI warns."""
