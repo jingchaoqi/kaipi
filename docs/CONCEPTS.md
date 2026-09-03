@@ -154,6 +154,11 @@ Anthropic allows four `cache_control` breakpoints per request. kaipi uses exactl
 Sibling explorations therefore share the prefix up to the fork. Breakpoints are added
 when the request is built and never stored in payloads.
 
+These four positions are what makes sibling explorations share a prefix: measured against
+the mock endpoint, two explorations from the same fork read byte-identical amounts, and the
+first request of each trunk turn reads the previous turn back through the 20-position
+lookback window rather than rewriting it.
+
 Preserved thinking (Claude Fable 5.1) binds thinking blocks to the prefix that produced
 them. kaipi never edits history, but sends `prefix_mismatch_behavior: drop_block` so
 that if a prefix ever changes the API degrades instead of failing, and the count of

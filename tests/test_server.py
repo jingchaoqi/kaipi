@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import urllib.request
 from pathlib import Path
@@ -176,6 +177,30 @@ def test_curl_cli_handoff_stops_the_server(srv) -> None:  # type: ignore[no-unty
     canvas.on_handoff = lambda: stopped.append(True)
     call("/api/command", {"line": "/cli"})
     assert stopped == [True] and canvas.handoff
+
+
+@pytest.mark.parametrize(
+    "model", ["claude-opus-5", "gpt-5.6-terra", "gemini-3.7-flash", "deepseek-v4-flash"]
+)
+def test_smoke_against_the_mock_endpoint(model: str, tmp_path: Path) -> None:
+    """Every wire protocol, end to end over HTTP against scripts/mockapi.py, which validates
+    request shapes strictly and implements a real prefix cache. This is the closest thing to
+    the Phase 2 acceptance that runs without a key: it cannot say whether the live API accepts
+    these requests, but it does catch a malformed request or a broken prefix."""
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parent.parent / "scripts" / "smoke.py"
+    env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+    r = subprocess.run(
+        [sys.executable, str(script), "--mock", "--model", model, "--dir", str(tmp_path / model)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert r.returncode == 0, r.stdout[-6000:] + r.stderr[-3000:]
+    assert "0 failed" in r.stdout
 
 
 def test_smoke_script_plumbing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
