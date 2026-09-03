@@ -29,5 +29,7 @@ def ensure_summary(log: Log, provider: Provider, node_id: str, leaf_id: str | No
         PROMPT, [{"role": "user", "content": [{"type": "text", "text": body}]}], []
     )
     text = "\n".join(b["text"] for b in reply.content if b.get("type") == "text").strip()
-    log.append(SummaryGenerated(node_id=node_id, summary=text))
+    log.append(
+        SummaryGenerated(node_id=node_id, summary=text, model=provider.model, usage=reply.usage)
+    )
     return text

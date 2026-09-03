@@ -23,9 +23,21 @@ class AnthropicProvider:
         adaptive_thinking: bool = True,
         max_tokens: int = 32_000,
         prefix_mismatch: str = "drop_block",
+        base_url: str | None = None,
+        api_key: str | None = None,
+        compat: bool = False,
     ) -> None:
+        """`compat`: a third-party Anthropic-compatible gateway (Kimi, GLM, DeepSeek, OpenCode
+        Zen). They accept cache_control and report Anthropic-shaped usage, but not the
+        preserved-thinking beta or `thinking.block_binding`, so those are left out and the
+        gateway's own thinking default applies."""
         self.model = model
-        self.client = anthropic.Anthropic()
+        # Gateways document either header; the SDK sends x-api-key for api_key and
+        # Authorization: Bearer for auth_token, so give them both when a key is supplied.
+        self.client = anthropic.Anthropic(
+            base_url=base_url, api_key=api_key or None, auth_token=api_key or None
+        )
+        self.compat = compat
         self.max_tokens = max_tokens
         self.adaptive_thinking = adaptive_thinking
         self.prefix_mismatch = prefix_mismatch
@@ -43,7 +55,7 @@ class AnthropicProvider:
             "tools": [BASH_TOOL],
             "messages": msgs,
         }
-        if self.adaptive_thinking:
+        if self.adaptive_thinking and not self.compat:
             # Editing history is never done by kaipi; if it ever happens the API drops the
             # affected thinking blocks instead of failing, and we count them in the ledger.
             body["thinking"] = {
@@ -54,7 +66,7 @@ class AnthropicProvider:
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         body = self._request(system, messages, cache_points)
-        headers = {"anthropic-beta": BINDING_BETA} if self.adaptive_thinking else {}
+        headers = {"anthropic-beta": BINDING_BETA} if "thinking" in body else {}
         with self.client.messages.stream(
             model=body["model"],
             max_tokens=body["max_tokens"],

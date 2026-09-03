@@ -46,6 +46,20 @@ For every leaf not on the trunk (live or archived), the ledger reports:
 Cache reads on the first request of an exploration will typically cover the prefix up
 to the fork point; the CLI prints `cache read x/y` after each turn so this is visible.
 
+## Graft summaries
+
+A `leaf+summary` graft makes one extra request to the cheap model (`summary_model` in
+`pricing.toml`). That spend belongs to no node, so it is recorded on the
+`summary_generated` event and added to the session totals separately, priced at the cheap
+model's rate. `scripts/smoke.py` checks that the ledger totals equal the sum of what the
+API reported, which is what caught this being missing.
+
+## What is not in the ledger
+
+Code snapshots and rewind cost no tokens and are not reported. Dropped thinking blocks
+(`input_transformations`) are the only non-token quantity shown, because they are the
+symptom of a prefix edit.
+
 ## Caveats
 
 - Prompts shorter than the model's minimum cacheable prefix (512–4096 tokens depending

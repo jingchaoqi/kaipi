@@ -101,7 +101,48 @@ cache namespace from the trunk they fork from.
 | Exploration dirtied the tree and the user re-pins it as trunk | Allowed with a warning | §6 of the prompt says so; the ledger does not intervene. |
 | Graft depth `branch` with the source on the current lineage | Rejected | Nothing to graft. |
 
-## 7. Cache breakpoints
+## 7. Surfaces
+
+The session lives in one process and is open on exactly one surface at a time: the
+terminal (readline) or the canvas (a local web page served by the same process). `/canvas`
+in the terminal opens the canvas and closes the prompt; `/cli` on the canvas closes the
+canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
+gestures for them — drag a node onto the input to graft, onto the tray to archive.
+
+A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
+same directory while a surface is open. The canvas API only accepts same-origin JSON
+requests, so other pages in the user's browser cannot reach the agent. Slash commands that
+would prompt on the terminal (`/rewind` without a mode) are answered with the information
+instead; `/explore` on the canvas runs as a normal streamed turn. Read-only commands (`tree`, `ledger`, `trunk`,
+`sessions`) are always allowed.
+
+Trunk pinning follows two rules so the trunk never silently moves under the user:
+leaving the trunk leaf with `go` pins it (even if a stale pin points elsewhere); extending
+a pinned leaf moves the pin to the new node. `/explore` (or "作为探索" on the canvas) opens an exploration from the trunk
+leaf itself by pinning first.
+
+## 8. Code checkpoints and rewind
+
+Every turn snapshots the working tree before and after it runs (a git tree object written
+through kaipi's private index, so the user's index, stash and branches are untouched).
+The node records the tree at the end of the turn and the list of paths the turn changed.
+Trees are pinned under `refs/kaipi/<node id>` so `git gc` keeps them.
+
+`rewind <node>` offers the three choices Claude Code offers: conversation only (the same
+as `go`), code only, or both. A code rewind restores **only the files touched by turns
+after that node** to their content at that node; it never touches files the agent did not
+change, so manual edits elsewhere survive. A manual edit to a file the agent also changed
+is overwritten (file-level, not hunk-level). The pre-rewind tree is pinned at
+`refs/kaipi/undo`.
+
+The exploration guard uses the same snapshot plus HEAD: dirty means the tree hash or
+the commit HEAD points at changed, so a `git commit` on an exploration is caught too.
+Paths are repo-root relative whatever subdirectory kaipi runs in. A missing snapshot
+object makes `rewind` refuse rather than delete. Non-git directories get no snapshots and
+no code rewind. `rewind` in `both` or `conversation` mode requires a live target; `code`
+mode also accepts archived nodes.
+
+## 9. Cache breakpoints
 
 Anthropic allows four `cache_control` breakpoints per request. kaipi uses exactly:
 

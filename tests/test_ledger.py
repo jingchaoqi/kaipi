@@ -13,7 +13,9 @@ def test_pricing_and_cost() -> None:
     u = Usage(input_uncached=1_000_000, cache_write=0, cache_read=1_000_000, output=0)
     assert fable.cost(u) == 10.25
     assert p.price("unknown-model").cost(u) == 0.0
-    assert p.price("gpt-5").provider == "openai"
+    assert p.price("gpt-5.6-terra").provider == "openai"
+    assert p.price("gemini-3.7-flash").provider == "gemini"
+    assert p.providers["vllm"]["api"] == "openai-chat"
 
 
 def test_burden_and_own_tokens(log: Log, tree: dict[str, str]) -> None:
@@ -53,3 +55,24 @@ def test_report(log: Log, b: Builder, tree: dict[str, str]) -> None:
     assert [br.leaf_id for br in r.branches] == [b2]
     assert r.branches[0].nodes == 2 and r.branches[0].status == "archived"
     assert r.branches[0].blocked_tokens == 150 + 150
+
+
+def test_summary_spend_is_in_the_ledger(log: Log, tree: dict[str, str]) -> None:
+    """A leaf+summary graft calls a cheap model; that money belongs to no node, so the
+    ledger has to pick it up from the summary_generated events or it silently under-reports."""
+    from kaipi.model import SummaryGenerated
+
+    before = ledger.report(log.state, ledger.Pricing.load())
+    log.append(
+        SummaryGenerated(
+            node_id=tree["b"],
+            summary="S",
+            model="claude-haiku-4-5",
+            usage=Usage(input_uncached=1000, output=200),
+        )
+    )
+    after = ledger.report(log.state, ledger.Pricing.load())
+    assert log.state.summaries == [("claude-haiku-4-5", Usage(input_uncached=1000, output=200))]
+    assert after.usage.input_uncached == before.usage.input_uncached + 1000
+    assert after.usage.output == before.usage.output + 200
+    assert after.total_cost > before.total_cost  # priced at the cheap model's rate

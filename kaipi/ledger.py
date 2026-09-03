@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +19,7 @@ Estimator = Callable[[str], int]
 
 
 class Price(BaseModel):
-    provider: Literal["anthropic", "openai"] = "anthropic"
+    provider: str = "anthropic"  # a key of pricing.toml [providers] or a built-in preset
     adaptive_thinking: bool = True
     input: float = 0.0
     cache_write: float = 0.0
@@ -39,11 +39,16 @@ class Pricing(BaseModel):
     model: str = "claude-opus-5"
     summary_model: str = "claude-haiku-4-5"
     models: dict[str, Price] = Field(default_factory=dict)
+    providers: dict[str, Any] = Field(default_factory=dict)  # [providers.<name>] overrides
 
     @classmethod
     def load(cls, path: Path = DEFAULT_PRICING) -> Pricing:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        return cls(**raw.get("defaults", {}), models=raw.get("models", {}))
+        return cls(
+            **raw.get("defaults", {}),
+            models=raw.get("models", {}),
+            providers=raw.get("providers", {}),
+        )
 
     def price(self, model: str) -> Price:
         """Unknown models cost 0 so the ledger still adds up in tokens; the CLI warns."""
@@ -120,7 +125,7 @@ class Branch(BaseModel):
 
 class Report(BaseModel):
     total_cost: float
-    usage: Usage
+    usage: Usage  # nodes + graft summaries: everything the API billed
     trunk: str | None
     trunk_burden: int
     branches: list[Branch]
@@ -132,6 +137,9 @@ def report(state: State, pricing: Pricing) -> Report:
     for n in state.nodes.values():
         total = total + n.usage
         cost += pricing.price(n.model).cost(n.usage)
+    for model, usage in state.summaries:  # graft summaries: cheap model, but real money
+        total = total + usage
+        cost += pricing.price(model).cost(usage)
     t = graph.trunk(state)
     trunk_ids = {n.id for n in graph.lineage(state, t)} if t else set()
     branches: list[Branch] = []

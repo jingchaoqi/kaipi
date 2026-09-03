@@ -20,6 +20,7 @@ from kaipi.model import (
     SessionStarted,
     SummaryGenerated,
     TrunkPinned,
+    Usage,
 )
 
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
@@ -34,6 +35,8 @@ class State(BaseModel):
     edges: list[ReferenceEdge] = Field(default_factory=list)
     trunk_pin: str | None = None
     next_seq: int = 0
+    # (model, usage) per generated graft summary: real spend that belongs to no node
+    summaries: list[tuple[str, Usage]] = Field(default_factory=list)
 
     def edges_into(self, dst_id: str) -> list[ReferenceEdge]:
         return [e for e in self.edges if e.dst_id == dst_id]
@@ -56,6 +59,7 @@ def fold(events: list[Event]) -> State:
                 n = s.nodes[ev.id]
                 n.payload, n.grafts, n.usage = ev.payload, ev.grafts, ev.usage
                 n.context_tokens, n.dropped_thinking = ev.context_tokens, ev.dropped_thinking
+                n.tree, n.paths = ev.tree, list(ev.paths)
                 n.completed = True
             case EdgeAdded():
                 s.edges.append(ev.edge)
@@ -75,6 +79,7 @@ def fold(events: list[Event]) -> State:
                 s.trunk_pin = ev.node_id
             case SummaryGenerated():
                 s.nodes[ev.node_id].summary = ev.summary
+                s.summaries.append((ev.model, ev.usage))
     # A node created but never completed (crash, Ctrl-C) is a tombstone: no half-frozen payloads.
     for n in s.nodes.values():
         if not n.completed and n.status != "tombstone":
