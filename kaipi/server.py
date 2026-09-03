@@ -8,6 +8,7 @@ import io
 import json
 import queue
 import re
+import secrets
 import threading
 import webbrowser
 from collections.abc import Callable
@@ -223,16 +224,41 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _same_origin(self) -> bool:
-        """Only the page we served may call the API: a cross-origin page (any site the user
-        has open) must not be able to drive bash or reset the tree."""
-        origin = self.headers.get("Origin")
+    def _authorised(self) -> bool:
+        """Three checks, because this endpoint can run bash.
+
+        The Host header must name loopback and this exact port: comparing Origin against the
+        client's own Host would accept a DNS-rebound name (`evil.com` re-resolved to
+        127.0.0.1 sends Origin and Host both saying `evil.com`, and they match).
+        Origin, when present, must be the address we actually serve.
+        And every request must carry the per-run token that only the URL we opened contains,
+        which is what stops another local user - or a rebound page that guessed the port -
+        from driving the agent."""
         host = self.headers.get("Host", "")
-        return origin is None or origin == f"http://{host}"
+        name, _, port = host.rpartition(":")
+        expected = str(self.server.server_address[1])
+        if name.strip("[]") not in ("127.0.0.1", "localhost", "::1") or port != expected:
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in (
+            f"http://127.0.0.1:{expected}",
+            f"http://localhost:{expected}",
+        ):
+            return False
+        sent = (
+            self.headers.get("X-Kaipi-Token")
+            or parse_qs(urlparse(self.path).query).get("t", [""])[0]
+        )
+        return secrets.compare_digest(sent, self.server.token)
 
     def do_GET(self) -> None:  # noqa: N802
-        if not self._same_origin():
-            self._json({"error": "cross-origin request refused"}, 403)
+        if urlparse(self.path).path == "/favicon.ico":  # browsers ask before they have a token
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if not self._authorised():
+            self._json({"error": "not a local, token-carrying request"}, 403)
             return
         try:
             self._get()
@@ -290,9 +316,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         c = self.server.canvas
         ctype = self.headers.get("Content-Type", "")
-        if not self._same_origin() or not ctype.startswith("application/json"):
-            # A JSON content type forces a CORS preflight, which a foreign page cannot pass.
-            self._json({"error": "cross-origin or non-JSON request refused"}, 403)
+        if not self._authorised() or not ctype.startswith("application/json"):
+            # The JSON content type additionally forces a CORS preflight this server never
+            # answers, so a plain cross-origin form post cannot reach any of this.
+            self._json({"error": "not a local, token-carrying JSON request"}, 403)
             return
         n = int(self.headers.get("Content-Length") or 0)
         body: dict[str, Any] = json.loads(self.rfile.read(n) or b"{}")
@@ -340,9 +367,10 @@ class Handler(BaseHTTPRequestHandler):
 class KaipiServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, canvas: Canvas, port: int) -> None:
+    def __init__(self, canvas: Canvas, port: int, token: str = "") -> None:
         super().__init__(("127.0.0.1", port), Handler)
         self.canvas = canvas
+        self.token = token or secrets.token_urlsafe(32)
 
 
 def serve(s: cli.Session, port: int = 0, *, open_browser: bool = True) -> str:
@@ -350,7 +378,7 @@ def serve(s: cli.Session, port: int = 0, *, open_browser: bool = True) -> str:
     canvas = Canvas(s, Hub())
     httpd = KaipiServer(canvas, port)
     canvas.on_handoff = lambda: threading.Thread(target=httpd.shutdown, daemon=True).start()
-    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/?t={httpd.token}"
     cli.set_lock(s.cwd, "canvas", url)
     if open_browser:
         webbrowser.open(url)

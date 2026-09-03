@@ -183,13 +183,19 @@
 <script>
 'use strict';
 const $ = s => document.querySelector(s);
+// The server hands us a per-run token in the URL and requires it on every call, so that a
+// page which merely guessed the port (or rebound a name to 127.0.0.1) cannot drive the agent.
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const withToken = p => p + (p.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(TOKEN);
 const api = {
-  get: async (p) => { const r = await fetch(p); return r.json(); },
-  post: async (p, body) => { const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); const j = await r.json(); if (j.error) throw new Error(j.error); return j; },
+  get: async (p) => { const r = await fetch(p, { headers: { 'X-Kaipi-Token': TOKEN } }); return r.json(); },
+  post: async (p, body) => { const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Kaipi-Token': TOKEN }, body: JSON.stringify(body || {}) }); const j = await r.json(); if (j.error) throw new Error(j.error); return j; },
 };
 const fmt = t => (t / 1000).toFixed(1) + 'k';
 const short = id => id ? id.slice(-6) : 'root';
-const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+// also escapes quotes: several call sites interpolate into attributes, and some of this
+// text (tool-call ids, tool output) comes from the model rather than the user
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // clip to a visual width: CJK glyphs count double
 function clip(s, w) { let out = '', used = 0; for (const ch of s) { const cw = /[\u1100-\uFFFF]/.test(ch) ? 2 : 1; if (used + cw > w) return esc(out) + '…'; out += ch; used += cw; } return esc(out); }
 let S = null;            // last /api/state
@@ -407,7 +413,14 @@ function toolsPopover(chip, e, n) {
   document.querySelectorAll('.pop').forEach(p => p.remove());
   if (!n.tools.length) { toast('这个节点没有工具调用'); return; }
   const pop = document.createElement('div'); pop.className = 'pop';
-  pop.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">勾选要带上的工具输出（默认全部省略）</div>` + n.tools.map(t => `<label><input type="checkbox" value="${t.id}" ${e.include_tool_outputs.includes(t.id) ? 'checked' : ''}><span>${esc(t.cmd.slice(0, 80))}</span></label>`).join('');
+  pop.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">勾选要带上的工具输出（默认全部省略）</div>`;
+  for (const t of n.tools) {  // built as DOM, never interpolated: t.id comes from the model
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.value = t.id; box.checked = e.include_tool_outputs.includes(t.id);
+    const span = document.createElement('span'); span.textContent = t.cmd.slice(0, 80);
+    label.append(box, span); pop.appendChild(label);
+  }
   pop.onclick = ev => ev.stopPropagation();
   pop.onchange = () => { e.include_tool_outputs = [...pop.querySelectorAll('input:checked')].map(i => i.value); savePending(); };
   chip.appendChild(pop);
@@ -415,6 +428,7 @@ function toolsPopover(chip, e, n) {
 
 // ---------- transcript ----------
 const opened = new Set();
+const notes = [];  // slash-command output: not part of any node, but must not vanish
 function renderTranscript() {
   const box = $('#transcript'); const T = trunkSet();
   const live = box.querySelector('.live'); box.innerHTML = '';
@@ -428,6 +442,7 @@ function renderTranscript() {
     if (opened.has(n.id)) more?.click();
     box.appendChild(d);
   }
+  for (const n of notes) box.insertAdjacentHTML('beforeend', `<div class="turn"><div class="ln sys">${esc(n)}</div></div>`);
   if (live) box.appendChild(live);
   box.scrollTop = box.scrollHeight;
 }
@@ -461,8 +476,9 @@ async function command(text) {
     sysLine(`${text}\n${r.output || '(ok)'}`); await refresh();
   } catch (e) { toast(e.message); }
 }
-function sysLine(t) { const box = $('#transcript'); box.insertAdjacentHTML('beforeend', `<div class="turn"><div class="ln sys">${esc(t)}</div></div>`); box.scrollTop = box.scrollHeight; }
+function sysLine(t) { notes.push(t); if (notes.length > 20) notes.shift(); renderTranscript(); }
 function liveBlock(text, explore) {
+  notes.length = 0;
   $('#transcript .live')?.remove();
   const d = document.createElement('div'); d.className = 'turn live';
   d.innerHTML = `<div class="who"><span>正在运行</span>${explore || isExploration() ? '<span class="exp">探索</span>' : ''}</div><div class="q">${esc(text)}</div><div class="stream"></div><div class="thinking">模型思考中</div>`;
@@ -472,7 +488,7 @@ async function handoff() {
   try { await api.post('/api/handoff', {}); } catch (e) { /* server is going away */ }
   $('#overlay').classList.add('show');
 }
-const es = new EventSource('/api/events');
+const es = new EventSource(withToken('/api/events'));  // EventSource cannot set headers
 es.onmessage = ev => {
   const e = JSON.parse(ev.data); const live = $('#transcript .live');
   if (e.type === 'handoff') { $('#overlay').classList.add('show'); es.close(); return; }

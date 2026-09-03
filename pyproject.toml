@@ -25,11 +25,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["kaipi"]
-artifacts = ["kaipi/canvas.html"]
+artifacts = ["kaipi/canvas.html", "kaipi/pricing.toml"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# CLAUDE.md is the startup prompt verbatim; its code blocks are documentation, not source
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W"]
@@ -37,6 +39,7 @@ select = ["E", "F", "I", "UP", "B", "W"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
+mypy_path = "scripts"  # tests import the mock endpoint and the smoke harness
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

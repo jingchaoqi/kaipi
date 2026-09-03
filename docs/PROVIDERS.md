@@ -67,6 +67,18 @@ switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of A
   preserved-thinking beta header and `thinking.block_binding`, which only Anthropic
   understands; the gateway's own thinking default applies.
 
+## Where pricing.toml comes from
+
+The first of `.kaipi/pricing.toml` in the project, `~/.config/kaipi/pricing.toml`, then the
+copy shipped inside the package. Copy the packaged one to either location to correct a price
+or add a vendor without editing site-packages.
+
+**A project file's `[providers]` table is ignored**, with a warning. That table names an
+endpoint URL and an environment variable to send there as a credential; a repository you
+cloned must not get to choose either, or it could collect your API key and then answer as
+the model - whose tool calls kaipi runs. Prices and the model choice from a project file are
+honoured; endpoints come only from your user config or the packaged defaults.
+
 ## Choosing a model
 
 - A model listed in `pricing.toml` names its provider and its four prices:
