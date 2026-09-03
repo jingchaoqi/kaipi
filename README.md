@@ -36,14 +36,59 @@ Cache breakpoints are placed so sibling explorations share the cached prefix up 
 their fork point; explorations never modify the system prompt, so they never leave the
 trunk's cache namespace.
 
-## Install & run
+## Install
+
+Needs Python 3.11+ and git. kaipi is pure Python, so there is no compile step: `uv build`
+produces a wheel (`dist/kaipi-*.whl`) and an sdist, and the wheel carries the canvas page
+and the default price table with it.
+
+**Use it as a tool** (a `kaipi` command on your PATH, its own isolated environment):
 
 ```sh
+uv tool install git+https://github.com/jingchaoqi/kaipi   # or: uv tool install dist/kaipi-*.whl
+kaipi --help
+```
+
+`pipx install .` and `pip install dist/kaipi-*.whl` work the same way if you prefer those.
+
+**Or work on kaipi itself**, straight from a clone:
+
+```sh
+git clone https://github.com/jingchaoqi/kaipi && cd kaipi
 uv sync
+uv run kaipi --help
+uv build                      # dist/kaipi-0.1.0-py3-none-any.whl + .tar.gz
+```
+
+## Run
+
+```sh
 export ANTHROPIC_API_KEY=...          # or OPENAI_API_KEY / GEMINI_API_KEY / DEEPSEEK_API_KEY ...
 export KAIPI_MODEL=claude-opus-5      # default from pricing.toml; or <provider>/<model>
-uv run kaipi                          # interactive session in the current directory
+
+cd ~/some/project                     # a git repo: rewind and the exploration guard need one
+kaipi                                 # interactive session, here
 ```
+
+You get a prompt. Type a task; type `/` commands to move around the tree:
+
+```
+kaipi  session 01M1M7C1QCNAN4C08RGV78Y58A  model claude-opus-5  trunk burden: 0.0k
+/tree  /go <id>  /graft <id> [--depth d] [--with-tool id..]  /archive <id>  /restore <id>
+/rewind <id>  /trunk [pin <id>]  /explore <text>  /ledger  /canvas  /quit
+root> find the bug in app.py and fix it
+    $ cat app.py
+    ...
+    Fixed: rate_limit now compares against LIMIT. Tests pass.
+[078S8K trunk] $0.0064  cache read 0.3k/0.7k  trunk burden: 0.4k
+078S8K>
+```
+
+The line after each turn is the point of the whole thing: what that turn cost, how much of
+it was served from cache, and the **trunk burden** - the tokens every future turn on this
+path will re-pay. `/canvas` moves the same session into the browser; `/quit` ends it.
+Session state lives in `.kaipi/` in the project, which ignores itself, so your `git status`
+stays clean. kaipi runs outside a git repo too, but without code rewind or the guard.
 
 Four wire protocols are supported natively (Anthropic Messages, OpenAI Responses, OpenAI
 Chat Completions, Gemini generateContent). Preconfigured vendors: anthropic, openai,
@@ -125,6 +170,17 @@ snapshots and no code rewind.
 ```sh
 uv run ruff check . && uv run mypy --strict kaipi tests && uv run pytest -q
 ```
+
+### Build
+
+```sh
+uv build      # dist/kaipi-0.1.0-py3-none-any.whl and dist/kaipi-0.1.0.tar.gz
+```
+
+Pure Python: nothing is compiled. The wheel must contain `kaipi/canvas.html` and
+`kaipi/pricing.toml` - an installed kaipi has no repo root to find them in, and CI installs
+the built wheel into a clean environment and imports both, because a missing package file
+crashed kaipi on its first run once already.
 
 ### Real-API smoke test
 
