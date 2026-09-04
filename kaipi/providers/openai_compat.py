@@ -9,20 +9,16 @@ from typing import Any
 import httpx
 
 from kaipi.ledger import estimate_tokens
-from kaipi.model import Message, Usage
-from kaipi.providers import BASH_TOOL_DESCRIPTION, Reply
+from kaipi.model import Message, Usage, blocks, text_of
+from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
 
+MAX_TOKENS = 16_000
 BASH_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "bash",
         "description": BASH_TOOL_DESCRIPTION,
-        "parameters": {
-            "type": "object",
-            "properties": {"command": {"type": "string"}},
-            "required": ["command"],
-            "additionalProperties": False,
-        },
+        "parameters": BASH_PARAMETERS,
     },
 }
 
@@ -30,20 +26,16 @@ BASH_TOOL: dict[str, Any] = {
 def to_openai(system: str, messages: list[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for m in messages:
-        blocks = (
-            m["content"]
-            if isinstance(m["content"], list)
-            else [{"type": "text", "text": m["content"]}]
-        )
+        bs = blocks(m["content"])
         if m["role"] == "assistant":
-            text = "\n".join(b["text"] for b in blocks if b.get("type") == "text")
+            text = text_of(bs)
             calls = [
                 {
                     "id": b["id"],
                     "type": "function",
                     "function": {"name": b["name"], "arguments": json.dumps(b["input"])},
                 }
-                for b in blocks
+                for b in bs
                 if b.get("type") == "tool_use"
             ]
             entry: dict[str, Any] = {"role": "assistant", "content": text or None}
@@ -52,10 +44,9 @@ def to_openai(system: str, messages: list[Message]) -> list[dict[str, Any]]:
             out.append(entry)
             continue
         texts: list[str] = []
-        for b in blocks:
+        for b in bs:
             if b.get("type") == "tool_result":
-                c = b.get("content", "")
-                body = c if isinstance(c, str) else "\n".join(x["text"] for x in c)
+                body = text_of(b.get("content", ""))
                 out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": body})
             elif b.get("type") == "text":
                 texts.append(b["text"])
@@ -96,11 +87,8 @@ def usage_from(u: dict[str, Any]) -> Usage:
 
 
 class OpenAICompatProvider:
-    def __init__(
-        self, model: str, *, base_url: str, api_key: str = "", max_tokens: int = 16_000
-    ) -> None:
+    def __init__(self, model: str, *, base_url: str, api_key: str = "") -> None:
         self.model = model
-        self.max_tokens = max_tokens
         self.client = httpx.Client(
             base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}, timeout=600
         )
@@ -110,7 +98,7 @@ class OpenAICompatProvider:
             "model": self.model,
             "messages": to_openai(system, messages),
             "tools": [BASH_TOOL],
-            "max_completion_tokens": self.max_tokens,
+            "max_completion_tokens": MAX_TOKENS,
         }
         r = self.client.post("/chat/completions", json=body)
         r.raise_for_status()

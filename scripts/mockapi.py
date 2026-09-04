@@ -268,7 +268,7 @@ class MockAPI:
         read, write = self.cache.lookup(prefixes, sorted({*marks, len(msgs) - 1}))
 
         self.carries_reasoning = True
-        turn = _turn_from_anthropic(msgs)
+        turn = turn_from(_events_from_anthropic(msgs))
         action = self.brain.act(turn)
         sig = self.signer.sign([system, bare, []])
         content: list[dict[str, Any]] = [
@@ -341,7 +341,7 @@ class MockAPI:
         running = tokens(json.dumps([body.get("instructions", ""), items], ensure_ascii=False))
         read, _ = self.cache.lookup(_incremental(body.get("instructions"), items))
         self.carries_reasoning = True
-        turn = _turn_from_openai(items)
+        turn = turn_from(_events_from_openai(items))
         action = self.brain.act(turn)
         enc = self.signer.sign(items)
         output: list[dict[str, Any]] = [
@@ -403,7 +403,7 @@ class MockAPI:
         running = tokens(json.dumps([sysi, contents], ensure_ascii=False))
         read, _ = self.cache.lookup(_incremental(sysi, bare))
         self.carries_reasoning = True
-        turn = _turn_from_gemini(contents)
+        turn = turn_from(_events_from_gemini(contents))
         action = self.brain.act(turn)
         sig = self.signer.sign([sysi, bare, []])
         if "command" in action:
@@ -413,12 +413,10 @@ class MockAPI:
                     "thoughtSignature": sig,
                 }
             ]
-            reason = "STOP"
         else:
             parts = [{"text": action["text"], "thoughtSignature": sig}]
-            reason = "STOP"
         return {
-            "candidates": [{"content": {"role": "model", "parts": parts}, "finishReason": reason}],
+            "candidates": [{"content": {"role": "model", "parts": parts}, "finishReason": "STOP"}],
             "usageMetadata": {
                 "promptTokenCount": running,
                 "cachedContentTokenCount": read,
@@ -444,15 +442,7 @@ class MockAPI:
         self.check_tool_pairing(calls, results)
         running = tokens(json.dumps(msgs, ensure_ascii=False))
         read, _ = self.cache.lookup(_incremental(msgs[0], msgs[1:]))
-        texts: list[str] = [str(m.get("content") or "") for m in msgs if m.get("role") == "user"]
-        cmds = [
-            json.loads(c["function"]["arguments"] or "{}").get("command", "")
-            for m in msgs
-            for c in (m.get("tool_calls") or [])
-        ]
-        since = max((i for i, m in enumerate(msgs) if m.get("role") == "user"), default=0)
-        n = sum(len(m.get("tool_calls") or []) for m in msgs[since:])
-        action = self.brain.act(Turn(_last_user_text(texts), cmds[len(cmds) - n :] if n else []))
+        action = self.brain.act(turn_from(_events_from_chat(msgs)))
         if "command" in action:
             message = {
                 "role": "assistant",
@@ -524,13 +514,19 @@ def _strip_sigs(contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _last_user_text(chunks: list[str]) -> str:
-    return chunks[-1] if chunks else ""
+Event = tuple[str, str]  # ("user", text) or ("cmd", command), in wire order
 
 
-def _turn_from_anthropic(msgs: list[dict[str, Any]]) -> Turn:
-    texts: list[str] = []
-    cmds: list[str] = []
+def turn_from(events: list[Event]) -> Turn:
+    """One turn is the last user message plus the commands issued after it. Every protocol
+    reduces to the same event list first, so all four feed the brain the same thing."""
+    last = max((i for i, (kind, _) in enumerate(events) if kind == "user"), default=-1)
+    text = events[last][1] if last >= 0 else ""
+    return Turn(text, [v for kind, v in events[last + 1 :] if kind == "cmd"])
+
+
+def _events_from_anthropic(msgs: list[dict[str, Any]]) -> list[Event]:
+    out: list[Event] = []
     for m in msgs:
         c = m.get("content")
         blocks: list[dict[str, Any]] = (
@@ -538,67 +534,47 @@ def _turn_from_anthropic(msgs: list[dict[str, Any]]) -> Turn:
         )
         for b in blocks:
             if b.get("type") == "text" and m["role"] == "user":
-                texts.append(str(b["text"]))
+                out.append(("user", str(b["text"])))
             elif b.get("type") == "tool_use":
-                cmds.append(str(b.get("input", {}).get("command", "")))
-    return Turn(_last_user_text(texts), _commands_this_turn(msgs, cmds))
+                out.append(("cmd", str(b.get("input", {}).get("command", ""))))
+    return out
 
 
-def _commands_this_turn(msgs: list[dict[str, Any]], cmds: list[str]) -> list[str]:
-    """Only the commands after the last plain user message: one node, one turn."""
-    last_user = 0
-    for i, m in enumerate(msgs):
-        c = m.get("content")
-        if (
-            m.get("role") == "user"
-            and isinstance(c, list)
-            and any(b.get("type") == "text" for b in c)
-        ):
-            last_user = i
-    n = sum(
-        1
-        for m in msgs[last_user:]
-        if isinstance(m.get("content"), list)
-        for b in m["content"]
-        if b.get("type") == "tool_use"
-    )
-    return cmds[len(cmds) - n :] if n else []
-
-
-def _turn_from_openai(items: list[dict[str, Any]]) -> Turn:
-    texts: list[str] = []
-    cmds: list[str] = []
-    since = 0
-    for i, it in enumerate(items):
+def _events_from_openai(items: list[dict[str, Any]]) -> list[Event]:
+    out: list[Event] = []
+    for it in items:
         if it.get("role") == "user":
             content = it.get("content", [])
             parts = (
-                [p.get("text", "") for p in content]
+                [str(p.get("text", "")) for p in content]
                 if isinstance(content, list)
                 else [str(content)]
             )
-            if parts and not parts[-1].startswith("<kaipi:graft"):
-                texts.append("\n".join(parts))
-                since = i
+            out.append(("user", "\n".join(parts)))
         elif it.get("type") == "function_call":
-            cmds.append(json.loads(it.get("arguments") or "{}").get("command", ""))
-    n = sum(1 for it in items[since:] if it.get("type") == "function_call")
-    return Turn(_last_user_text(texts), cmds[len(cmds) - n :] if n else [])
+            out.append(("cmd", json.loads(it.get("arguments") or "{}").get("command", "")))
+    return out
 
 
-def _turn_from_gemini(contents: list[dict[str, Any]]) -> Turn:
-    texts: list[str] = []
-    cmds: list[str] = []
-    since = 0
-    for i, c in enumerate(contents):
+def _events_from_chat(msgs: list[dict[str, Any]]) -> list[Event]:
+    out: list[Event] = []
+    for m in msgs:
+        if m.get("role") == "user":
+            out.append(("user", str(m.get("content") or "")))
+        for c in m.get("tool_calls") or []:
+            out.append(("cmd", json.loads(c["function"]["arguments"] or "{}").get("command", "")))
+    return out
+
+
+def _events_from_gemini(contents: list[dict[str, Any]]) -> list[Event]:
+    out: list[Event] = []
+    for c in contents:
         for part in c.get("parts", []):
             if "text" in part and c.get("role") == "user":
-                texts.append(part["text"])
-                since = i
+                out.append(("user", part["text"]))
             elif "functionCall" in part:
-                cmds.append(part["functionCall"].get("args", {}).get("command", ""))
-    n = sum(1 for c in contents[since:] for p in c.get("parts", []) if "functionCall" in p)
-    return Turn(_last_user_text(texts), cmds[len(cmds) - n :] if n else [])
+                out.append(("cmd", part["functionCall"].get("args", {}).get("command", "")))
+    return out
 
 
 # --- SSE: the Anthropic provider streams, so the mock must too -------------------------

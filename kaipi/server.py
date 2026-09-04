@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 import typer
 
 from kaipi import cli, context, graph, guard, ledger
-from kaipi.model import Node, ReferenceEdge
+from kaipi.model import Node, ReferenceEdge, blocks, text_of
 
 CANVAS_HTML = Path(__file__).with_name("canvas.html")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -54,23 +54,10 @@ class Hub:
 def transcript(n: Node) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for m in n.payload:
-        blocks = (
-            m["content"]
-            if isinstance(m["content"], list)
-            else [{"type": "text", "text": m["content"]}]
-        )
-        for b in blocks:
+        for b in blocks(m["content"]):
             t = b.get("type")
             if t == "text" and m["role"] == "user":
-                txt = b["text"]
-                kind = (
-                    "graft"
-                    if txt.startswith(context.GRAFT_TAG)
-                    else "guard"
-                    if txt.startswith(context.GUARD_TAG)
-                    else "user"
-                )
-                out.append({"kind": kind, "text": txt})
+                out.append({"kind": context.classify(b["text"]), "text": b["text"]})
             elif t == "text":
                 out.append({"kind": "assistant", "text": b["text"]})
             elif t == "tool_use":
@@ -82,14 +69,17 @@ def transcript(n: Node) -> list[dict[str, str]]:
                     }
                 )
             elif t == "tool_result":
-                c = b.get("content", "")
-                out.append(
-                    {
-                        "kind": "out",
-                        "text": c if isinstance(c, str) else "\n".join(x["text"] for x in c),
-                    }
-                )
+                out.append({"kind": "out", "text": text_of(b.get("content", ""))})
     return out
+
+
+# The verbs that take one node id and nothing else.
+ID_VERBS: dict[str, Callable[[cli.Session, str], None]] = {
+    "/api/go": cli.cmd_go,
+    "/api/archive": cli.cmd_archive,
+    "/api/restore": cli.cmd_restore,
+    "/api/pin": cli.cmd_trunk,
+}
 
 
 class Canvas:
@@ -98,6 +88,7 @@ class Canvas:
     def __init__(self, s: cli.Session, hub: Hub) -> None:
         self.s = s
         self.hub = hub
+        self.repo = guard.is_repo(s.cwd)  # constant for the session
         self.lock = threading.RLock()
         self.busy = False
         self.dirty = False
@@ -107,7 +98,6 @@ class Canvas:
     def state(self) -> dict[str, Any]:
         s, st = self.s, self.s.log.state
         t = graph.trunk(st)
-        rep = ledger.report(st, s.pricing)
         nodes = []
         for n in st.nodes.values():
             nodes.append(
@@ -135,11 +125,11 @@ class Canvas:
             "pin": st.trunk_pin,
             "leaf": s.leaf,
             "pending": [e.model_dump() for e in s.pending],
-            "burden": rep.trunk_burden,
-            "cost": rep.total_cost,
+            "burden": ledger.trunk_burden(st),
+            "cost": ledger.total_cost(st, s.pricing),
             "busy": self.busy,
             "dirty": self.dirty,
-            "repo": guard.is_repo(s.cwd),
+            "repo": self.repo,
         }
 
     def preview(self, src: str, tools: list[str]) -> dict[str, Any]:
@@ -190,7 +180,7 @@ class Canvas:
 
     def _run(self, text: str, explore: bool) -> None:
         st = self.s.log.state
-        exploration = bool(st.nodes) and (explore or self.s.leaf != graph.trunk(st))
+        exploration = graph.is_exploration(st, self.s.leaf, force=explore)
         self.hub.publish(type="start", exploration=exploration)
         try:
             nid, dirty = cli.run_input(
@@ -338,14 +328,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/command":
                     self._json({"output": c.command(str(body["line"]))})
                     return
-                elif path == "/api/go":
-                    cli.cmd_go(c.s, str(body["id"]))
-                elif path == "/api/archive":
-                    cli.cmd_archive(c.s, str(body["id"]))
-                elif path == "/api/restore":
-                    cli.cmd_restore(c.s, str(body["id"]))
-                elif path == "/api/pin":
-                    cli.cmd_trunk(c.s, str(body["id"]))
+                elif path in ID_VERBS:
+                    ID_VERBS[path](c.s, str(body["id"]))
                 elif path == "/api/rewind":
                     mode = str(body.get("mode", "both"))
                     cli.cmd_rewind(c.s, str(body["id"]), mode)

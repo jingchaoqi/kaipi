@@ -128,6 +128,29 @@ def test_lca_and_fork(log: Log, tree: dict[str, str]) -> None:
     assert graph.fork_point(log.state, tree["b"]) == tree["root"]
 
 
+def test_path_below_lca_is_what_a_branch_graft_and_a_summary_share(
+    log: Log, tree: dict[str, str]
+) -> None:
+    """One definition: `branch` inlines this path and `leaf+summary` summarises it."""
+    path = graph.path_below_lca(log.state, tree["a1"], tree["b"])
+    assert [n.id for n in path] == [tree["a"], tree["a1"]]  # the root is already in b's lineage
+    block = context.render_graft(
+        log.state, ReferenceEdge(src_id=tree["a1"], dst_id="", depth="branch"), tree["b"]
+    )
+    assert all(f"<node id={n.id}>" in block.text for n in path)
+    assert f"<node id={tree['root']}>" not in block.text
+    # with no leaf to compare against, the whole lineage is new
+    assert len(graph.path_below_lca(log.state, tree["a1"], None)) == 3
+
+
+def test_is_exploration(log: Log, tree: dict[str, str]) -> None:
+    trunk = graph.trunk(log.state)
+    assert not graph.is_exploration(log.state, trunk)
+    assert graph.is_exploration(log.state, trunk, force=True)  # /explore pins the trunk in place
+    assert graph.is_exploration(log.state, tree["b"])
+    assert not graph.is_exploration(fold([]), None)  # the first turn of a session is the trunk
+
+
 def test_trunk_heuristic_and_pin(log: Log, b: Builder, tree: dict[str, str]) -> None:
     assert graph.trunk(log.state) == tree["a1"]
     b2 = b.node(tree["b"], "b2")

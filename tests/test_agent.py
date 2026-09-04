@@ -156,7 +156,9 @@ def test_guard_warns_when_exploration_dirties_tree(log: Log, tmp_path: Path) -> 
         hook=lambda k, t: seen.append(k),
     )
     assert "guard" in seen
-    assert any(guard.WARNING in str(m) for m in log.state.nodes[nid].payload)
+    node = log.state.nodes[nid]
+    assert guard.WARNING in str(node.payload)  # the model is told, in the turn itself
+    assert node.guard_dirty  # and the fact is recorded, so no caller has to grep for it
     assert log.state.nodes[nid].paths == ["new.txt"]  # recorded even on an exploration
     guard.reset(tmp_path)
     assert not (tmp_path / "new.txt").exists()
@@ -166,10 +168,11 @@ def test_guard_silent_on_trunk(log: Log, tmp_path: Path) -> None:
     _git_repo(tmp_path)
     seen: list[str] = []
     p = FakeProvider([call("t1", "echo x > new.txt"), text("fine")])
-    agent.run_turn(
+    nid = agent.run_turn(
         log, p, None, [], "write", exploration=False, cwd=tmp_path, hook=lambda k, t: seen.append(k)
     )
     assert "guard" not in seen
+    assert not log.state.nodes[nid].guard_dirty
 
 
 def test_summary_is_generated_once(log: Log, tmp_path: Path) -> None:

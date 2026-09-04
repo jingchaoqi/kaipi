@@ -38,14 +38,8 @@ from kaipi import cli, context, graph, guard, ledger  # noqa: E402
 from kaipi.model import Message, NodeArchived, ReferenceEdge, Usage  # noqa: E402
 from kaipi.providers import Provider, Reply  # noqa: E402
 
-GREEN, RED, YELLOW, DIM, BOLD, RESET = (
-    "\033[32m",
-    "\033[31m",
-    "\033[33m",
-    "\033[2m",
-    "\033[1m",
-    "\033[0m",
-)
+GREEN, RED, DIM, BOLD, RESET = cli.GREEN, cli.RED, cli.DIM, cli.BOLD, cli.RESET
+YELLOW = "\033[33m"  # SKIP: the CLI has no use for it
 
 # A repo small enough to be cheap and real enough that the model must run commands.
 FILES = {
@@ -171,7 +165,7 @@ class FakeProvider:
         )
 
     def count_tokens(self, text: str) -> int:
-        return max(1, len(text) // 4)
+        return ledger.estimate_tokens(text)
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -202,7 +196,8 @@ def make_repo(root: Path) -> None:
 def turn(
     session: cli.Session, provider: Tally, text: str, *, explore: bool = False
 ) -> tuple[str, bool]:
-    label = "exploration" if explore or session.leaf != graph.trunk(session.log.state) else "trunk"
+    exploring = graph.is_exploration(session.log.state, session.leaf, force=explore)
+    label = "exploration" if exploring else "trunk"
     print(f"\n{BOLD}> [{label}] {text}{RESET}")
 
     def hook(kind: str, t: str) -> None:

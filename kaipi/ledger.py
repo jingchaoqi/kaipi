@@ -159,15 +159,21 @@ class Report(BaseModel):
     branches: list[Branch]
 
 
+def total_cost(state: State, pricing: Pricing) -> float:
+    """Every dollar the session spent: the turns plus the graft summaries, which are
+    charged to no node but are real money."""
+    return sum(pricing.price(n.model).cost(n.usage) for n in state.nodes.values()) + sum(
+        pricing.price(m).cost(u) for m, u in state.summaries
+    )
+
+
 def report(state: State, pricing: Pricing) -> Report:
     total = Usage()
-    cost = 0.0
     for n in state.nodes.values():
         total = total + n.usage
-        cost += pricing.price(n.model).cost(n.usage)
-    for model, usage in state.summaries:  # graft summaries: cheap model, but real money
+    for _, usage in state.summaries:
         total = total + usage
-        cost += pricing.price(model).cost(usage)
+    cost = total_cost(state, pricing)
     t = graph.trunk(state)
     trunk_ids = {n.id for n in graph.lineage(state, t)} if t else set()
     branches: list[Branch] = []
