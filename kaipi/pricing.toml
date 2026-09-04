@@ -2,6 +2,9 @@
 # multiple (Fable 5.1 reads at 0.025x, 1h-TTL writes at 2x), so no multipliers here.
 # Anthropic prices as of 2026-06; others as of 2026-09 from public price pages - verify before
 # trusting the ledger. Unknown models cost 0 and the CLI warns.
+# Vendors that publish in CNY (kimi, glm, deepseek, qwen) are converted at ~6.85 CNY/USD, so
+# their rows drift with the exchange rate: kimi-k2.7-code is officially Y6.50 / Y1.30 / Y27.00.
+# Set your own rates in .kaipi/pricing.toml or ~/.config/kaipi/pricing.toml if that matters.
 #
 # A model names its provider; a provider is a wire protocol + endpoint + key env var.
 # Built-in providers: anthropic, openai (Responses API), gemini; deepseek, kimi, glm, opencode,
