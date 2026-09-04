@@ -7,7 +7,10 @@ license = "MIT"
 readme = "README.md"
 dependencies = [
     "anthropic>=1.3",
-    "httpx>=0.28",
+    # [socks]: httpx raises at client construction, before any request, when the
+    # environment names a socks5 proxy and socksio is absent. It is imported only on
+    # that path, so a user without a proxy pays nothing but the download.
+    "httpx[socks]>=0.28",
     "pydantic>=2.11",
     "python-ulid>=3",
     "typer>=0.15",
