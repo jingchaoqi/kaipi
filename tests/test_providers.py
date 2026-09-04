@@ -40,6 +40,27 @@ def _mock(handler: Any) -> httpx.Client:
 # --- factory -------------------------------------------------------------------------
 
 
+def test_a_proxy_in_the_environment_does_not_crash_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """httpx picks proxies up from the environment and raises at client construction -
+    before any request - when it meets a socks5 proxy without socksio installed. Users do
+    run behind one, so socksio ships with kaipi; nothing imports it without a proxy set."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    for scheme in ("socks5://127.0.0.1:1080", "http://127.0.0.1:1080"):
+        monkeypatch.setenv("all_proxy", scheme)
+        monkeypatch.setenv("https_proxy", scheme)
+        for name, model in (
+            ("anthropic", "claude-opus-5"),
+            ("deepseek", "deepseek-v4-flash"),
+            ("openai", "gpt-5.6-terra"),
+            ("gemini", "gemini-3.7-flash"),
+        ):
+            providers.build(model, {}, provider_of=name)
+
+
 def test_factory_picks_wire_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "k1")
     monkeypatch.setenv("GEMINI_API_KEY", "k2")
