@@ -128,7 +128,7 @@ def test_oversized_tool_output_is_truncated_before_it_is_frozen(endpoint) -> Non
     class NoisyBrain(mockapi.Brain):
         def act(self, turn: mockapi.Turn) -> dict[str, Any]:
             if not turn.commands_this_turn:
-                return {"command": "python -c \"print('x' * 200000)\""}
+                return {"command": "python3 -c \"print('x' * 200000)\""}
             return {"text": "that was a lot of output"}
 
     srv.api.brain = NoisyBrain()

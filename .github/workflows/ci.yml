@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    # macOS is not redundant: `sed -i`, `python` vs `python3` and BSD tool flags have
+    # all broken this repo on a Mac while every Linux job was green.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --python ${{ matrix.python }}
+
+      - name: lint and types
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy --strict kaipi tests
+
+      - name: tests
+        run: uv run pytest -q
+
+      - name: line cap (the core library stays under 3000 lines)
+        shell: bash
+        run: |
+          n=$(cat kaipi/*.py kaipi/providers/*.py | wc -l | tr -d ' ')
+          echo "core library: $n lines"
+          test "$n" -le 3000
+
+      - name: the four wire protocols against the mock endpoint
+        run: |
+          for m in claude-opus-5 gpt-5.6-terra gemini-3.7-flash deepseek-v4-flash; do
+            uv run python scripts/smoke.py --mock --model "$m"
+          done
+
+  wheel:
+    # A missing package file crashed kaipi on its first run once already, and no unit test
+    # can catch it: the repo root is still there when they run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - name: install the wheel into a clean environment and use it
+        run: |
+          uv venv /tmp/clean
+          VIRTUAL_ENV=/tmp/clean uv pip install dist/kaipi-*.whl
+          /tmp/clean/bin/kaipi --help
+          /tmp/clean/bin/python - <<'PY'
+          from importlib.resources import files
+          for name in ("canvas.html", "pricing.toml"):
+              path = files("kaipi") / name
+              assert path.is_file(), f"{name} is missing from the wheel"
+              print(f"{name}: {len(path.read_bytes())} bytes")
+          PY
