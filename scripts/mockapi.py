@@ -112,10 +112,12 @@ class Brain:
     """Deterministic agent behaviour, driven by the visible conversation. Reads before it
     writes, never writes when told the branch is read-only, and stops when it has an answer."""
 
-    FIX = "sed -i 's/requests > 100/requests > LIMIT/' app.py"
-    # the smoke repo must run anywhere, so the suite is plain asserts rather than pytest
+    # perl, not `sed -i`: BSD sed (macOS) reads the next word as a backup suffix instead.
+    FIX = "perl -pi -e 's/requests > 100/requests > LIMIT/' app.py"
+    # the smoke repo must run anywhere, so the suite is plain asserts rather than pytest,
+    # and `python3` rather than `python`, which macOS does not ship.
     RUN = (
-        'python -c "import test_app as t; '
+        'python3 -c "import test_app as t; '
         "[getattr(t, n)() for n in dir(t) if n.startswith('test_')]; print('tests pass')\""
     )
     ADD_TEST = (

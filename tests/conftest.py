@@ -68,6 +68,16 @@ class Builder:
         return nid
 
 
+@pytest.fixture(autouse=True)
+def no_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every endpoint in the suite is a mock on 127.0.0.1. A proxy in the developer's
+    environment must not be routed through - and an `all_proxy=socks5://...` would make
+    httpx raise before the request is even made."""
+    for var in ("http_proxy", "https_proxy", "all_proxy", "ftp_proxy"):
+        monkeypatch.delenv(var, raising=False)
+        monkeypatch.delenv(var.upper(), raising=False)
+
+
 @pytest.fixture
 def log(tmp_path: Path) -> Log:
     lg = Log(tmp_path / "s.jsonl")

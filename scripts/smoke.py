@@ -153,7 +153,8 @@ class FakeProvider:
                         "input": {
                             "command": "sed -n 1,8p app.py"
                             if readonly or self.step <= 2
-                            else "sed -i 's/requests > 100/requests > LIMIT/' app.py"
+                            # perl, not `sed -i`: BSD sed reads the next word as a suffix
+                            else "perl -pi -e 's/requests > 100/requests > LIMIT/' app.py"
                         },
                     },
                 ],
