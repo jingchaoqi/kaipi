@@ -460,9 +460,10 @@ def run_input(
         )
     except agent.Interrupted as stopped:
         # The cursor goes back to the parent, so the next input opens a sibling rather than
-        # continuing from a turn the user threw away.
+        # continuing from a turn the user threw away; the grafts they staged are theirs, and
+        # come back with them rather than being lost with the discarded turn.
         dead = s.log.state.nodes[stopped.node_id]
-        s.leaf = dead.parent_id
+        s.leaf, s.pending = dead.parent_id, edges
         cost = s.pricing.price(dead.model).cost(dead.usage)
         hook("ledger", f"[{short(dead.id)} 已废弃] ${cost:.4f}  不会进入之后的上下文")
         raise
@@ -509,9 +510,16 @@ class EscWatcher:
         import select
 
         while not self._done.is_set():
-            if select.select([sys.stdin], [], [], 0.1)[0] and sys.stdin.read(1) == "\x1b":
-                self.stop.set()
-                return
+            if not select.select([sys.stdin], [], [], 0.1)[0] or sys.stdin.read(1) != "\x1b":
+                continue
+            # An arrow key, Home/End, an F-key and a bracketed paste all start with ESC.
+            # A bare ESC is followed by nothing; anything else is a sequence to swallow.
+            if select.select([sys.stdin], [], [], 0.05)[0]:
+                while select.select([sys.stdin], [], [], 0.02)[0]:
+                    sys.stdin.read(1)
+                continue
+            self.stop.set()
+            return
 
     def __exit__(self, *_: object) -> None:
         self._done.set()
@@ -525,8 +533,12 @@ def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
     try:
         with EscWatcher() as stop:
             nid, dirty = run_input(s, text, explore=explore, stop=stop)
-    except agent.Interrupted:
+    except agent.Interrupted as stopped:
         typer.echo(f"{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}")
+        if s.log.state.nodes[stopped.node_id].guard_dirty and typer.confirm(
+            "被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?", default=False
+        ):
+            guard.reset(s.cwd)
         typer.echo(
             f"{DIM}下一句会从 {short(s.leaf) if s.leaf else 'root'} 重新长出一个兄弟节点{RESET}"
         )

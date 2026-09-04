@@ -87,6 +87,9 @@ def test_inv7_an_aborted_turn_is_billed_and_never_read_again(
     assert graph.trunk(st) == tree["a1"], "an aborted node is not a leaf anyone continues from"
     ctx = context.build(st, tree["a1"], [], "next")
     assert "half done" not in str(ctx.messages), "and never re-read"
+    with pytest.raises(ValueError, match="aborted"):
+        # grafting it would put back exactly what stopping it threw away
+        context.render_graft(st, ReferenceEdge(src_id=dead, dst_id="x", depth="leaf"), tree["a1"])
 
 
 # --- context assembly --------------------------------------------------------------

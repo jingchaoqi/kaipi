@@ -83,8 +83,9 @@ def leaf_text(n: Node) -> str:
 
 def render_graft(state: State, edge: ReferenceEdge, leaf_id: str | None) -> GraftBlock:
     src = state.nodes[edge.src_id]
-    if src.status == "tombstone":
-        raise ValueError(f"cannot graft tombstoned node {edge.src_id}")
+    if src.status in ("tombstone", "aborted"):
+        # Grafting an aborted node would put back exactly what stopping it discarded.
+        raise ValueError(f"cannot graft {src.status} node {edge.src_id}")
     if leaf_id is not None and graph.is_ancestor(state, edge.src_id, leaf_id):
         raise ValueError(f"{edge.src_id} is already in this lineage; nothing to graft")
     parts: list[str] = [f"{GRAFT_TAG} src={src.id} depth={edge.depth}>"]

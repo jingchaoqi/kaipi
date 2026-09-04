@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import _thread
+import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -138,6 +142,85 @@ def test_snapshots_work_without_a_configured_git_identity(
         ["git", "rev-parse", "--verify", "-q", "refs/kaipi/s/n"], cwd=tmp_path, capture_output=True
     )
     assert pinned.returncode == 0, "the snapshot was not pinned, so gc could prune it"
+
+
+def test_a_stop_prevents_the_commands_of_the_reply_it_arrived_during(
+    log: Log, tmp_path: Path
+) -> None:
+    """The dangerous case: the stop lands while the model is answering. Its reply already
+    contains commands, and none of them may run."""
+    marker = tmp_path / "must-not-exist.txt"
+    stop = threading.Event()
+
+    class StopsWhileAnswering:
+        model = "fake"
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            stop.set()  # the user hits Esc while this reply is being produced
+            return Reply(
+                content=[
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "bash",
+                        "input": {"command": f"touch {marker}"},
+                    }
+                ],
+                stop_reason="tool_use",
+                usage=Usage(output=1),
+            )
+
+        def count_tokens(self, text: str) -> int:
+            return 1
+
+    with pytest.raises(agent.Interrupted):
+        agent.run_turn(
+            log, StopsWhileAnswering(), None, [], "go", exploration=False, cwd=tmp_path, stop=stop
+        )
+    assert not marker.exists(), "a command from the stopped reply was executed anyway"
+
+
+def test_a_stopped_command_does_not_outlive_the_turn(log: Log, tmp_path: Path) -> None:
+    """Ctrl-C must not leave the command running: it is in its own process group, so
+    nothing else would ever kill it."""
+    pidfile = tmp_path / "pid"
+    stop = threading.Event()
+
+    class CtrlCDuringTheCommand:
+        model = "fake"
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            return Reply(
+                content=[
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "bash",
+                        "input": {"command": f"echo $$ > {pidfile}; sleep 30"},
+                    }
+                ],
+                stop_reason="tool_use",
+                usage=Usage(output=1),
+            )
+
+        def count_tokens(self, text: str) -> int:
+            return 1
+
+    def interrupt() -> None:
+        while not pidfile.exists():
+            time.sleep(0.05)
+        time.sleep(0.2)
+        _thread.interrupt_main()
+
+    threading.Thread(target=interrupt, daemon=True).start()
+    with pytest.raises(agent.Interrupted):
+        agent.run_turn(
+            log, CtrlCDuringTheCommand(), None, [], "go", exploration=False, cwd=tmp_path, stop=stop
+        )
+    pid = int(pidfile.read_text().strip())
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(pid, 0)  # the whole group is gone, not just the shell
 
 
 def _git_repo(path: Path) -> None:
