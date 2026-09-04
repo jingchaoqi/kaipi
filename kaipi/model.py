@@ -8,7 +8,10 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 from ulid import ULID
 
-Status = Literal["live", "archived", "tombstone"]
+# `aborted`: the user stopped the turn. Its payload is kept so they can see what was
+# thrown away, and its usage is billed, but it never enters context again and nothing
+# continues from it - the next input opens a sibling under the same parent (§8).
+Status = Literal["live", "archived", "tombstone", "aborted"]
 Depth = Literal["leaf", "leaf+summary", "branch"]
 Message = dict[str, Any]  # one API message: {"role": ..., "content": [...]} with raw blocks
 
@@ -126,6 +129,16 @@ class NodeCompleted(_Ev):
     guard_dirty: bool = False
 
 
+class NodeAborted(_Ev):
+    """The user interrupted the turn. Everything the model produced after their input is
+    discarded from context; the tokens it burned are not, they were really spent."""
+
+    type: Literal["node_aborted"] = "node_aborted"
+    id: str
+    payload: list[Message]  # kept for display only: never assembled into a request
+    usage: Usage
+
+
 class EdgeAdded(_Ev):
     type: Literal["edge_added"] = "edge_added"
     edge: ReferenceEdge
@@ -163,6 +176,7 @@ Event = Annotated[
     SessionStarted
     | NodeCreated
     | NodeCompleted
+    | NodeAborted
     | EdgeAdded
     | NodeArchived
     | NodeRestored

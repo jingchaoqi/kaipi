@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 import typer
 
-from kaipi import cli, context, graph, guard, ledger
+from kaipi import agent, cli, context, graph, guard, ledger
 from kaipi.model import Node, ReferenceEdge, blocks, text_of
 
 CANVAS_HTML = Path(__file__).with_name("canvas.html")
@@ -91,6 +91,7 @@ class Canvas:
         self.repo = guard.is_repo(s.cwd)  # constant for the session
         self.lock = threading.RLock()
         self.busy = False
+        self.stopping = threading.Event()  # set by /api/stop; the turn ends at the next step
         self.dirty = False
         self.handoff = False
         self.on_handoff: Callable[[], None] = lambda: None  # set by serve(): stops the server
@@ -130,6 +131,22 @@ class Canvas:
             "busy": self.busy,
             "dirty": self.dirty,
             "repo": self.repo,
+            "status": self.bar(),
+        }
+
+    def bar(self) -> dict[str, Any]:
+        """What the canvas puts in its status bar; the CLI prints the same numbers."""
+        s, st = self.s, self.s.log.state
+        price = s.pricing.price(st.model)
+        saved = ledger.saved_by_kind(st, s.pricing)
+        return {
+            "provider": price.provider,
+            "model": st.model,
+            "cwd": str(s.cwd),
+            "window": price.context,
+            "burden": ledger.trunk_burden(st),
+            "cost": ledger.total_cost(st, s.pricing),
+            "saved": {k: {"tokens": t, "cost": c} for k, (t, c) in saved.items()},
         }
 
     def preview(self, src: str, tools: list[str]) -> dict[str, Any]:
@@ -175,6 +192,7 @@ class Canvas:
         with self.lock:
             if self.busy:
                 raise RuntimeError("a turn is already running")
+            self.stopping.clear()
             self.busy = True
         threading.Thread(target=self._run, args=(text, explore), daemon=True).start()
 
@@ -184,11 +202,18 @@ class Canvas:
         self.hub.publish(type="start", exploration=exploration)
         try:
             nid, dirty = cli.run_input(
-                self.s, text, hook=lambda k, t: self.hub.publish(type=k, text=t), explore=explore
+                self.s,
+                text,
+                hook=lambda k, t: self.hub.publish(type=k, text=t),
+                explore=explore,
+                stop=self.stopping,
             )
             self.dirty = dirty
             self.s.save()
             self.hub.publish(type="done", node=nid, dirty=dirty, exploration=exploration)
+        except agent.Interrupted as stopped:
+            self.s.save()
+            self.hub.publish(type="aborted", node=stopped.node_id, leaf=self.s.leaf)
         except Exception as e:  # noqa: BLE001
             self.hub.publish(type="error", text=str(e))
         finally:
@@ -317,6 +342,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/handoff":
                 c.request_handoff()
+                self._json({"ok": True})
+                return
+            if path == "/api/stop":  # allowed while busy: it is the only thing that is
+                c.stopping.set()
                 self._json({"ok": True})
                 return
             if c.busy and path != "/api/pending":

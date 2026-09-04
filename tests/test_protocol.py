@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import mockapi  # noqa: E402
 import smoke  # noqa: E402
 
-from kaipi import cli  # noqa: E402
+from kaipi import agent, cli, context, graph, ledger  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -150,28 +150,43 @@ def test_oversized_tool_output_is_truncated_before_it_is_frozen(endpoint) -> Non
     assert "omitted" in body and body.startswith("x" * 100)
 
 
-def test_a_session_survives_an_interrupted_turn(endpoint) -> None:  # type: ignore[no-untyped-def]
-    """Ctrl-C leaves node_created with no node_completed. The fold must tombstone it and the
-    trunk must fall back to the last good node, so the next `kaipi` resumes cleanly."""
+def test_an_interrupted_turn_is_discarded_but_still_billed(endpoint) -> None:  # type: ignore[no-untyped-def]
+    """Interrupting leaves an aborted node: out of every future context, still on the bill,
+    and the cursor back on its parent so the next input opens a sibling (§8)."""
     srv, url = endpoint
     s, tally, root = session_on(url, "claude-opus-5", "ANTHROPIC", path="")
     os.chdir(root)
     cli.run_input(s, "first, which completes", lambda k, t: None)
     good = s.leaf
+    spent_before = ledger.total_cost(s.log.state, s.pricing)
 
-    def die(*_: Any, **__: Any) -> None:
-        raise KeyboardInterrupt
+    real = tally.inner.complete
+    calls = {"n": 0}
 
-    tally.inner.complete = die
-    with pytest.raises(KeyboardInterrupt):
-        cli.run_input(s, "second, which is interrupted", lambda k, t: None)
+    def one_then_stop(*a: Any, **k: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] > 1:  # the model answered once; the user hits Esc during step two
+            raise KeyboardInterrupt
+        return real(*a, **k)
 
-    from kaipi import graph
-    from kaipi.store import Log
+    tally.inner.complete = one_then_stop
+    with pytest.raises(agent.Interrupted) as caught:
+        cli.run_input(s, "second, which the user stops", lambda k, t: None)
 
-    reloaded = Log(s.log.path).state
-    incomplete = [n for n in reloaded.nodes.values() if n.status == "tombstone"]
-    assert len(incomplete) == 1 and not incomplete[0].completed
-    assert graph.trunk(reloaded) == good, "the trunk must fall back to the last completed node"
-    resumed = cli.Session(root)
-    assert resumed.leaf == good
+    st = s.log.state
+    dead = st.nodes[caught.value.node_id]
+    assert dead.status == "aborted" and not dead.completed
+    assert dead.payload, "what the model produced is kept, for the user to look at"
+    assert dead.usage.output > 0, "the tokens it burned were really spent"
+    assert ledger.total_cost(st, s.pricing) > spent_before, "an aborted turn is still billed"
+    assert graph.trunk(st) == good, "the trunk falls back to the last completed node"
+    assert s.leaf == good, "the cursor sits on the parent: the next input is a sibling"
+
+    # and none of it reaches the model again
+    ctx = context.build(st, s.leaf, [], "third")
+    assert not any(dead.id in str(m) for m in ctx.messages)
+    assert all(m not in ctx.messages for m in dead.payload)
+
+    tally.inner.complete = real  # the model is fine again; the user simply retries
+    nid = cli.run_input(s, "third, a fresh sibling", lambda k, t: None)[0]
+    assert s.log.state.nodes[nid].parent_id == good

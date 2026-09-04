@@ -17,10 +17,27 @@ Once the turn ends, the node's `payload` is frozen. Anything that looks like a c
 a new node or a status change.
 
 Status: `live` (part of context), `archived` (out of context, reversible; archiving a
-subtree is one atomic operation), `tombstone` (permanent; one line remains).
+subtree is one atomic operation), `aborted` (the user stopped the turn: out of context
+for good, still billed), `tombstone` (permanent; one line remains).
 
-A node that was started but never completed (crash, Ctrl-C) folds to `tombstone`:
-there are no half-frozen payloads.
+A node that was started and neither completed nor aborted - a crash, a kill -9 - folds to
+`tombstone`: there are no half-frozen payloads.
+
+### 1.1 Interrupting a turn
+
+Esc in the terminal and the stop button on the canvas do the same thing. The turn ends at
+the next step boundary, and the command it was running is killed with its process group,
+so a 30-second test run stops now rather than in 30 seconds.
+
+What the model produced after the user's last input - its text, its tool calls, their
+output - is **discarded from context**: an `aborted` node is never assembled into another
+request. The payload is kept so the user can look at what was thrown away, and both
+surfaces mark the node unmistakably (`[已废弃 · 不进上下文]` in the tree, struck through
+in the warning colour on the canvas).
+
+Two things follow. The tokens it burned **are** billed - they were really spent, and a
+ledger that hid them would be lying. And the cursor moves back to the node's **parent**,
+so the next input opens a *sibling*: you retry from where you were, not from the wreck.
 
 ## 2. Edges
 
@@ -81,7 +98,7 @@ The exploration read-only notice is a text block in the new user message, **not*
 system-prompt suffix: a different system prompt would give explorations a different
 cache namespace from the trunk they fork from.
 
-## 5. The six invariants (each has a test)
+## 5. The seven invariants (each has a test)
 
 1. Every node has exactly one parent.
 2. Reference edges point only at earlier-created nodes (checked on log sequence, not
@@ -90,6 +107,8 @@ cache namespace from the trunk they fork from.
 4. The trunk only receives explicit grafts.
 5. Explorations do not change the disk.
 6. Context is derived deterministically from (leaf, reference edges, archived set).
+7. An aborted turn is billed and never re-read: its tokens are in the ledger, its payload
+   is in no future request, and the cursor sits on its parent.
 
 ## 6. Decisions the startup prompt left open
 

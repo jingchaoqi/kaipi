@@ -11,6 +11,7 @@ from kaipi.model import (
     EdgeAdded,
     Event,
     Node,
+    NodeAborted,
     NodeArchived,
     NodeCompleted,
     NodeCreated,
@@ -61,6 +62,9 @@ def fold(events: list[Event]) -> State:
                 n.context_tokens, n.dropped_thinking = ev.context_tokens, ev.dropped_thinking
                 n.tree, n.paths, n.guard_dirty = ev.tree, list(ev.paths), ev.guard_dirty
                 n.completed = True
+            case NodeAborted():
+                n = s.nodes[ev.id]
+                n.payload, n.usage, n.status = ev.payload, ev.usage, "aborted"
             case EdgeAdded():
                 s.edges.append(ev.edge)
             case NodeArchived():
@@ -80,9 +84,10 @@ def fold(events: list[Event]) -> State:
             case SummaryGenerated():
                 s.nodes[ev.node_id].summary = ev.summary
                 s.summaries.append((ev.model, ev.usage))
-    # A node created but never completed (crash, Ctrl-C) is a tombstone: no half-frozen payloads.
+    # A node created but neither completed nor aborted (a crash, a kill) is a tombstone:
+    # no half-frozen payloads, and nothing to bill because nothing was recorded.
     for n in s.nodes.values():
-        if not n.completed and n.status != "tombstone":
+        if not n.completed and n.status == "live":
             n.status = "tombstone"
     return s
 

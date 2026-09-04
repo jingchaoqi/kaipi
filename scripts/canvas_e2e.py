@@ -218,6 +218,63 @@ def main() -> int:
         )
         pg.set_viewport_size({"width": 1500, "height": 950})
 
+        # the stop button: it has to appear while a turn runs, discard that turn, and say so
+        check(pg.locator("#stop").is_hidden(), "the stop button is hidden when idle")
+        bar = pg.evaluate("S.status")
+        check(
+            bar["model"] and bar["provider"] and "saved" in bar,
+            "the status bar carries provider, model and the savings breakdown",
+            f"{bar['provider']}/{bar['model']} window={bar['window']}",
+        )
+        check(
+            "/" in pg.inner_text("#burden") and "$" in pg.inner_text("#cost"),
+            "context window and cumulative spend are on screen",
+            pg.inner_text("#burden") + "  " + pg.inner_text("#cost"),
+        )
+        cost = pg.locator(".node .cost").first.text_content() or ""
+        check("$" in cost, "each node shows what that turn cost", cost)
+
+        # make the next turn slow enough to interrupt: its test run now blocks for 20s
+        (root / "test_app.py").write_text(
+            (root / "test_app.py").read_text() + "\n\nimport time\n\ntime.sleep(20)\n"
+        )
+        pg.fill("#input", "fix the bug in app.py and run the tests")
+        pg.press("#input", "Enter")
+        pg.wait_for_selector("#stop:not([hidden])", timeout=15000)
+        check(True, "the stop button appears while a turn is running")
+        pg.wait_for_function(
+            "[...document.querySelectorAll('.ln.cmd')]"
+            ".some(e => e.textContent.includes('test_app'))",
+            timeout=20000,
+        )
+        pg.click("#stop")
+        pg.wait_for_function("!document.querySelector('#send').disabled", timeout=20000)
+        time.sleep(0.6)
+        nodes = pg.evaluate("S.nodes")
+        dead = [n for n in nodes if n["status"] == "aborted"]
+        check(len(dead) == 1, "the stopped turn is kept as one aborted node", str(len(nodes)))
+        check(pg.locator(".node.aborted").count() == 1, "and is drawn as discarded on the canvas")
+        check(
+            pg.locator(".node.aborted .strike").count() == 1
+            and "已废弃" in (pg.locator(".node.aborted").first.text_content() or ""),
+            "struck through and labelled, so it cannot be mistaken for live context",
+        )
+        check(
+            pg.evaluate("S.leaf") == dead[0]["parent_id"],
+            "the cursor moved back to the parent: the next input is a sibling",
+        )
+        check(
+            "已停止" in pg.inner_text("#transcript"),
+            "the transcript says the turn was discarded",
+        )
+        saved = pg.evaluate("S.status.saved")
+        check(
+            saved["interrupt"]["tokens"] > 0,
+            "the discarded turn is counted as tokens kept out of the context",
+            str(saved["interrupt"]),
+        )
+        shot("aborted", pg)
+
         pg.click("#handoff")
         time.sleep(1.0)
         check(

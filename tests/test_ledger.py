@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 
 from kaipi import graph, ledger
-from kaipi.model import NodeArchived, ReferenceEdge, Usage
+from kaipi.model import (
+    EdgeAdded,
+    NodeAborted,
+    NodeArchived,
+    NodeCreated,
+    ReferenceEdge,
+    Usage,
+    new_id,
+)
 from kaipi.store import Log
 from tests.conftest import Builder
 
@@ -146,3 +154,39 @@ def test_a_project_file_cannot_redirect_credentials(
     )
     hostile.unlink()
     assert ledger.Pricing.load().providers["mine"]["base_url"] == "http://localhost:8000/v1"
+
+
+def test_savings_are_counted_per_kind(log: Log, b: Builder, tree: dict[str, str]) -> None:
+    """The three shapes that keep tokens out of the trunk, each measured on its own terms."""
+    pricing = ledger.Pricing.load()
+    st = log.state
+
+    # an exploration nobody grafted: its own tokens never entered the trunk
+    saved = ledger.saved_by_kind(st, pricing)
+    assert saved["exploration"][0] == ledger.own_tokens(st, tree["b"])
+    assert saved["graft"] == (0, 0.0) and saved["interrupt"] == (0, 0.0)
+
+    # a graft carries the leaf, not the whole branch
+    dst = b.node(tree["a1"], "use it", tokens=400)
+    log.append(EdgeAdded(edge=ReferenceEdge(src_id=tree["b"], dst_id=dst, depth="leaf")))
+    saved = ledger.saved_by_kind(log.state, pricing)
+    sizes = ledger.graft_preview(
+        log.state, tree["a1"], ReferenceEdge(src_id=tree["b"], dst_id=dst, depth="leaf")
+    )
+    assert saved["graft"][0] == sizes["branch"] - sizes["leaf"]
+
+    # an interrupted turn: everything it produced stays out of every future context
+    dead = new_id()
+    log.append(NodeCreated(id=dead, parent_id=dst, model="fake"))
+    log.append(
+        NodeAborted(
+            id=dead,
+            payload=[{"role": "assistant", "content": [{"type": "text", "text": "x" * 400}]}],
+            usage=Usage(output=99),
+        )
+    )
+    st = log.state
+    assert st.nodes[dead].status == "aborted"
+    saved = ledger.saved_by_kind(st, pricing)
+    assert saved["interrupt"][0] > 90, "the discarded turn is measured, not ignored"
+    assert st.nodes[dead].id not in {n.id for n in graph.live_leaves(st)}

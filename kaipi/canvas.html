@@ -57,6 +57,12 @@
   .node.explore rect.card { stroke: var(--explore); }
   .node.archived { opacity: .5; }
   .node.archived rect.card { stroke-dasharray: 4 3; }
+  /* an aborted turn: struck through, in the warning colour, and it never enters context */
+  .node.aborted rect.card { stroke: var(--red); stroke-dasharray: 3 3; fill: var(--red-soft); }
+  .node.aborted text { fill: var(--red); }
+  .node .cost { font: 500 10px var(--mono); fill: var(--muted); }
+  .node.aborted .strike { stroke: var(--red); stroke-width: 1.5; opacity: .6; }
+  .edge.aborted { stroke: var(--red); stroke-dasharray: 3 3; opacity: .5; }
   .node.current rect.card { stroke-width: 2.5; }
   .node.current rect.halo { fill: none; stroke: var(--trunk); stroke-opacity: .25; stroke-width: 8; rx: 12; }
   .node.explore.current rect.halo { stroke: var(--explore); }
@@ -149,10 +155,13 @@
 <body>
 <header>
   <div class="brand">kaipi<small id="sess" class="mono"></small></div>
-  <div class="stat"><b id="burden">–</b><span>主干负担 · 每轮重付</span></div>
-  <div class="stat"><b id="cost">–</b><span>会话花费</span></div>
+  <div class="stat"><b id="model">–</b><span id="where2">模型 · 工作目录</span></div>
+  <div class="stat"><b id="burden">–</b><span>上下文 · 每轮重付</span></div>
+  <div class="stat"><b id="cost">–</b><span>累计花费</span></div>
+  <div class="stat saved" id="savedstat" title=""><b id="saved">–</b><span>累计省下</span></div>
   <div class="cur">当前 <b id="curid">root</b> <span id="curkind" class="tag">主干</span></div>
   <div class="spacer"></div>
+  <button id="stop" class="danger" hidden title="停止当前回合（这一轮作废，不进上下文，但已花的记账）">停止</button>
   <button id="fit" title="适应画面">适应画面</button>
   <button id="handoff" title="把会话交回终端（等同输入 /cli）">移交到终端 /cli</button>
 </header>
@@ -242,7 +251,7 @@ function render() {
   for (const n of S.nodes) {
     if (n.status === 'tombstone' || !n.parent_id || !pos[n.id]) continue;
     const a = pos[n.parent_id], b = pos[n.id];
-    const cls = ['edge', T.has(n.id) && T.has(n.parent_id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : ''].join(' ');
+    const cls = ['edge', T.has(n.id) && T.has(n.parent_id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : '', n.status === 'aborted' ? 'aborted' : ''].join(' ');
     E.insertAdjacentHTML('beforeend', `<path class="${cls}" d="M${X(a) + NW} ${Y(a) + NH / 2} C ${X(a) + NW + 40} ${Y(a) + NH / 2}, ${X(b) - 40} ${Y(b) + NH / 2}, ${X(b)} ${Y(b) + NH / 2}"/>`);
   }
   for (const e of S.edges) {
@@ -252,23 +261,37 @@ function render() {
   for (const n of S.nodes) {
     if (n.status === 'tombstone' || !pos[n.id]) continue;
     const p = pos[n.id];
-    const cls = ['node', T.has(n.id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : '', n.id === S.leaf ? 'current' : ''].join(' ');
+    const cls = ['node', T.has(n.id) ? 'trunk' : 'explore', n.status === 'archived' ? 'archived' : '', n.status === 'aborted' ? 'aborted' : '', n.id === S.leaf ? 'current' : ''].join(' ');
     const label = clip(n.input, 24);
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('class', cls); g.setAttribute('transform', `translate(${X(p)},${Y(p)})`); g.dataset.id = n.id;
     g.innerHTML = `<rect class="halo" x="-4" y="-4" width="${NW + 8}" height="${NH + 8}"/>
       <rect class="card" width="${NW}" height="${NH}"/>
-      <text class="id" x="12" y="19">${short(n.id)}${n.status === 'archived' ? ' · 已归档' : ''}</text>
-      <text class="own" x="${NW - 12}" y="19">+${fmt(n.own)}</text>
+      <text class="id" x="12" y="19">${short(n.id)}${{ archived: ' · 已归档', aborted: ' · 已废弃' }[n.status] || ''}</text>
+      <text class="own" x="${NW - 12}" y="19">${n.status === 'aborted' ? '不进上下文' : '+' + fmt(n.own)}</text>
       <text x="12" y="41">${label}</text>
+      <text class="cost" x="12" y="${NH - 8}">$${(n.cost || 0).toFixed(4)}</text>
+      ${n.status === 'aborted' ? `<line class="strike" x1="8" y1="${NH / 2}" x2="${NW - 8}" y2="${NH / 2}"/>` : ''}
       ${n.id === S.trunk ? `<text class="pin" x="${NW - 26}" y="43" title="主干叶子">📌</text>` : ''}
       ${n.grafts.length ? `<rect class="dot" x="4" y="${NH - 8}" width="${Math.min(40, 8 * n.grafts.length)}" height="4"><title>${n.grafts.length} 处嫁接</title></rect>` : ''}`;
     N.appendChild(g);
   }
   $('#empty').style.display = S.nodes.length ? 'none' : 'flex';
-  $('#sess').textContent = ' ' + S.session + ' · ' + S.model;
-  $('#burden').textContent = fmt(S.burden);
+  $('#sess').textContent = ' ' + S.session;
+  const bar = S.status || {};
+  $('#model').textContent = (bar.provider || '?') + '/' + (bar.model || S.model);
+  $('#where2').textContent = (bar.cwd || '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, '…/');
+  $('#burden').textContent = fmt(S.burden) + (bar.window ? ' / ' + Math.round(bar.window / 1000) + 'k' : '');
   $('#cost').textContent = '$' + S.cost.toFixed(4);
+  const kinds = { exploration: '探索分支未并入主干', graft: '嫁接带结论而非整条分支', interrupt: '打断的回合不进上下文' };
+  const saved = bar.saved || {};
+  const savedTok = Object.values(saved).reduce((a, x) => a + x.tokens, 0);
+  const savedCost = Object.values(saved).reduce((a, x) => a + x.cost, 0);
+  $('#saved').textContent = fmt(savedTok) + '/轮 · $' + savedCost.toFixed(4);
+  $('#savedstat').title = Object.entries(saved)
+    .filter(([, x]) => x.tokens)
+    .map(([k, x]) => `${kinds[k]}：${fmt(x.tokens)}/轮，已省 $${x.cost.toFixed(4)}`)
+    .join('\n') || '还没有产生节省：探索、嫁接、打断都会记在这里';
   $('#curid').textContent = short(S.leaf);
   $('#wherenode').textContent = short(S.leaf);
   const ex = isExploration();
@@ -278,6 +301,8 @@ function render() {
   $('#explab').classList.toggle('off', ex || !S.nodes.length);  // only meaningful on the trunk leaf
   $('#guardbar').classList.toggle('show', S.dirty);
   $('#send').disabled = S.busy;
+  $('#stop').hidden = !S.busy;
+  if (!S.busy) $('#stop').disabled = false;
   renderChips();
   renderTranscript();
   if (!fitted && S.nodes.length) { fit(pos); fitted = true; } else ensureVisible(pos);
@@ -494,6 +519,11 @@ function liveBlock(text, explore) {
   d.innerHTML = `<div class="who"><span>正在运行</span>${explore || isExploration() ? '<span class="exp">探索</span>' : ''}</div><div class="q">${esc(text)}</div><div class="stream"></div><div class="thinking">模型思考中</div>`;
   $('#transcript').appendChild(d); $('#transcript').scrollTop = $('#transcript').scrollHeight;
 }
+$('#stop').onclick = async () => {
+  $('#stop').disabled = true;
+  try { await api.post('/api/stop', {}); } catch (e) { toast('停止失败：' + e.message); }
+};
+
 async function handoff() {
   try { await api.post('/api/handoff', {}); } catch (e) { /* server is going away */ }
   $('#overlay').classList.add('show');
@@ -502,11 +532,19 @@ const es = new EventSource(withToken('/api/events'));  // EventSource cannot set
 es.onmessage = ev => {
   const e = JSON.parse(ev.data); const live = $('#transcript .live');
   if (e.type === 'handoff') { $('#overlay').classList.add('show'); es.close(); return; }
-  if (e.type === 'done') { live?.remove(); refresh().then(() => { if (e.dirty) toast('探索分支改动了工作树，请处理', 5000); }); return; }
-  if (e.type === 'error') { if (live) live.querySelector('.thinking')?.remove(); sysLine('错误：' + e.text); refresh(); return; }
+  if (e.type === 'done') { live?.remove(); $('#stop').hidden = true; refresh().then(() => { if (e.dirty) toast('探索分支改动了工作树，请处理', 5000); }); return; }
+  if (e.type === 'aborted') {
+    live?.remove();
+    $('#stop').hidden = true;
+    $('#stop').disabled = false;
+    sysLine('已停止：这一轮作废，不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。');
+    refresh();
+    return;
+  }
+  if (e.type === 'error') { $('#stop').hidden = true; if (live) live.querySelector('.thinking')?.remove(); sysLine('错误：' + e.text); refresh(); return; }
   if (!live) return;
   const st = live.querySelector('.stream');
-  if (e.type === 'start') { $('#send').disabled = true; return; }
+  if (e.type === 'start') { $('#send').disabled = true; $('#stop').hidden = false; return; }
   if (['text', 'cmd', 'out', 'guard', 'stop', 'ledger'].includes(e.type)) {
     st.insertAdjacentHTML('beforeend', line({ kind: e.type, text: e.text }));
     $('#transcript').scrollTop = $('#transcript').scrollHeight;
