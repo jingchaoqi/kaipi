@@ -121,6 +121,25 @@ def test_max_steps_and_refusal(log: Log, tmp_path: Path) -> None:
     assert ("stop", "refusal") in seen
 
 
+def test_snapshots_work_without_a_configured_git_identity(
+    log: Log, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git commit-tree` refuses to run where no user.email is set, which would leave every
+    snapshot unpinned and rewind broken. kaipi signs its own snapshots."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "nonexistent"))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "nonexistent"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "a.txt").write_text("one")
+
+    tree = guard.snapshot(tmp_path)
+    assert tree
+    guard.keep(tmp_path, "s/n", tree)
+    pinned = subprocess.run(
+        ["git", "rev-parse", "--verify", "-q", "refs/kaipi/s/n"], cwd=tmp_path, capture_output=True
+    )
+    assert pinned.returncode == 0, "the snapshot was not pinned, so gc could prune it"
+
+
 def _git_repo(path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=path, check=True)
     subprocess.run(
