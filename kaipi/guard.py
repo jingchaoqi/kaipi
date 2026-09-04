@@ -22,7 +22,17 @@ WARNING = (
 
 
 def _run(cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
-    env = {**os.environ, "GIT_INDEX_FILE": str((cwd / ".kaipi" / "index").resolve())}
+    # kaipi's snapshot commits are kaipi's own, so they carry kaipi's identity rather than
+    # the user's: `commit-tree` refuses to run at all where no git identity is configured,
+    # which would leave every snapshot unpinned and rewind broken.
+    env = {
+        **os.environ,
+        "GIT_INDEX_FILE": str((cwd / ".kaipi" / "index").resolve()),
+        "GIT_AUTHOR_NAME": "kaipi",
+        "GIT_AUTHOR_EMAIL": "kaipi@localhost",
+        "GIT_COMMITTER_NAME": "kaipi",
+        "GIT_COMMITTER_EMAIL": "kaipi@localhost",
+    }
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=False, env=env)
 
 
