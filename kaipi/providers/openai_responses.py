@@ -8,20 +8,16 @@ from typing import Any
 import httpx
 
 from kaipi.ledger import estimate_tokens
-from kaipi.model import Message, Usage
-from kaipi.providers import BASH_TOOL_DESCRIPTION, Reply
+from kaipi.model import Message, Usage, blocks, text_of
+from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
 
+MAX_TOKENS = 16_000
 BASH_TOOL: dict[str, Any] = {
     "type": "function",
     "name": "bash",
     "description": BASH_TOOL_DESCRIPTION,
     "strict": True,
-    "parameters": {
-        "type": "object",
-        "properties": {"command": {"type": "string"}},
-        "required": ["command"],
-        "additionalProperties": False,
-    },
+    "parameters": BASH_PARAMETERS,
 }
 
 
@@ -30,12 +26,7 @@ def to_items(messages: list[Message]) -> list[dict[str, Any]]:
     model keeps its chain of thought across tool calls without server-side state."""
     items: list[dict[str, Any]] = []
     for m in messages:
-        blocks = (
-            m["content"]
-            if isinstance(m["content"], list)
-            else [{"type": "text", "text": m["content"]}]
-        )
-        for b in blocks:
+        for b in blocks(m["content"]):
             t = b.get("type")
             if t == "text":
                 if m["role"] == "user":
@@ -59,12 +50,11 @@ def to_items(messages: list[Message]) -> list[dict[str, Any]]:
                     }
                 )
             elif t == "tool_result":
-                c = b.get("content", "")
                 items.append(
                     {
                         "type": "function_call_output",
                         "call_id": b["tool_use_id"],
-                        "output": c if isinstance(c, str) else "\n".join(x["text"] for x in c),
+                        "output": text_of(b.get("content", "")),
                     }
                 )
             elif t == "reasoning":
@@ -110,11 +100,8 @@ def usage_from(u: dict[str, Any]) -> Usage:
 
 
 class OpenAIResponsesProvider:
-    def __init__(
-        self, model: str, *, base_url: str, api_key: str, max_tokens: int = 16_000
-    ) -> None:
+    def __init__(self, model: str, *, base_url: str, api_key: str) -> None:
         self.model = model
-        self.max_tokens = max_tokens
         self.client = httpx.Client(
             base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}, timeout=600
         )
@@ -127,7 +114,7 @@ class OpenAIResponsesProvider:
             "tools": [BASH_TOOL],
             "store": False,
             "include": ["reasoning.encrypted_content"],
-            "max_output_tokens": self.max_tokens,
+            "max_output_tokens": MAX_TOKENS,
         }
         r = self.client.post("/responses", json=body)
         r.raise_for_status()

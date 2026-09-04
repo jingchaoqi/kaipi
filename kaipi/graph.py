@@ -53,6 +53,14 @@ def lca(state: State, a: str, b: str) -> str | None:
     return None
 
 
+def path_below_lca(state: State, node_id: str, leaf_id: str | None) -> list[Node]:
+    """The part of node_id's lineage that leaf_id does not already have. This is what
+    both a `branch` graft inlines and a `leaf+summary` graft summarises (§2.2)."""
+    path = lineage(state, node_id)
+    top = lca(state, node_id, leaf_id) if leaf_id else None
+    return path[[n.id for n in path].index(top) + 1 :] if top is not None else path
+
+
 def fork_point(state: State, leaf_id: str) -> str | None:
     """Nearest node on leaf's lineage (leaf included) with >= 2 live children."""
     for n in reversed(live_lineage(state, leaf_id)):
@@ -78,6 +86,12 @@ def trunk(state: State) -> str | None:
     if not leaves:
         return None
     return max(leaves, key=lambda n: (depth(state, n.id), n.seq)).id
+
+
+def is_exploration(state: State, leaf_id: str | None, *, force: bool = False) -> bool:
+    """A turn is an exploration when it is asked for, or when it does not extend the
+    trunk. The first turn of a session is always the trunk (§2.3)."""
+    return bool(state.nodes) and (force or leaf_id != trunk(state))
 
 
 def on_trunk(state: State, node_id: str) -> bool:

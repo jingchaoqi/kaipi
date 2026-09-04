@@ -67,7 +67,7 @@ def run_turn(
         log.append(EdgeAdded(edge=e.model_copy(update={"dst_id": node_id})))
 
     messages: list[Message] = list(ctx.messages)
-    usage, last, dropped = Usage(), Usage(), 0
+    usage, last, dropped, dirty = Usage(), Usage(), 0, False
     tree0 = guard.snapshot(cwd)
     baseline = (tree0, guard.head(cwd)) if exploration and tree0 else None
     for _ in range(max_steps):
@@ -93,7 +93,7 @@ def run_turn(
         if baseline is not None and (guard.snapshot(cwd), guard.head(cwd)) != baseline:
             user["content"].append({"type": "text", "text": guard.WARNING})
             hook("guard", "working tree is dirty")
-            baseline = None  # warn once per turn
+            dirty, baseline = True, None  # warn once per turn
         messages.append(user)
     else:
         hook("stop", "max_steps")
@@ -111,6 +111,7 @@ def run_turn(
             dropped_thinking=dropped,
             tree=tree1,
             paths=guard.changed(cwd, tree0, tree1),
+            guard_dirty=dirty,
         )
     )
     return node_id

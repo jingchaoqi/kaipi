@@ -8,19 +8,16 @@ from typing import Any
 import httpx
 
 from kaipi.ledger import estimate_tokens
-from kaipi.model import Message, Usage
-from kaipi.providers import BASH_TOOL_DESCRIPTION, Reply
+from kaipi.model import Message, Usage, blocks, text_of
+from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
 
+MAX_TOKENS = 16_000
 BASH_TOOL: dict[str, Any] = {
     "functionDeclarations": [
         {
             "name": "bash",
             "description": BASH_TOOL_DESCRIPTION,
-            "parameters": {
-                "type": "object",
-                "properties": {"command": {"type": "string"}},
-                "required": ["command"],
-            },
+            "parameters": BASH_PARAMETERS,
         }
     ]
 }
@@ -29,13 +26,8 @@ BASH_TOOL: dict[str, Any] = {
 def to_contents(messages: list[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages:
-        blocks = (
-            m["content"]
-            if isinstance(m["content"], list)
-            else [{"type": "text", "text": m["content"]}]
-        )
         parts: list[dict[str, Any]] = []
-        for b in blocks:
+        for b in blocks(m["content"]):
             t = b.get("type")
             part: dict[str, Any]
             if t == "text":
@@ -43,8 +35,7 @@ def to_contents(messages: list[Message]) -> list[dict[str, Any]]:
             elif t == "tool_use":
                 part = {"functionCall": {"name": b["name"], "args": b["input"]}}
             elif t == "tool_result":
-                c = b.get("content", "")
-                text = c if isinstance(c, str) else "\n".join(x["text"] for x in c)
+                text = text_of(b.get("content", ""))
                 part = {"functionResponse": {"name": "bash", "response": {"output": text}}}
             else:
                 continue
@@ -98,11 +89,8 @@ def usage_from(u: dict[str, Any]) -> Usage:
 
 
 class GeminiProvider:
-    def __init__(
-        self, model: str, *, base_url: str, api_key: str, max_tokens: int = 16_000
-    ) -> None:
+    def __init__(self, model: str, *, base_url: str, api_key: str) -> None:
         self.model = model
-        self.max_tokens = max_tokens
         self.seq = 0
         self.client = httpx.Client(
             base_url=base_url, headers={"x-goog-api-key": api_key}, timeout=600
@@ -113,7 +101,7 @@ class GeminiProvider:
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": to_contents(messages),
             "tools": [BASH_TOOL],
-            "generationConfig": {"maxOutputTokens": self.max_tokens},
+            "generationConfig": {"maxOutputTokens": MAX_TOKENS},
         }
         r = self.client.post(f"/models/{self.model}:generateContent", json=body)
         r.raise_for_status()

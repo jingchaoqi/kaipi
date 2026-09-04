@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 import anthropic
@@ -12,6 +11,10 @@ from kaipi.model import Message, Usage
 from kaipi.providers import Reply
 
 BINDING_BETA = "thinking-binding-controls-2026-08-01"
+MAX_TOKENS = 32_000
+# kaipi never edits history; if it ever did, the API drops the affected thinking blocks
+# instead of failing the request, and the ledger counts them.
+PREFIX_MISMATCH = "drop_block"
 BASH_TOOL: dict[str, str] = {"type": "bash_20250124", "name": "bash"}
 
 
@@ -21,8 +24,6 @@ class AnthropicProvider:
         model: str,
         *,
         adaptive_thinking: bool = True,
-        max_tokens: int = 32_000,
-        prefix_mismatch: str = "drop_block",
         base_url: str | None = None,
         api_key: str | None = None,
         compat: bool = False,
@@ -38,41 +39,39 @@ class AnthropicProvider:
             base_url=base_url, api_key=api_key or None, auth_token=api_key or None
         )
         self.compat = compat
-        self.max_tokens = max_tokens
-        self.adaptive_thinking = adaptive_thinking
-        self.prefix_mismatch = prefix_mismatch
+        # Preserved thinking is first-party Anthropic only, and per-model (pricing.toml).
+        self.thinking = adaptive_thinking and not compat
 
     def _request(self, system: str, messages: list[Message], cache_points: list[int]) -> Any:
-        msgs = copy.deepcopy(messages)
+        # Copy-on-write: only the <= 4 marked messages are rebuilt, the rest are shared.
+        msgs = list(messages)
         for i in sorted({*cache_points, len(msgs) - 1}):  # <= 3 fixed + the moving end = 4 max
             blocks = msgs[i]["content"]
             if isinstance(blocks, list) and blocks:
-                blocks[-1]["cache_control"] = {"type": "ephemeral"}
+                marked = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+                msgs[i] = {**msgs[i], "content": [*blocks[:-1], marked]}
         body: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            "max_tokens": MAX_TOKENS,
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             "tools": [BASH_TOOL],
             "messages": msgs,
         }
-        if self.adaptive_thinking and not self.compat:
-            # Editing history is never done by kaipi; if it ever happens the API drops the
-            # affected thinking blocks instead of failing, and we count them in the ledger.
+        if self.thinking:
             body["thinking"] = {
                 "type": "adaptive",
-                "block_binding": {"prefix_mismatch_behavior": self.prefix_mismatch},
+                "block_binding": {"prefix_mismatch_behavior": PREFIX_MISMATCH},
             }
         return body
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         body = self._request(system, messages, cache_points)
-        headers = {"anthropic-beta": BINDING_BETA} if "thinking" in body else {}
+        # The SDK takes these three as arguments; everything else rides along as extra_body.
+        sdk = {k: body.pop(k) for k in ("model", "max_tokens", "messages")}
         with self.client.messages.stream(
-            model=body["model"],
-            max_tokens=body["max_tokens"],
-            messages=body["messages"],
-            extra_body={k: v for k, v in body.items() if k in ("system", "tools", "thinking")},
-            extra_headers=headers,
+            **sdk,
+            extra_body=body,
+            extra_headers={"anthropic-beta": BINDING_BETA} if self.thinking else {},
         ) as stream:
             msg = stream.get_final_message()
         content = [b.model_dump(mode="json", exclude_none=True) for b in msg.content]

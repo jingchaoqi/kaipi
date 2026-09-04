@@ -59,7 +59,7 @@ def fold(events: list[Event]) -> State:
                 n = s.nodes[ev.id]
                 n.payload, n.grafts, n.usage = ev.payload, ev.grafts, ev.usage
                 n.context_tokens, n.dropped_thinking = ev.context_tokens, ev.dropped_thinking
-                n.tree, n.paths = ev.tree, list(ev.paths)
+                n.tree, n.paths, n.guard_dirty = ev.tree, list(ev.paths), ev.guard_dirty
                 n.completed = True
             case EdgeAdded():
                 s.edges.append(ev.edge)

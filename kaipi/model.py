@@ -13,6 +13,20 @@ Depth = Literal["leaf", "leaf+summary", "branch"]
 Message = dict[str, Any]  # one API message: {"role": ..., "content": [...]} with raw blocks
 
 
+def blocks(content: Any) -> list[dict[str, Any]]:
+    """A message's (or tool_result's) content as blocks. kaipi always writes block lists;
+    a bare string is what some endpoints hand back, so every reader goes through here."""
+    return [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+
+
+def texts(content: Any) -> list[str]:
+    return [b["text"] for b in blocks(content) if b.get("type") == "text"]
+
+
+def text_of(content: Any) -> str:
+    return "\n".join(texts(content))
+
+
 def new_id() -> str:
     return str(ULID())
 
@@ -71,6 +85,7 @@ class Node(BaseModel):
     tree: str | None = None  # git tree of the working tree when the turn ended (rewind target)
     paths: list[str] = Field(default_factory=list)  # files this turn changed on disk
     dropped_thinking: int = 0  # thinking blocks the API dropped (prefix-binding mismatch)
+    guard_dirty: bool = False  # an exploration turn that changed the working tree (§6)
     summary: str | None = None
     completed: bool = False
 
@@ -108,6 +123,7 @@ class NodeCompleted(_Ev):
     dropped_thinking: int = 0
     tree: str | None = None
     paths: list[str] = Field(default_factory=list)
+    guard_dirty: bool = False
 
 
 class EdgeAdded(_Ev):

@@ -280,13 +280,13 @@ function render() {
   $('#send').disabled = S.busy;
   renderChips();
   renderTranscript();
-  if (!fitted && S.nodes.length) { fit(); fitted = true; } else ensureVisible(pos);
+  if (!fitted && S.nodes.length) { fit(pos); fitted = true; } else ensureVisible(pos);
   applyView();
 }
 function applyView() { $('#view').setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`); }
-function bbox() { const pos = layout(); const xs = Object.values(pos); if (!xs.length) return { w: 0, h: 0 }; return { w: Math.max(...xs.map(p => p.x)) * GX + NW, h: Math.max(...xs.map(p => p.y)) * GY + NH }; }
-function fit() {
-  const { w, h } = bbox(); const r = $('#svg').getBoundingClientRect();
+function bbox(pos) { const xs = Object.values(pos); if (!xs.length) return { w: 0, h: 0 }; return { w: Math.max(...xs.map(p => p.x)) * GX + NW, h: Math.max(...xs.map(p => p.y)) * GY + NH }; }
+function fit(pos) {
+  const { w, h } = bbox(pos); const r = $('#svg').getBoundingClientRect();
   const k = Math.min(1.15, (r.width - 80) / Math.max(w, 1), (r.height - 120) / Math.max(h, 1));
   view = { k, x: 40, y: Math.max(40, (r.height - 60 - h * k) / 2) }; applyView();
 }
@@ -305,7 +305,7 @@ svg.addEventListener('pointerdown', e => { if (e.target.closest('.node')) return
 svg.addEventListener('pointermove', e => { if (!pan) return; view.x = pan.vx + e.clientX - pan.x; view.y = pan.vy + e.clientY - pan.y; applyView(); });
 svg.addEventListener('pointerup', () => { pan = null; svg.classList.remove('panning'); });
 svg.addEventListener('wheel', e => { e.preventDefault(); const r = svg.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const k = Math.min(2.5, Math.max(.25, view.k * (e.deltaY < 0 ? 1.1 : 0.9))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; applyView(); }, { passive: false });
-$('#fit').onclick = fit;
+$('#fit').onclick = () => fit(layout());
 
 // ---------- drag nodes ----------
 let drag = null; const ghost = $('#ghost');
@@ -399,7 +399,9 @@ async function renderChips() {
     chip.querySelector('.tools').onclick = ev => { ev.stopPropagation(); toolsPopover(chip, e, n); };
     drop.appendChild(chip);
     try {
-      const pv = await api.get(`/api/preview?src=${e.src_id}&tools=${e.include_tool_outputs.join(',')}`);
+      const key = e.src_id + '|' + e.include_tool_outputs.join(',');
+      if (!previews.has(key)) previews.set(key, await api.get(`/api/preview?src=${e.src_id}&tools=${e.include_tool_outputs.join(',')}`));
+      const pv = previews.get(key);
       const sel = chip.querySelector('select');
       for (const o of sel.options) o.textContent = `${o.value} +${fmt(pv.sizes[o.value])}`;
       total += pv.sizes[e.depth]; parts.push(`${short(n.id)} ${e.depth} +${fmt(pv.sizes[e.depth])}`);
@@ -428,6 +430,8 @@ function toolsPopover(chip, e, n) {
 
 // ---------- transcript ----------
 const opened = new Set();
+const fullHtml = new Map();   // node id -> rendered transcript (frozen payload, fetched once)
+const previews = new Map();   // "src|tools" -> per-depth sizes (a graft of a frozen node)
 const notes = [];  // slash-command output: not part of any node, but must not vanish
 function renderTranscript() {
   const box = $('#transcript'); const T = trunkSet();
@@ -438,7 +442,12 @@ function renderTranscript() {
       <div class="q">${esc(n.input)}</div><div class="a">${esc(n.answer)}</div>
       ${n.tools.length || n.grafts.length ? `<div class="more">${n.tools.length ? `展开 ${n.tools.length} 条命令与完整记录` : '展开完整记录（含嫁接块）'}</div><div class="full"></div>` : ''}`;
     const more = d.querySelector('.more');
-    if (more) more.onclick = async () => { opened.add(n.id); d.classList.add('open'); const full = d.querySelector('.full'); if (!full.childElementCount) full.innerHTML = (await api.get('/api/node/' + n.id)).map(line).join(''); };
+    if (more) more.onclick = async () => {
+      opened.add(n.id); d.classList.add('open');
+      const full = d.querySelector('.full');
+      if (!fullHtml.has(n.id)) fullHtml.set(n.id, (await api.get('/api/node/' + n.id)).map(line).join(''));
+      full.innerHTML = fullHtml.get(n.id);   // payloads are frozen, so one fetch per node
+    };
     if (opened.has(n.id)) more?.click();
     box.appendChild(d);
   }
@@ -446,10 +455,11 @@ function renderTranscript() {
   if (live) box.appendChild(live);
   box.scrollTop = box.scrollHeight;
 }
+// The one place a transcript line is rendered: both the replay and the live stream use it.
+const LINE_CLASS = { user: 'q', assistant: 'a', text: 'a' };
 function line(e) {
-  const k = e.kind === 'user' ? 'q' : e.kind === 'assistant' ? 'a' : e.kind;
   const t = e.kind === 'out' ? e.text.slice(0, 4000) : e.text;
-  return `<div class="ln ${k}">${esc(t)}</div>`;
+  return `<div class="ln ${LINE_CLASS[e.kind] || e.kind}">${esc(t)}</div>`;
 }
 
 // ---------- composer & streaming ----------
@@ -498,8 +508,7 @@ es.onmessage = ev => {
   const st = live.querySelector('.stream');
   if (e.type === 'start') { $('#send').disabled = true; return; }
   if (['text', 'cmd', 'out', 'guard', 'stop', 'ledger'].includes(e.type)) {
-    const map = { text: 'a', guard: 'guard' };
-    st.insertAdjacentHTML('beforeend', `<div class="ln ${map[e.type] || e.type}">${esc(e.type === 'out' ? e.text.slice(0, 4000) : e.text)}</div>`);
+    st.insertAdjacentHTML('beforeend', line({ kind: e.type, text: e.text }));
     $('#transcript').scrollTop = $('#transcript').scrollHeight;
   }
 };

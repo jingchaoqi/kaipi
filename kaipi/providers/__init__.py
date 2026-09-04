@@ -12,6 +12,12 @@ from kaipi.model import Message, Usage
 BASH_TOOL_DESCRIPTION = (
     "Run a bash command in the project directory and return combined stdout/stderr."
 )
+BASH_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {"command": {"type": "string"}},
+    "required": ["command"],
+    "additionalProperties": False,
+}
 
 
 class Reply(BaseModel):
@@ -41,6 +47,9 @@ class ProviderConfig(BaseModel):
     api: Api
     base_url: str = ""
     api_key_env: str = ""
+    # First-party Anthropic. The `-anthropic` gateways speak the same wire protocol but
+    # not the preserved-thinking beta, so the capability is a table column, not a name test.
+    native_anthropic: bool = False
 
 
 def _chat(url: str, env: str) -> ProviderConfig:
@@ -55,7 +64,9 @@ def _msgs(url: str, env: str) -> ProviderConfig:
 # variants are the endpoints these vendors document for Claude Code; kaipi's explicit
 # cache breakpoints and Anthropic-shaped usage work there, preserved-thinking does not.
 BUILTIN: dict[str, ProviderConfig] = {
-    "anthropic": ProviderConfig(api="anthropic", api_key_env="ANTHROPIC_API_KEY"),
+    "anthropic": ProviderConfig(
+        api="anthropic", api_key_env="ANTHROPIC_API_KEY", native_anthropic=True
+    ),
     "openai": ProviderConfig(
         api="openai-responses", base_url="https://api.openai.com/v1", api_key_env="OPENAI_API_KEY"
     ),
@@ -101,9 +112,10 @@ def build(
             raise ValueError(f"{spec}: not in pricing.toml; use <provider>/<model>")
     elif model.startswith(f"{name}/"):  # a pricing entry keyed as <provider>/<model id>
         model = model[len(name) + 1 :]
-    cfg = {**BUILTIN, **providers}.get(name)
+    known = {**BUILTIN, **providers}
+    cfg = known.get(name)
     if cfg is None:
-        raise ValueError(f"unknown provider {name!r}; known: {', '.join({**BUILTIN, **providers})}")
+        raise ValueError(f"unknown provider {name!r}; known: {', '.join(known)}")
     key = os.environ.get(cfg.api_key_env, "") if cfg.api_key_env else ""
     base = os.environ.get(f"{name.upper().replace('-', '_')}_BASE_URL", cfg.base_url).rstrip("/")
     if cfg.api == "anthropic":
@@ -114,7 +126,7 @@ def build(
             adaptive_thinking=adaptive_thinking,
             base_url=base or None,
             api_key=key or None,
-            compat=name != "anthropic",
+            compat=not cfg.native_anthropic,
         )
     if cfg.api == "openai-responses":
         from kaipi.providers.openai_responses import OpenAIResponsesProvider

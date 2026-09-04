@@ -13,6 +13,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from kaipi.store import kaipi_dir
+
 WARNING = (
     "<kaipi:guard>WARNING: the working tree changed during an exploration branch. "
     "Explorations are read-only; the user will be asked to revert.</kaipi:guard>"
@@ -48,9 +50,7 @@ def snapshot(cwd: Path) -> str | None:
     top = root(cwd)
     if top is None:
         return None
-    from kaipi.store import kaipi_dir
-
-    kaipi_dir(cwd)
+    kaipi_dir(cwd)  # the snapshot must be able to exclude it, so it has to exist
     skip = (cwd.resolve() / ".kaipi").relative_to(top.resolve()).as_posix()
     _git(cwd, "add", "-A", "--", f":(top,exclude){skip}", ":(top)")
     return _git(cwd, "write-tree").strip() or None

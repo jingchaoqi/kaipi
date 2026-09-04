@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import BaseModel, Field
 
 from kaipi import agent, context, graph, guard, ledger, summarize
 from kaipi.model import (
@@ -97,6 +97,14 @@ def refuse_if_open(cwd: Path) -> None:
         raise typer.Exit(1)
 
 
+class Cursor(BaseModel):
+    """`.kaipi/cursor.json`: where the user is standing. kaipi is its only writer."""
+
+    session: str = ""
+    leaf: str | None = None
+    pending: list[ReferenceEdge] = Field(default_factory=list)
+
+
 class Session:
     """Everything a command needs: the log, the cursor (current leaf + pending grafts),
     pricing and lazily built providers."""
@@ -105,29 +113,24 @@ class Session:
         self.cwd = cwd
         self.pricing = ledger.Pricing.load()
         self.cursor_path = cwd / ".kaipi" / "cursor.json"
-        cur: dict[str, object] = {}
+        cur = Cursor()
         if self.cursor_path.exists() and not new:
-            cur = json.loads(self.cursor_path.read_text())
+            cur = Cursor.model_validate_json(self.cursor_path.read_text())
         existing = list_sessions(cwd)
         if new or not existing:
-            self.log = self._start(cur)
+            self.log = self._start()
+            cur = Cursor()
         else:
-            name = str(cur.get("session", existing[-1].name))
-            path = sessions_dir(cwd) / name
+            path = sessions_dir(cwd) / (cur.session or existing[-1].name)
             self.log = Log(path if path.exists() else existing[-1])
-        self.leaf: str | None = str(cur["leaf"]) if cur.get("leaf") else None
-        if self.leaf and self.log.state.nodes.get(self.leaf, None) is None:
-            self.leaf = None
-        raw_edges = cur.get("pending", [])
-        self.pending = (
-            [ReferenceEdge(**e) for e in raw_edges] if isinstance(raw_edges, list) else []
-        )
+        self.leaf = cur.leaf if cur.leaf in self.log.state.nodes else None
+        self.pending = cur.pending
         if self.leaf is None:
             self.leaf = graph.trunk(self.log.state)
         self._provider: Provider | None = None
         self._cheap: Provider | None = None
 
-    def _start(self, cur: dict[str, object]) -> Log:
+    def _start(self) -> Log:
         model = os.environ.get("KAIPI_MODEL", self.pricing.model)
         system = BASE_PROMPT
         agents_md = self.cwd / "AGENTS.md"
@@ -139,20 +142,12 @@ class Session:
                 session_id=log.path.stem, cwd=str(self.cwd), model=model, system_prompt=system
             )
         )
-        cur.clear()
         return log
 
     def save(self) -> None:
         kaipi_dir(self.cwd)
-        self.cursor_path.write_text(
-            json.dumps(
-                {
-                    "session": self.log.path.name,
-                    "leaf": self.leaf,
-                    "pending": [e.model_dump() for e in self.pending],
-                }
-            )
-        )
+        cur = Cursor(session=self.log.path.name, leaf=self.leaf, pending=self.pending)
+        self.cursor_path.write_text(cur.model_dump_json())
 
     def _build(self, model: str) -> Provider:
         from kaipi.providers import ProviderConfig, build
@@ -249,27 +244,28 @@ def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
 
 
 def cmd_archive(s: Session, ref: str) -> None:
-    nid = s.resolve(ref)
-    ids = graph.subtree(s.log.state, nid)
-    before = ledger.trunk_burden(s.log.state)
-    s.log.append(NodeArchived(ids=ids))
-    if s.leaf in ids:
-        s.leaf = graph.trunk(s.log.state)
-    c, why = ledger.cache_color(s.log.state)
-    typer.echo(
-        f"archived {len(ids)} node(s) under {short(nid)} (restore with /restore {short(nid)})"
-    )
-    typer.echo(color(c, ledger.delta(before, ledger.trunk_burden(s.log.state))) + f"  ({why})")
+    nid = _set_status(s, ref, NodeArchived, "archived")
+    typer.echo(f"{DIM}restore with /restore {short(nid)}{RESET}")
 
 
 def cmd_restore(s: Session, ref: str) -> None:
+    _set_status(s, ref, NodeRestored, "restored")
+
+
+def _set_status(
+    s: Session, ref: str, event: type[NodeArchived] | type[NodeRestored], word: str
+) -> str:
+    """Archive or restore a whole subtree (one atomic operation, §2.1) and price it."""
     nid = s.resolve(ref)
     ids = graph.subtree(s.log.state, nid)
     before = ledger.trunk_burden(s.log.state)
-    s.log.append(NodeRestored(ids=ids))
+    s.log.append(event(ids=ids))
+    if s.leaf not in s.log.state.nodes or s.log.state.nodes[s.leaf].status != "live":
+        s.leaf = graph.trunk(s.log.state)  # the cursor left with the subtree
     c, why = ledger.cache_color(s.log.state)
-    typer.echo(f"restored {len(ids)} node(s) under {short(nid)}")
+    typer.echo(f"{word} {len(ids)} node(s) under {short(nid)}")
     typer.echo(color(c, ledger.delta(before, ledger.trunk_burden(s.log.state))) + f"  ({why})")
+    return nid
 
 
 def cmd_trunk(s: Session, ref: str | None) -> None:
@@ -364,9 +360,6 @@ def cmd_sessions(cwd: Path) -> None:
         typer.echo(f"{p.stem}  {st.model}  {len(st.nodes)} node(s)")
 
 
-Hook = Callable[[str, str], None]
-
-
 def print_hook(kind: str, t: str) -> None:
     if kind == "text":
         typer.echo(t)
@@ -378,16 +371,18 @@ def print_hook(kind: str, t: str) -> None:
         typer.echo(f"{RED}exploration branch dirtied the working tree{RESET}")
     elif kind == "stop":
         typer.echo(f"{RED}stopped: {t}{RESET}")
+    elif kind == "ledger":
+        typer.echo(f"{DIM}{t}{RESET}")
 
 
 def run_input(
-    s: Session, text: str, hook: Hook = print_hook, *, explore: bool = False
+    s: Session, text: str, hook: agent.Hook = print_hook, *, explore: bool = False
 ) -> tuple[str, bool]:
     """Run one turn under the cursor. Returns (node id, working tree dirtied).
     `explore` forces an exploration even from the trunk leaf (the trunk is pinned in place)."""
     st = s.log.state
     t = graph.trunk(st)
-    exploration = bool(st.nodes) and (explore or s.leaf != t)
+    exploration = graph.is_exploration(st, s.leaf, force=explore)
     if exploration and s.leaf == t and st.trunk_pin != t:
         s.log.append(TrunkPinned(node_id=t))
     edges = s.pending
@@ -409,15 +404,11 @@ def run_input(
         f"[{short(nid)} {kind}] ${cost:.4f}  cache read "
         f"{ledger.fmt(n.usage.cache_read)}/{ledger.fmt(n.usage.context)}  {s.burden_line()}",
     )
-    dirty = exploration and guard.is_repo(s.cwd) and any(guard.WARNING in str(m) for m in n.payload)
-    return nid, dirty
+    return nid, n.guard_dirty
 
 
 def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
-    def hook(kind: str, t: str) -> None:
-        typer.echo(f"{DIM}{t}{RESET}") if kind == "ledger" else print_hook(kind, t)
-
-    nid, dirty = run_input(s, text, hook, explore=explore)
+    nid, dirty = run_input(s, text, explore=explore)
     if dirty:
         if typer.confirm(
             "revert working tree (git checkout -- . && git clean -fd)?", default=False

@@ -32,13 +32,11 @@ import smoke  # noqa: E402
 
 from kaipi import cli, server  # noqa: E402
 
-FAILS: list[str] = []
+CHECKS = smoke.Checks()  # same reporter (and same PASS/FAIL/SKIP wording) as the smoke test
 
 
 def check(ok: object, name: str, detail: object = "") -> None:
-    print(("  PASS " if ok else "  FAIL ") + name + (f"  {detail}" if detail else ""))
-    if not ok:
-        FAILS.append(name)
+    CHECKS.add(bool(ok), name, str(detail))
 
 
 def _box(pg: Any, selector: str) -> dict[str, float]:
@@ -232,9 +230,10 @@ def main() -> int:
         check(sent and sent == api_token, "the page carries the per-run token")
         browser.close()
 
-    print(("FAILED: " + ", ".join(FAILS)) if FAILS else "ALL CANVAS CHECKS PASSED")
+    failed = CHECKS.failed
+    print(f"{failed} FAILED" if failed else "ALL CANVAS CHECKS PASSED")
     print(f"{len(api.api.requests)} requests reached the mock endpoint")
-    return 1 if FAILS else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
