@@ -55,7 +55,15 @@ switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of A
   on `/anthropic`; both feed the ledger. Off-peak pricing is not modelled.
 - **Kimi**: `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `kimi-k2.5` on the OpenAI-style
   endpoint. On the Anthropic-style endpoint the 1M-context id is `kimi-k3[1m]`:
-  `KAIPI_MODEL=kimi-anthropic/kimi-k3[1m]`.
+  `KAIPI_MODEL=kimi-anthropic/kimi-k3[1m]`. The China platform is a separate endpoint with
+  separate keys and its own model list - a key from one does not work on the other - so
+  point kaipi at it explicitly:
+  `KIMI_BASE_URL=https://api.moonshot.cn/v1 MOONSHOT_API_KEY=... KAIPI_MODEL=kimi-k2.7-code`.
+  Verified live on 2026-09-05 against `api.moonshot.cn` with `kimi-k2.7-code`: requests,
+  the bash tool round-trip and the four usage counts all check out, and the endpoint returns
+  no cache fields at all on a short prompt, so the ledger reads 0 cache tokens rather than
+  guessing. Reasoning tokens arrive inside `completion_tokens`, so output is not
+  under-reported.
 - **GLM**: `glm-5.2`, `glm-5` pay-per-token; the Coding Plan is a flat subscription on the
   Anthropic-style endpoint with ids like `glm-5.2[1m]`: `KAIPI_MODEL=glm-anthropic/glm-5.2[1m]`.
 - **OpenCode Go / Zen**: one key for many vendors. Go is a flat $10/month, so its models
