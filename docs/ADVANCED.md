@@ -17,7 +17,13 @@ process on the machine are all refused.
 Endpoints: `GET /api/state`, `GET /api/node/<id>`, `GET /api/preview?src=&tools=`,
 `GET /api/rewind?id=`, `GET /api/events` (SSE), `POST /api/turn {text, explore}`,
 `/api/command {line}`, `/api/go`, `/api/archive`, `/api/restore`, `/api/pin`,
-`/api/rewind {id, mode}`, `/api/pending {edges}`, `/api/reset`, `/api/handoff`.
+`/api/rewind {id, mode}`, `/api/pending {edges}`, `/api/reset`, `/api/handoff`,
+`/api/stop`.
+
+`/api/stop` is the one call accepted while a turn is running - everything else is refused
+with 409 until it ends. It sets the turn's stop flag; the turn ends at the next step
+boundary, the running command is killed with its process group, and the node is recorded
+as `aborted`: billed, kept for display, never assembled into another request.
 
 ## Surfaces and the lock
 

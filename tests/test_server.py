@@ -3,13 +3,38 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
 import pytest
 
 from kaipi import cli, server
+from kaipi.model import Message, Usage
+from kaipi.providers import Reply
 from tests.test_cli import Echo
+
+
+class SlowEcho(Echo):
+    """Answers only after a while, and asks for a tool call first, so a stop has somewhere
+    to land: the real interruption points are the step boundary and the running command."""
+
+    def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+        time.sleep(0.15)
+        if len(messages) < 6:
+            return Reply(
+                content=[
+                    {
+                        "type": "tool_use",
+                        "id": f"t{len(messages)}",
+                        "name": "bash",
+                        "input": {"command": "sleep 5"},
+                    }
+                ],
+                stop_reason="tool_use",
+                usage=Usage(input_uncached=20, output=5),
+            )
+        return super().complete(system, messages, cache_points)
 
 
 @pytest.fixture
@@ -146,6 +171,35 @@ def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyp
     assert cli.lock_holder(tmp_path) is None  # dead pid is ignored
     cli.release_lock(tmp_path)
     assert not (tmp_path / ".kaipi" / "lock.json").exists()
+
+
+def test_stopping_a_turn_from_the_canvas(srv) -> None:  # type: ignore[no-untyped-def]
+    """The stop button is accepted while a turn is running - it is the only thing that is -
+    and what comes back is an aborted node the canvas can show as discarded."""
+    canvas, call, base, token = srv
+    canvas.s._provider = SlowEcho()
+    q = canvas.hub.subscribe()
+    assert call("/api/turn", {"text": "something long"}) == {"ok": True}
+    for _ in range(200):  # let the turn get going
+        if canvas.busy:
+            break
+        threading.Event().wait(0.01)
+    assert call("/api/pin", {"id": "x"})  # a normal verb is refused while busy
+    assert call("/api/stop", {}) == {"ok": True}
+    _wait(canvas)
+
+    events = []
+    while not q.empty():
+        events.append(json.loads(q.get_nowait()))
+    aborted = [e for e in events if e["type"] == "aborted"]
+    assert aborted, f"the canvas is told the turn was stopped: {[e['type'] for e in events]}"
+    st = call("/api/state")
+    nodes = st["nodes"]
+    assert isinstance(nodes, list) and nodes
+    dead = [n for n in nodes if n["status"] == "aborted"]
+    assert len(dead) == 1, "the discarded turn is visible on the canvas, marked aborted"
+    assert st["leaf"] == dead[0]["parent_id"], "the cursor moved back to the parent"
+    assert "saved" in st["status"] and "interrupt" in st["status"]["saved"]
 
 
 def test_the_api_refuses_everything_but_the_page_it_served(srv) -> None:  # type: ignore[no-untyped-def]

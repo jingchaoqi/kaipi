@@ -3,7 +3,11 @@ belongs to that node."""
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -12,6 +16,7 @@ from kaipi import context, guard
 from kaipi.model import (
     EdgeAdded,
     Message,
+    NodeAborted,
     NodeCompleted,
     NodeCreated,
     ReferenceEdge,
@@ -26,6 +31,15 @@ MAX_STEPS = 30
 Hook = Callable[[str, str], None]  # (kind, text): "text" | "cmd" | "out" | "guard" | "stop"
 
 
+class Interrupted(Exception):
+    """The user stopped the turn (Esc in the terminal, the canvas's stop button, Ctrl-C).
+    The node is already recorded as aborted when this is raised."""
+
+    def __init__(self, node_id: str, usage: Usage) -> None:
+        super().__init__(f"turn {node_id} was interrupted")
+        self.node_id, self.usage = node_id, usage
+
+
 def truncate(s: str, limit: int = MAX_TOOL_OUTPUT) -> str:
     if len(s) <= limit:
         return s
@@ -33,17 +47,51 @@ def truncate(s: str, limit: int = MAX_TOOL_OUTPUT) -> str:
     return f"{s[:half]}\n[kaipi: {len(s) - limit} chars omitted]\n{s[-half:]}"
 
 
-def run_bash(cmd: str, cwd: Path, timeout: int = 300) -> str:
+def run_bash(cmd: str, cwd: Path, timeout: int = 300, stop: threading.Event | None = None) -> str:
+    """The command runs in its own process group, so a stop kills the whole command rather
+    than just the shell: pressing Esc during a 30-second test run has to end it now."""
+    p = subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    deadline, note = time.monotonic() + timeout, ""
+    while True:
+        try:
+            out, err = p.communicate(timeout=0.1)
+            break
+        except subprocess.TimeoutExpired:
+            if stop is not None and stop.is_set():
+                note = "\n[kaipi: stopped by the user]"
+            elif time.monotonic() > deadline:
+                note = f"\n[kaipi: command timed out after {timeout}s]"
+            else:
+                continue
+            _kill(p)
+            out, err = p.communicate()
+            break
+    text = out + (("\n" + err) if err else "")
+    if p.returncode and not note:
+        text += f"\n[exit {p.returncode}]"
+    return truncate((text or "(no output)") + note)
+
+
+def _kill(p: subprocess.Popen[str]) -> None:
     try:
-        r = subprocess.run(
-            cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout
-        )
-        out = r.stdout + (("\n" + r.stderr) if r.stderr else "")
-        if r.returncode:
-            out += f"\n[exit {r.returncode}]"
-    except subprocess.TimeoutExpired:
-        out = f"[kaipi: command timed out after {timeout}s]"
-    return truncate(out or "(no output)")
+        os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+    except OSError:
+        p.kill()
+
+
+def _abort(log: Log, node_id: str, payload: list[Message], usage: Usage) -> Interrupted:
+    """Freeze what the model produced as an aborted node: kept so the user can see what was
+    thrown away, billed because it was really spent, never assembled into a request again."""
+    log.append(NodeAborted(id=node_id, payload=payload, usage=usage))
+    return Interrupted(node_id, usage)
 
 
 def run_turn(
@@ -57,8 +105,10 @@ def run_turn(
     cwd: Path,
     hook: Hook = lambda _k, _t: None,
     max_steps: int = MAX_STEPS,
+    stop: threading.Event | None = None,
 ) -> str:
-    """Create, run and freeze one node under leaf_id. Returns the new node id."""
+    """Create, run and freeze one node under leaf_id. Returns the new node id.
+    `stop` interrupts the turn at the next step boundary; so does Ctrl-C, at once."""
     state = log.state
     ctx = context.build(state, leaf_id, edges, text, guard=exploration)
     node_id = new_id()
@@ -70,33 +120,39 @@ def run_turn(
     usage, last, dropped, dirty = Usage(), Usage(), 0, False
     tree0 = guard.snapshot(cwd)
     baseline = (tree0, guard.head(cwd)) if exploration and tree0 else None
-    for _ in range(max_steps):
-        reply = provider.complete(ctx.system, messages, ctx.cache_points)
-        usage, last, dropped = usage + reply.usage, reply.usage, dropped + reply.dropped_thinking
-        messages.append({"role": "assistant", "content": reply.content})
-        for b in reply.content:
-            if b.get("type") == "text" and b["text"].strip():
-                hook("text", b["text"])
-        calls = [b for b in reply.content if b.get("type") == "tool_use"]
-        if reply.stop_reason != "tool_use" or not calls:
-            if reply.stop_reason in ("max_tokens", "refusal"):
-                hook("stop", reply.stop_reason)
-            break
-        results: list[dict[str, Any]] = []
-        for call in calls:
-            cmd = str(call["input"].get("command", ""))
-            hook("cmd", cmd)
-            out = run_bash(cmd, cwd)
-            hook("out", out)
-            results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
-        user: Message = {"role": "user", "content": results}
-        if baseline is not None and (guard.snapshot(cwd), guard.head(cwd)) != baseline:
-            user["content"].append({"type": "text", "text": guard.WARNING})
-            hook("guard", "working tree is dirty")
-            dirty, baseline = True, None  # warn once per turn
-        messages.append(user)
-    else:
-        hook("stop", "max_steps")
+    try:
+        for _ in range(max_steps):
+            if stop is not None and stop.is_set():
+                raise _abort(log, node_id, messages[ctx.payload_start :], usage)
+            reply = provider.complete(ctx.system, messages, ctx.cache_points)
+            usage = usage + reply.usage
+            last, dropped = reply.usage, dropped + reply.dropped_thinking
+            messages.append({"role": "assistant", "content": reply.content})
+            for b in reply.content:
+                if b.get("type") == "text" and b["text"].strip():
+                    hook("text", b["text"])
+            calls = [b for b in reply.content if b.get("type") == "tool_use"]
+            if reply.stop_reason != "tool_use" or not calls:
+                if reply.stop_reason in ("max_tokens", "refusal"):
+                    hook("stop", reply.stop_reason)
+                break
+            results: list[dict[str, Any]] = []
+            for call in calls:
+                cmd = str(call["input"].get("command", ""))
+                hook("cmd", cmd)
+                out = run_bash(cmd, cwd, stop=stop)
+                hook("out", out)
+                results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
+            user: Message = {"role": "user", "content": results}
+            if baseline is not None and (guard.snapshot(cwd), guard.head(cwd)) != baseline:
+                user["content"].append({"type": "text", "text": guard.WARNING})
+                hook("guard", "working tree is dirty")
+                dirty, baseline = True, None  # warn once per turn
+            messages.append(user)
+        else:
+            hook("stop", "max_steps")
+    except KeyboardInterrupt:  # Ctrl-C, which can land in the middle of a model call
+        raise _abort(log, node_id, messages[ctx.payload_start :], usage) from None
 
     tree1 = guard.snapshot(cwd)
     if tree1:

@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from pydantic import BaseModel, Field
@@ -34,6 +35,13 @@ Never run destructive git commands unless the user asked for them."""
 
 def short(node_id: str) -> str:
     return node_id[-6:]
+
+
+def _home(path: Path) -> str:
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
 
 
 def color(c: ledger.Color, s: str) -> str:
@@ -187,6 +195,26 @@ class Session:
     def burden_line(self) -> str:
         return f"trunk burden: {ledger.fmt(ledger.trunk_burden(self.log.state))}"
 
+    def status(self) -> str:
+        """The bar both surfaces show: where you are, what you are using, what it has cost
+        and what the shape of the session has saved."""
+        st = self.log.state
+        price = self.pricing.price(st.model)
+        burden = ledger.trunk_burden(st)
+        window = (
+            f"{ledger.fmt(burden)}/{price.context // 1000}k"
+            if price.context
+            else ledger.fmt(burden)
+        )
+        saved = ledger.saved_by_kind(st, self.pricing)
+        tokens = sum(t for t, _ in saved.values())
+        money = sum(c for _, c in saved.values())
+        return (
+            f"{price.provider}/{st.model}  {DIM}{_home(self.cwd)}{RESET}  "
+            f"context {window}  spent ${ledger.total_cost(st, self.pricing):.4f}  "
+            f"{GREEN}saved {ledger.fmt(tokens)}/turn = ${money:.4f}{RESET}"
+        )
+
 
 # --- verbs (shared by sub-commands and slash commands) --------------------------------
 
@@ -200,10 +228,18 @@ def cmd_tree(s: Session) -> None:
         for n in graph.children(st, parent, live_only=False):
             mark = "*" if n.id in trunk_ids else " "
             here = ">" if n.id == s.leaf else " "
-            status = {"archived": " [archived]", "tombstone": " [tombstone]"}.get(n.status, "")
+            status = {
+                "archived": " [已归档]",
+                "tombstone": " [tombstone]",
+                "aborted": f" {RED}[已废弃 · 不进上下文]{RESET}",
+            }.get(n.status, "")
             own = ledger.fmt(ledger.own_tokens(st, n.id))
-            label = context.user_input(n)[:50]
-            line = f"{here}{mark} {indent}{short(n.id)} {DIM}{own:>7}{RESET} {label}{status}"
+            cost = s.pricing.price(n.model).cost(n.usage)
+            label = context.user_input(n)[:44]
+            line = (
+                f"{here}{mark} {indent}{short(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
+                f"{label}{status}"
+            )
             typer.echo(line if n.status == "live" else f"{DIM}{line}{RESET}")
             walk(n.id, indent + "  ")
 
@@ -349,6 +385,20 @@ def cmd_ledger(s: Session) -> None:
                 f"  {short(b.leaf_id)} {b.status:<9} {b.nodes} node(s)"
                 f"  ${b.one_time_cost:.4f} | {ledger.fmt(b.blocked_tokens)}"
             )
+    saved = ledger.saved_by_kind(s.log.state, s.pricing)
+    labels = {
+        "exploration": "探索分支未并入主干",
+        "graft": "嫁接带的是结论而非整条分支",
+        "interrupt": "打断的回合不进上下文",
+    }
+    total_tok = sum(t for t, _ in saved.values())
+    typer.echo(
+        f"{GREEN}saved {ledger.fmt(total_tok)} per trunk turn"
+        f" = ${sum(c for _, c in saved.values()):.4f} not spent so far{RESET}"
+    )
+    for kind, (tok, money) in saved.items():
+        if tok:
+            typer.echo(f"  {ledger.fmt(tok):>7}/turn  ${money:<8.4f} {DIM}{labels[kind]}{RESET}")
     dropped = sum(n.dropped_thinking for n in s.log.state.nodes.values())
     if dropped:
         typer.echo(f"{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}")
@@ -376,10 +426,16 @@ def print_hook(kind: str, t: str) -> None:
 
 
 def run_input(
-    s: Session, text: str, hook: agent.Hook = print_hook, *, explore: bool = False
+    s: Session,
+    text: str,
+    hook: agent.Hook = print_hook,
+    *,
+    explore: bool = False,
+    stop: threading.Event | None = None,
 ) -> tuple[str, bool]:
     """Run one turn under the cursor. Returns (node id, working tree dirtied).
-    `explore` forces an exploration even from the trunk leaf (the trunk is pinned in place)."""
+    `explore` forces an exploration even from the trunk leaf (the trunk is pinned in place).
+    `stop` lets a surface interrupt the turn; agent.Interrupted then reaches the caller."""
     st = s.log.state
     t = graph.trunk(st)
     exploration = graph.is_exploration(st, s.leaf, force=explore)
@@ -390,9 +446,26 @@ def run_input(
         if e.depth == "leaf+summary":
             summarize.ensure_summary(s.log, s.cheap, e.src_id, s.leaf)
     s.pending = []
-    nid = agent.run_turn(
-        s.log, s.provider, s.leaf, edges, text, exploration=exploration, cwd=s.cwd, hook=hook
-    )
+    try:
+        nid = agent.run_turn(
+            s.log,
+            s.provider,
+            s.leaf,
+            edges,
+            text,
+            exploration=exploration,
+            cwd=s.cwd,
+            hook=hook,
+            stop=stop,
+        )
+    except agent.Interrupted as stopped:
+        # The cursor goes back to the parent, so the next input opens a sibling rather than
+        # continuing from a turn the user threw away.
+        dead = s.log.state.nodes[stopped.node_id]
+        s.leaf = dead.parent_id
+        cost = s.pricing.price(dead.model).cost(dead.usage)
+        hook("ledger", f"[{short(dead.id)} 已废弃] ${cost:.4f}  不会进入之后的上下文")
+        raise
     if not exploration and st.trunk_pin is not None and st.trunk_pin == s.leaf:
         s.log.append(TrunkPinned(node_id=nid))  # extending the pinned leaf moves the pin
     s.leaf = nid
@@ -407,8 +480,57 @@ def run_input(
     return nid, n.guard_dirty
 
 
+class EscWatcher:
+    """Esc during a turn means stop. The terminal is in line mode, so a keypress would not
+    arrive until Enter; for the duration of the turn we read raw and watch for it in a
+    thread. Anywhere without a tty (a pipe, Windows, a test) this does nothing and Ctrl-C
+    remains the way out."""
+
+    def __init__(self) -> None:
+        self.stop = threading.Event()
+        self._done = threading.Event()
+        self._saved: Any = None
+
+    def __enter__(self) -> threading.Event:
+        try:
+            import termios
+            import tty
+
+            self._fd = sys.stdin.fileno()
+            self._saved = termios.tcgetattr(self._fd)
+            tty.setcbreak(self._fd)
+        except Exception:  # noqa: BLE001 - no tty, no Esc; never a reason to fail a turn
+            self._saved = None
+            return self.stop
+        threading.Thread(target=self._watch, daemon=True).start()
+        return self.stop
+
+    def _watch(self) -> None:
+        import select
+
+        while not self._done.is_set():
+            if select.select([sys.stdin], [], [], 0.1)[0] and sys.stdin.read(1) == "\x1b":
+                self.stop.set()
+                return
+
+    def __exit__(self, *_: object) -> None:
+        self._done.set()
+        if self._saved is not None:
+            import termios
+
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
+
+
 def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
-    nid, dirty = run_input(s, text, explore=explore)
+    try:
+        with EscWatcher() as stop:
+            nid, dirty = run_input(s, text, explore=explore, stop=stop)
+    except agent.Interrupted:
+        typer.echo(f"{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}")
+        typer.echo(
+            f"{DIM}下一句会从 {short(s.leaf) if s.leaf else 'root'} 重新长出一个兄弟节点{RESET}"
+        )
+        return
     if dirty:
         if typer.confirm(
             "revert working tree (git checkout -- . && git clean -fd)?", default=False
@@ -425,11 +547,11 @@ def interactive(s: Session) -> str:
     except ImportError:
         pass
     set_lock(s.cwd, "cli")
-    typer.echo(f"kaipi  session {s.log.path.stem}  model {s.log.state.model}  {s.burden_line()}")
+    typer.echo(f"kaipi  {s.status()}")
     typer.echo(
         f"{DIM}/tree  /go <id>  /graft <id> [--depth d] [--with-tool id..]  /archive <id>"
         f"  /restore <id>  /rewind <id>  /trunk [pin <id>]  /explore <text>  /ledger"
-        f"  /canvas  /quit{RESET}"
+        f"  /canvas  /quit   ·  Esc 停止当前回合{RESET}"
     )
     while True:
         try:

@@ -40,6 +40,7 @@ Estimator = Callable[[str], int]
 class Price(BaseModel):
     provider: str = "anthropic"  # a key of pricing.toml [providers] or a built-in preset
     adaptive_thinking: bool = True
+    context: int = 0  # context window, for the status bar; 0 means unknown
     input: float = 0.0
     cache_write: float = 0.0
     cache_read: float = 0.0
@@ -129,6 +130,91 @@ def graft_preview(
     return out
 
 
+Kind = Literal["exploration", "graft", "interrupt"]
+
+
+class Saving(BaseModel):
+    """Tokens kept out of the trunk, and what that has been worth so far.
+
+    `tokens` is per trunk turn: it is what every future turn on the trunk would re-read if
+    this work had been done on the trunk instead. `cost` turns that into money actually not
+    spent - tokens x the trunk model's cached-read price x the trunk turns taken since -
+    so it only ever counts turns that really happened."""
+
+    kind: Kind
+    node_id: str
+    tokens: int
+    turns: int  # trunk turns taken since, i.e. how many times the saving has been collected
+    cost: float
+
+
+def savings(state: State, pricing: Pricing, estimate: Estimator = estimate_tokens) -> list[Saving]:
+    t = graph.trunk(state)
+    trunk_nodes = graph.lineage(state, t) if t else []
+    trunk_ids = {n.id for n in trunk_nodes}
+    rate = pricing.price(state.model).cache_read / 1_000_000
+
+    def collected(seq: int) -> int:  # trunk turns that would have re-read those tokens
+        return sum(1 for n in trunk_nodes if n.seq > seq)
+
+    out: list[Saving] = []
+    for n in state.nodes.values():
+        tokens = 0
+        kind: Kind = "exploration"
+        if n.status == "aborted":
+            # Everything the model produced before the user stopped it. Had it been kept,
+            # the branch would carry it for good.
+            kind, tokens = "interrupt", estimate("".join(str(m) for m in n.payload))
+        elif n.status == "live" and n.completed and n.id not in trunk_ids:
+            # An exploration: its own tokens never entered the trunk's context.
+            tokens = own_tokens(state, n.id)
+        if tokens > 0:
+            out.append(
+                Saving(
+                    kind=kind,
+                    node_id=n.id,
+                    tokens=tokens,
+                    turns=collected(n.seq),
+                    cost=tokens * rate * collected(n.seq),
+                )
+            )
+    for e in state.edges:
+        # A graft carries a snapshot instead of the branch it came from. What it saved is
+        # the difference between the depth chosen and inlining that whole branch.
+        dst = state.nodes.get(e.dst_id)
+        if dst is None or dst.status != "live":
+            continue
+        try:
+            sizes = graft_preview(state, dst.parent_id, e, estimate)
+        except ValueError:
+            continue
+        tokens = sizes["branch"] - sizes[e.depth]
+        if tokens > 0:
+            out.append(
+                Saving(
+                    kind="graft",
+                    node_id=e.dst_id,
+                    tokens=tokens,
+                    turns=collected(dst.seq),
+                    cost=tokens * rate * collected(dst.seq),
+                )
+            )
+    return out
+
+
+def saved_by_kind(state: State, pricing: Pricing) -> dict[Kind, tuple[int, float]]:
+    """{kind: (tokens per trunk turn, money not spent so far)}."""
+    out: dict[Kind, tuple[int, float]] = {
+        "exploration": (0, 0.0),
+        "graft": (0, 0.0),
+        "interrupt": (0, 0.0),
+    }
+    for s in savings(state, pricing):
+        tok, cost = out[s.kind]
+        out[s.kind] = (tok + s.tokens, cost + s.cost)
+    return out
+
+
 def cache_color(state: State) -> tuple[Color, str]:
     """Red iff some live leaf's lineage has a hole (a non-live ancestor): that prefix will be
     rewritten and, on models with preserved thinking, later thinking blocks dropped.
@@ -178,7 +264,7 @@ def report(state: State, pricing: Pricing) -> Report:
     trunk_ids = {n.id for n in graph.lineage(state, t)} if t else set()
     branches: list[Branch] = []
     for leaf in state.nodes.values():
-        if leaf.status == "tombstone" or leaf.id in trunk_ids:
+        if leaf.status in ("tombstone", "aborted") or leaf.id in trunk_ids:
             continue
         if graph.children(state, leaf.id, live_only=False):
             continue

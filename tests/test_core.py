@@ -5,11 +5,20 @@ import json
 import pytest
 
 from kaipi import context, graph
-from kaipi.model import NodeArchived, NodeCreated, NodeRestored, ReferenceEdge, TrunkPinned
+from kaipi.model import (
+    NodeAborted,
+    NodeArchived,
+    NodeCreated,
+    NodeRestored,
+    ReferenceEdge,
+    TrunkPinned,
+    Usage,
+    new_id,
+)
 from kaipi.store import Log, dumps, fold
 from tests.conftest import Builder
 
-# --- the six invariants (§2.5) ---------------------------------------------------
+# --- the seven invariants (§5) ----------------------------------------------------
 
 
 def test_inv1_every_node_has_exactly_one_parent(log: Log, tree: dict[str, str]) -> None:
@@ -58,6 +67,26 @@ def test_inv6_context_is_deterministic(log: Log, tree: dict[str, str]) -> None:
     a = context.build(log.state, tree["a1"], edges, "hi").model_dump_json()
     b_ = context.build(fold(log.events), tree["a1"], edges, "hi").model_dump_json()
     assert a == b_
+
+
+def test_inv7_an_aborted_turn_is_billed_and_never_read_again(
+    log: Log, tree: dict[str, str]
+) -> None:
+    dead = new_id()
+    log.append(NodeCreated(id=dead, parent_id=tree["a1"], model="fake"))
+    log.append(
+        NodeAborted(
+            id=dead,
+            payload=[{"role": "assistant", "content": [{"type": "text", "text": "half done"}]}],
+            usage=Usage(output=42),
+        )
+    )
+    st = log.state
+    assert st.nodes[dead].status == "aborted"
+    assert st.nodes[dead].usage.output == 42, "billed: the tokens were really spent"
+    assert graph.trunk(st) == tree["a1"], "an aborted node is not a leaf anyone continues from"
+    ctx = context.build(st, tree["a1"], [], "next")
+    assert "half done" not in str(ctx.messages), "and never re-read"
 
 
 # --- context assembly --------------------------------------------------------------

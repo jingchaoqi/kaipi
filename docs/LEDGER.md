@@ -54,6 +54,28 @@ A `leaf+summary` graft makes one extra request to the cheap model (`summary_mode
 model's rate. `scripts/smoke.py` checks that the ledger totals equal the sum of what the
 API reported, which is what caught this being missing.
 
+## Savings: what the shape of the session is worth
+
+`kaipi ledger` and both status bars report savings from the three things kaipi does that a
+linear chat cannot. Each is measured the same way: **tokens the trunk does not re-read on
+every turn**, and the money that has therefore not been spent so far.
+
+| Source | Tokens counted | Why they would otherwise be in the trunk |
+|---|---|---|
+| exploration | the branch's own tokens | the same work done on the trunk would sit in every later request |
+| graft | `branch` size − the depth actually used | a graft carries a snapshot of the conclusion, not the branch it came from |
+| interrupt | the discarded turn's payload | a turn the user stopped would otherwise stay in the branch for good |
+
+The money figure is deliberately conservative: `tokens x the trunk model's cached-read
+price x the number of trunk turns taken since the saving existed`. It only ever counts
+turns that really happened, so it is money not spent rather than a projection. A saving
+that appeared on the last turn therefore reads `$0.0000` - it has not been collected yet.
+
+Two things this is not. It is not a claim about what another tool would have cost: it
+compares against *the same work on the trunk*, which is what a linear chat would do with
+it. And an aborted turn's own spend is still counted as **spend** in the totals - the
+saving is the re-reading that never happens, not a refund.
+
 ## What is not in the ledger
 
 Code snapshots and rewind cost no tokens and are not reported. Dropped thinking blocks
