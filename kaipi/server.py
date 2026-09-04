@@ -212,8 +212,15 @@ class Canvas:
             self.s.save()
             self.hub.publish(type="done", node=nid, dirty=dirty, exploration=exploration)
         except agent.Interrupted as stopped:
+            dead = self.s.log.state.nodes[stopped.node_id]
+            self.dirty = dead.guard_dirty
             self.s.save()
-            self.hub.publish(type="aborted", node=stopped.node_id, leaf=self.s.leaf)
+            self.hub.publish(
+                type="aborted",
+                node=dead.id,
+                leaf=self.s.leaf,
+                cost=f"${self.s.pricing.price(dead.model).cost(dead.usage):.4f}",
+            )
         except Exception as e:  # noqa: BLE001
             self.hub.publish(type="error", text=str(e))
         finally:

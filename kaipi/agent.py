@@ -74,6 +74,13 @@ def run_bash(cmd: str, cwd: Path, timeout: int = 300, stop: threading.Event | No
             _kill(p)
             out, err = p.communicate()
             break
+        except BaseException:
+            # Ctrl-C included: the command is in its own process group, so nothing else
+            # will ever kill it. Leaving a `npm run dev` or a test suite running forever
+            # is not an acceptable way to exit.
+            _kill(p)
+            p.communicate()
+            raise
     text = out + (("\n" + err) if err else "")
     if p.returncode and not note:
         text += f"\n[exit {p.returncode}]"
@@ -85,13 +92,6 @@ def _kill(p: subprocess.Popen[str]) -> None:
         os.killpg(os.getpgid(p.pid), signal.SIGKILL)
     except OSError:
         p.kill()
-
-
-def _abort(log: Log, node_id: str, payload: list[Message], usage: Usage) -> Interrupted:
-    """Freeze what the model produced as an aborted node: kept so the user can see what was
-    thrown away, billed because it was really spent, never assembled into a request again."""
-    log.append(NodeAborted(id=node_id, payload=payload, usage=usage))
-    return Interrupted(node_id, usage)
 
 
 def run_turn(
@@ -120,10 +120,31 @@ def run_turn(
     usage, last, dropped, dirty = Usage(), Usage(), 0, False
     tree0 = guard.snapshot(cwd)
     baseline = (tree0, guard.head(cwd)) if exploration and tree0 else None
+
+    def abort() -> Interrupted:
+        """Freeze what the model produced as an aborted node: kept so the user can see what
+        was thrown away, billed because it was really spent, never assembled into a request
+        again. The files it changed are recorded like any turn's, or a later rewind would
+        not know they exist."""
+        tree = guard.snapshot(cwd)
+        if tree:
+            guard.keep(cwd, f"{log.state.session_id}/{node_id}", tree)
+        log.append(
+            NodeAborted(
+                id=node_id,
+                payload=messages[ctx.payload_start :],
+                usage=usage,
+                tree=tree,
+                paths=guard.changed(cwd, tree0, tree),
+                guard_dirty=dirty or (baseline is not None and tree != tree0),
+            )
+        )
+        return Interrupted(node_id, usage)
+
     try:
         for _ in range(max_steps):
             if stop is not None and stop.is_set():
-                raise _abort(log, node_id, messages[ctx.payload_start :], usage)
+                raise abort()
             reply = provider.complete(ctx.system, messages, ctx.cache_points)
             usage = usage + reply.usage
             last, dropped = reply.usage, dropped + reply.dropped_thinking
@@ -138,6 +159,11 @@ def run_turn(
                 break
             results: list[dict[str, Any]] = []
             for call in calls:
+                # Checked per command, not once per step: a stop that arrives while the
+                # model is answering must not then run `rm -rf build` because the reply
+                # happened to contain it.
+                if stop is not None and stop.is_set():
+                    raise abort()
                 cmd = str(call["input"].get("command", ""))
                 hook("cmd", cmd)
                 out = run_bash(cmd, cwd, stop=stop)
@@ -152,7 +178,7 @@ def run_turn(
         else:
             hook("stop", "max_steps")
     except KeyboardInterrupt:  # Ctrl-C, which can land in the middle of a model call
-        raise _abort(log, node_id, messages[ctx.payload_start :], usage) from None
+        raise abort() from None
 
     tree1 = guard.snapshot(cwd)
     if tree1:

@@ -266,7 +266,8 @@ def report(state: State, pricing: Pricing) -> Report:
     for leaf in state.nodes.values():
         if leaf.status in ("tombstone", "aborted") or leaf.id in trunk_ids:
             continue
-        if graph.children(state, leaf.id, live_only=False):
+        # an aborted child is not a continuation, so its parent is still the branch's leaf
+        if [c for c in graph.children(state, leaf.id, live_only=False) if c.status != "aborted"]:
             continue
         off = [n for n in graph.lineage(state, leaf.id) if n.id not in trunk_ids]
         branches.append(

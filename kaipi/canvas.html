@@ -351,9 +351,15 @@ document.addEventListener('pointerup', async e => {
   if (!drag) return; const d = drag; drag = null;
   document.body.classList.remove('dragging'); d.g.classList.remove('dragging'); ghost.style.display = 'none';
   $('#drop').classList.remove('over'); $('#tray').classList.remove('over');
-  if (!d.moved) { if (byId[d.id].status === 'live') go(d.id); else toast('已归档的节点：右键可恢复'); return; }
+  if (!d.moved) {
+    const st = byId[d.id].status;
+    if (st === 'live') go(d.id);
+    else toast(st === 'aborted' ? '这一轮已被停止作废：可以查看，但不会再进入上下文' : '已归档的节点：右键可恢复');
+    return;
+  }
   const z = zoneAt(e.clientX, e.clientY);
-  if (z === 'drop') addGraft(d.id);
+  if (z === 'drop' && byId[d.id].status === 'aborted') toast('废弃的一轮不能嫁接：那正是停止时丢掉的东西');
+  else if (z === 'drop') addGraft(d.id);
   else if (z === 'tray') archive(d.id);
 });
 function zoneAt(x, y) { for (const [id, name] of [['#drop', 'drop'], ['#tray', 'tray']]) { const r = $(id).getBoundingClientRect(); if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return name; } return null; }
@@ -364,7 +370,7 @@ document.addEventListener('contextmenu', e => {
   const g = e.target.closest('.node'); if (!g) return; e.preventDefault();
   const n = byId[g.dataset.id]; const live = n.status === 'live';
   menu.innerHTML = `<div class="title">${short(n.id)} · ${esc(n.input.slice(0, 24))}</div>
-    ${live ? `<button data-a="go">跳到这里，在其下继续</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入</button><button data-a="pin">钉为主干</button><div class="sep"></div><button data-a="archive" class="danger">归档整棵子树</button>` : `<button data-a="restore">恢复整棵子树</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入（快照）</button>`}`;
+    ${live ? `<button data-a="go">跳到这里，在其下继续</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入</button><button data-a="pin">钉为主干</button><div class="sep"></div><button data-a="archive" class="danger">归档整棵子树</button>` : n.status === 'aborted' ? `<div class="title">已停止作废 · 不进入上下文，也不能嫁接</div><button data-a="rewind">回退到这里…</button>` : `<button data-a="restore">恢复整棵子树</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入（快照）</button>`}`;
   menu.style.display = 'flex'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
   menu.onclick = ev => { const a = ev.target.dataset.a; menu.style.display = 'none'; if (!a) return; ({ go, graft: addGraft, pin, archive, restore, rewind: rewindDialog })[a](n.id); };
 });
@@ -537,7 +543,7 @@ es.onmessage = ev => {
     live?.remove();
     $('#stop').hidden = true;
     $('#stop').disabled = false;
-    sysLine('已停止：这一轮作废，不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。');
+    sysLine(`已停止：这一轮作废（${e.cost}），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。`);
     refresh();
     return;
   }

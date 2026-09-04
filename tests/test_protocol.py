@@ -21,6 +21,7 @@ import mockapi  # noqa: E402
 import smoke  # noqa: E402
 
 from kaipi import agent, cli, context, graph, ledger  # noqa: E402
+from kaipi.model import ReferenceEdge  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -169,12 +170,21 @@ def test_an_interrupted_turn_is_discarded_but_still_billed(endpoint) -> None:  #
             raise KeyboardInterrupt
         return real(*a, **k)
 
+    # something worth grafting, off to the side, so the staged edge is a real one
+    root = next(iter(s.log.state.nodes))
+    s.leaf = root
+    side, _ = cli.run_input(s, "a look from the root", lambda k, t: None, explore=True)
+    s.leaf = good
+
     tally.inner.complete = one_then_stop
+    staged = [ReferenceEdge(src_id=side, dst_id="", depth="leaf")]
+    s.pending = list(staged)
     with pytest.raises(agent.Interrupted) as caught:
         cli.run_input(s, "second, which the user stops", lambda k, t: None)
 
     st = s.log.state
     dead = st.nodes[caught.value.node_id]
+    assert s.pending == staged, "the grafts the user staged come back with them"
     assert dead.status == "aborted" and not dead.completed
     assert dead.payload, "what the model produced is kept, for the user to look at"
     assert dead.usage.output > 0, "the tokens it burned were really spent"

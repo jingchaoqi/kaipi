@@ -65,6 +65,7 @@ def fold(events: list[Event]) -> State:
             case NodeAborted():
                 n = s.nodes[ev.id]
                 n.payload, n.usage, n.status = ev.payload, ev.usage, "aborted"
+                n.tree, n.paths, n.guard_dirty = ev.tree, list(ev.paths), ev.guard_dirty
             case EdgeAdded():
                 s.edges.append(ev.edge)
             case NodeArchived():
@@ -87,7 +88,7 @@ def fold(events: list[Event]) -> State:
     # A node created but neither completed nor aborted (a crash, a kill) is a tombstone:
     # no half-frozen payloads, and nothing to bill because nothing was recorded.
     for n in s.nodes.values():
-        if not n.completed and n.status == "live":
+        if not n.completed and n.status not in ("tombstone", "aborted"):
             n.status = "tombstone"
     return s
 

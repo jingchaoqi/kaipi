@@ -137,6 +137,9 @@ class NodeAborted(_Ev):
     id: str
     payload: list[Message]  # kept for display only: never assembled into a request
     usage: Usage
+    tree: str | None = None  # it may have written files before it was stopped
+    paths: list[str] = Field(default_factory=list)
+    guard_dirty: bool = False
 
 
 class EdgeAdded(_Ev):
