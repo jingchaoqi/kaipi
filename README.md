@@ -42,7 +42,7 @@
 **1. 下载。** 去 [Releases](https://github.com/jingchaoqi/kaipi/releases) 拿最新的
 `kaipi-<版本>+g<commit>-py3-none-any.whl`。
 还没有 release 的话，从 [Actions](https://github.com/jingchaoqi/kaipi/actions) 里点最近一次绿色的
-`ci`，页面底部 **Artifacts** 有个 `kaipi-<commit前6位>`，下载解压即可。
+**构建打包**，页面底部 **Artifacts** 有个 `kaipi-<commit前6位>`，下载解压即可。
 文件名里的 `+g` 后面就是它的 commit，用来对上是哪一版。
 
 **2. 安装。**

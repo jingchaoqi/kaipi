@@ -1,4 +1,4 @@
-name: ci
+name: 构建打包
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
 
 jobs:
   check:
+    name: 检查
     # macOS is not redundant: `sed -i`, `python` vs `python3` and BSD tool flags have
     # all broken this repo on a Mac while every Linux job was green.
     strategy:
@@ -45,6 +46,7 @@ jobs:
           done
 
   wheel:
+    name: 打包
     # A missing package file crashed kaipi on its first run once already, and no unit test
     # can catch it: the repo root is still there when they run.
     runs-on: ubuntu-latest
