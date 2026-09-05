@@ -9,7 +9,7 @@ import httpx
 
 from kaipi.ledger import estimate_tokens
 from kaipi.model import Message, Usage, blocks, text_of
-from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
+from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply, http
 
 MAX_TOKENS = 16_000
 BASH_TOOL: dict[str, Any] = {
@@ -92,9 +92,7 @@ class GeminiProvider:
     def __init__(self, model: str, *, base_url: str, api_key: str) -> None:
         self.model = model
         self.seq = 0
-        self.client = httpx.Client(
-            base_url=base_url, headers={"x-goog-api-key": api_key}, timeout=600
-        )
+        self.client = http(base_url, {"x-goog-api-key": api_key})
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         body = {

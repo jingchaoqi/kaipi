@@ -51,16 +51,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+
+      - name: stamp the build with the commit it came from
+        id: stamp
+        run: |
+          sha=$(git rev-parse --short=6 HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # A PEP 440 local version, so the commit travels in the filename itself and
+          # `kaipi --version` (and `pip show`) can never disagree with it.
+          sed -i "s/^version = \"\(.*\)\"/version = \"\1+g$sha\"/" pyproject.toml
+          grep '^version' pyproject.toml
+
       - run: uv build
+
       - name: install the wheel into a clean environment and use it
         run: |
           uv venv /tmp/clean
           VIRTUAL_ENV=/tmp/clean uv pip install dist/kaipi-*.whl
           /tmp/clean/bin/kaipi --help
           /tmp/clean/bin/python - <<'PY'
+          from importlib.metadata import version
           from importlib.resources import files
+          print("installed version:", version("kaipi"))
           for name in ("canvas.html", "pricing.toml"):
               path = files("kaipi") / name
               assert path.is_file(), f"{name} is missing from the wheel"
               print(f"{name}: {len(path.read_bytes())} bytes")
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaipi-${{ steps.stamp.outputs.sha }}
+          path: dist/*
+          retention-days: 30
