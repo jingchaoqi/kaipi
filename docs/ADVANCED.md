@@ -79,6 +79,25 @@ The core library must stay under 3000 lines (`wc -l kaipi/*.py kaipi/providers/*
 Non-goals: MCP, sub-agents, permission prompts, plan mode, plugins, RAG, memory,
 multi-agent, semantic merge, agent frameworks.
 
+## What has actually been verified against a live endpoint
+
+Being honest about this matters more than the number of green checks, because the whole
+project is a bet on prompt caching and every test below the API is a fake talking to a
+fake.
+
+| | Verified live | How |
+|---|---|---|
+| requests are accepted, tool loop, frozen payload replay | yes | Moonshot `kimi-k2.7-code`, 2026-09-05 |
+| the ledger's four token counts equal the API's own usage | yes | same run, to the token |
+| Anthropic cache breakpoints, `cache_creation` vs `cache_read` | **no** | needs an Anthropic key |
+| sibling explorations sharing the fork-point prefix | **no** | same |
+| preserved thinking surviving a tool loop and a replay | **no** | first-party Anthropic only |
+| request shapes for all four wire protocols | mock only | `scripts/mockapi.py`, strictly validated |
+
+A mock run proves kaipi's requests are well formed and its prefixes are stable and shared.
+It cannot tell you what a real cache does. Anyone with an Anthropic key can close the
+remaining rows in one command; until someone does, they are open.
+
 ## Real-API smoke test
 
 The unit tests use a fake provider, so they cannot tell you whether prompt caching, the
