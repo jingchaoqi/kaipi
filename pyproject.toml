@@ -33,7 +33,7 @@ artifacts = ["kaipi/canvas.html", "kaipi/pricing.toml"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-# CLAUDE.md is the startup prompt verbatim; its code blocks are documentation, not source
+# code blocks inside the docs are documentation, not source
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]

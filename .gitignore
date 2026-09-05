@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .kaipi/
 dist/
+
+# the startup prompt: kept locally, not part of the repo
+CLAUDE.md
