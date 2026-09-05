@@ -25,14 +25,38 @@ kaipi 让你可以把弯路**扔掉**，只把有用的结论**拖回来**。
 
 ## 安装
 
-需要 Python 3.11+ 和 git。纯 Python，不用编译。
+需要 Python 3.11+ 和 git。装的是一个 `.whl` 文件——纯 Python，不用编译，装完就有 `kaipi` 命令。
+
+**1. 下载。** 去 [Releases](https://github.com/jingchaoqi/kaipi/releases) 拿最新的
+`kaipi-<版本>+g<commit>-py3-none-any.whl`。
+还没有 release 的话，从 [Actions](https://github.com/jingchaoqi/kaipi/actions) 里点最近一次绿色的
+`ci`，页面底部 **Artifacts** 有个 `kaipi-<commit前6位>`，下载解压即可。
+文件名里的 `+g` 后面就是它的 commit，用来对上是哪一版。
+
+**2. 安装。**
 
 ```sh
-uv tool install git+https://github.com/jingchaoqi/kaipi
+uv tool install ./kaipi-0.1.0+g1a2b3c-py3-none-any.whl   # 换成你下载到的那个文件名
 kaipi --help
 ```
 
-没有 `uv` 的话，`pipx install git+https://github.com/jingchaoqi/kaipi` 也一样。
+没有 `uv` 就先 `curl -LsSf https://astral.sh/uv/install.sh | sh`；用 `pipx install ./kaipi-*.whl`
+或 `pip install --user ./kaipi-*.whl` 也一样。
+
+**升级**就是拿新的 whl 再 `uv tool install --force ./kaipi-*.whl`；
+**卸载**是 `uv tool uninstall kaipi`。装的是哪一版可以用 `uv tool list` 或 `pip show kaipi` 看，
+版本号后面带着 commit。
+
+<details>
+<summary>或者直接从源码装（要改 kaipi 本身时）</summary>
+
+```sh
+git clone https://github.com/jingchaoqi/kaipi && cd kaipi
+uv sync
+uv run kaipi --help
+uv build          # 自己产出 dist/*.whl
+```
+</details>
 
 ## 开始用
 

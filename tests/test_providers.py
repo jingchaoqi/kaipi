@@ -61,6 +61,18 @@ def test_a_proxy_in_the_environment_does_not_crash_the_client(
             providers.build(model, {}, provider_of=name)
 
 
+def test_loopback_is_never_sent_through_a_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A proxy is for the internet. Routing a local mock or an ollama on 127.0.0.1 through
+    it is how those break on a machine that has one - and the user should not have to know
+    that, so kaipi decides it rather than asking for a no_proxy."""
+    monkeypatch.setenv("all_proxy", "socks5://127.0.0.1:1080")
+    monkeypatch.setenv("https_proxy", "http://127.0.0.1:1080")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:1080")
+    assert not providers.http("http://127.0.0.1:8123/v1", {})._mounts
+    assert not providers.http("http://localhost:11434/v1", {})._mounts
+    assert providers.http("https://api.moonshot.cn/v1", {})._mounts, "a real endpoint still uses it"
+
+
 def test_factory_picks_wire_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "k1")
     monkeypatch.setenv("GEMINI_API_KEY", "k2")

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 from typing import Any, Literal, Protocol
+from urllib.parse import urlparse
 
+import httpx
 from pydantic import BaseModel, Field
 
 from kaipi.model import Message, Usage
@@ -18,6 +20,15 @@ BASH_PARAMETERS: dict[str, Any] = {
     "required": ["command"],
     "additionalProperties": False,
 }
+
+
+def http(base_url: str, headers: dict[str, str]) -> httpx.Client:
+    """The one place an HTTP client is built. A proxy in the environment is honoured for
+    real endpoints and never for loopback: a local mock, or an ollama on 127.0.0.1, is not
+    something to route through the user's proxy - and doing so is exactly how `--mock` and
+    `ollama` break on a machine that has one."""
+    local = urlparse(base_url).hostname in ("localhost", "127.0.0.1", "::1")
+    return httpx.Client(base_url=base_url, headers=headers, timeout=600, trust_env=not local)
 
 
 class Reply(BaseModel):
