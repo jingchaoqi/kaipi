@@ -55,9 +55,8 @@ kaipi --help
 没有 `uv` 就先 `curl -LsSf https://astral.sh/uv/install.sh | sh`；用 `pipx install ./kaipi-*.whl`
 或 `pip install --user ./kaipi-*.whl` 也一样。
 
-**升级**就是拿新的 whl 再 `uv tool install --force ./kaipi-*.whl`；
-**卸载**是 `uv tool uninstall kaipi`。装的是哪一版可以用 `uv tool list` 或 `pip show kaipi` 看，
-版本号后面带着 commit。
+**升级**就是拿新的 whl 再 `uv tool install --force ./kaipi-*.whl`。装的是哪一版可以用
+`uv tool list` 或 `pip show kaipi` 看，版本号后面带着 commit。卸载见下一节。
 
 <details>
 <summary>或者直接从源码装（要改 kaipi 本身时）</summary>
@@ -69,6 +68,57 @@ uv run kaipi --help
 uv build          # 自己产出 dist/*.whl
 ```
 </details>
+
+## 卸载（清理干净）
+
+kaipi 一共往你机器上写三种东西，卸载就是把这三样都清掉。
+
+**1. 卸掉命令本身**
+
+```sh
+uv tool uninstall kaipi       # 或 pipx uninstall kaipi / pip uninstall kaipi
+```
+
+**2. 清掉每个用过 kaipi 的项目里的痕迹**
+
+先找出它们：
+
+```sh
+find ~ -maxdepth 6 -type d -name .kaipi 2>/dev/null
+```
+
+然后在每个项目里执行三步——**第三步不能省**：
+
+```sh
+cd ~/那个项目
+rm -rf .kaipi                                     # 会话日志、游标、锁、私有索引
+git for-each-ref --format='%(refname)' refs/kaipi | while read -r r; do git update-ref -d "$r"; done
+git gc --prune=now                                # 让快照对象真正被回收
+```
+
+为什么第三步是必须的：kaipi 为了让 `/rewind` 随时可用，把每一轮的代码快照**钉在
+`refs/kaipi/` 下面**，就是为了让 `git gc` 不会顺手清掉它们。所以只删 `.kaipi/` 目录不够——
+ref 还在，快照对象就永远留在你的 `.git` 里。删掉 ref 之后再 `gc`，它们才真的消失。
+
+**3. 全局价格覆盖（只有你自己建过才有）**
+
+```sh
+rm -rf ~/.config/kaipi        # 设过 XDG_CONFIG_HOME 的话在 $XDG_CONFIG_HOME/kaipi
+```
+
+除此之外没有别的了：没有系统级配置、没有缓存目录、不往 `~/.gitconfig` 写东西，
+也从没碰过你的 index、stash 和分支。
+
+**验证清干净了**（在项目里跑）：
+
+```sh
+test -d .kaipi && echo "还有残留" || echo "目录已清"
+git for-each-ref | grep kaipi || echo "refs 已清"
+git fsck                      # 无输出即仓库完好
+```
+
+我实测过这套流程：一个仓库用 kaipi 跑两轮后，按上面三步清理，文件列表和用之前**逐字节一致**，
+快照对象数归零，`git fsck` 干净，提交历史和工作区不受任何影响。
 
 ## 开始用
 
