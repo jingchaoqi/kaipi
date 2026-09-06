@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -197,3 +199,51 @@ def test_read_only_commands_do_not_create_a_session(repo: Path) -> None:
     assert r.invoke(cli.app, ["sessions"]).output == ""
     r.invoke(cli.app, [], input="one\n/quit\n")  # now there is one
     assert "trunk burden" in r.invoke(cli.app, ["tree"]).output
+
+
+def test_the_documented_uninstall_leaves_nothing_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """README's uninstall recipe, run for real. If kaipi ever starts writing somewhere the
+    recipe does not clean - a new directory, a new ref namespace - this fails."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.Session, "_build", lambda self, model: Echo())
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, capture_output=True, text=True, check=False
+        ).stdout
+
+    def files() -> list[str]:
+        return sorted(
+            str(p.relative_to(tmp_path))
+            for p in tmp_path.rglob("*")
+            if ".git/" not in str(p.relative_to(tmp_path)) + "/"
+        )
+
+    before = files()
+    s = cli.Session(tmp_path, new=True)
+    for text in ("one", "two"):
+        cli.run_input(s, text, lambda k, t: None)
+    s.save()
+    assert (tmp_path / ".kaipi").is_dir() and git("for-each-ref", "refs/kaipi").strip()
+
+    # ---- the three steps the README documents ----
+    shutil.rmtree(tmp_path / ".kaipi")
+    for ref in git("for-each-ref", "--format=%(refname)", "refs/kaipi").split():
+        git("update-ref", "-d", ref)
+    git("gc", "--prune=now")
+
+    assert files() == before, "something kaipi wrote is not covered by the recipe"
+    assert not git("for-each-ref", "refs/kaipi").strip(), "a pinned snapshot ref survived"
+    assert not git("fsck"), "the recipe damaged the repository"
+    assert "init" in git("log", "--oneline"), "history intact"
+    assert not git("status", "--porcelain"), "working tree clean"
