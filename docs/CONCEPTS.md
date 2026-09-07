@@ -131,6 +131,19 @@ gestures for them — drag a node onto the input to graft, onto the tray to arch
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
 same directory while a surface is open.
 
+### 7.1 Configuration is a conversation, not an export
+
+Two things have to be true before a turn can run: a provider with a key, and an active
+model. `/provider` asks for the first (vendor, endpoint - editable, since several vendors
+run a separate Chinese endpoint with separate keys - key, and the model ids that vendor
+offers you); `/model` picks the second, from every model listed across every configured
+provider, as one list. A first run walks both in order.
+
+Credentials go to `~/.config/kaipi/auth.toml`, mode 600, never into a project: a key in a
+repository is a key in someone's clone. The environment still wins over the file, so a
+one-off export overrides a saved key without unsaving it. A missing key is refused with a
+sentence naming the command that fixes it, rather than by letting the vendor answer 401.
+
 The canvas API can run bash, so it accepts a request only when all three hold: the Host
 header names loopback and the port actually bound (comparing Origin to the client's own Host
 would accept a DNS-rebound name, where both say `evil.com`); Origin, if present, is the

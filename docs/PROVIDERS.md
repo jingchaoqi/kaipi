@@ -140,7 +140,8 @@ What that run showed for each protocol, on the same scenario:
 
 ## Verifying a new vendor
 
-1. `KAIPI_MODEL=<provider>/<model> uv run kaipi`, ask for a two-command task.
+1. `kaipi provider` for the vendor, or `KAIPI_MODEL=<provider>/<model> uv run kaipi` to
+   bypass the config file entirely; then ask for a two-command task.
 2. Check the ledger line after the turn: uncached / cache read / output should match the
    vendor's dashboard for that request.
 3. Check that the second turn shows cache reads at all; if not, the vendor does not
