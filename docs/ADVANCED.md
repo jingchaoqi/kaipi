@@ -107,6 +107,9 @@ token counts against the API's own usage, that a second trunk turn reads the fir
 out of the cache, that sibling explorations share the fork-point prefix, that reasoning
 state survives a tool loop and a replay, and that a code rewind restores the right files.
 
+The smoke script reads the key from the environment, not from `/provider`'s file, so that
+a test run can never be steered by whatever the developer happens to have configured:
+
 ```sh
 export ANTHROPIC_API_KEY=...
 uv run python scripts/smoke.py                      # default model from pricing.toml
