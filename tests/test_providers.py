@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -46,9 +47,8 @@ def test_a_proxy_in_the_environment_does_not_crash_the_client(
     """httpx picks proxies up from the environment and raises at client construction -
     before any request - when it meets a socks5 proxy without socksio installed. Users do
     run behind one, so socksio ships with kaipi; nothing imports it without a proxy set."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    for var in ("ANTHROPIC", "DEEPSEEK", "GEMINI", "OPENAI"):
+        monkeypatch.setenv(f"{var}_API_KEY", "k")
     for scheme in ("socks5://127.0.0.1:1080", "http://127.0.0.1:1080"):
         monkeypatch.setenv("all_proxy", scheme)
         monkeypatch.setenv("https_proxy", scheme)
@@ -317,3 +317,56 @@ def test_compat_gateways_get_no_preserved_thinking(monkeypatch: pytest.MonkeyPat
     assert body["messages"][0]["content"][-1]["cache_control"] == {
         "type": "ephemeral"
     }  # breakpoints stay
+
+
+def test_provider_credentials_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """What `/provider` writes is what `build` reads back - no export in between."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_BASE_URL", raising=False)
+
+    path = providers.save_auth(
+        "kimi", "https://api.moonshot.cn/v1", "sk-secret", ["kimi-k2.6", "kimi-k2.7-code"]
+    )
+    assert path.stat().st_mode & 0o077 == 0, "a file holding a key must not be group/world readable"
+    providers.use_model("kimi", "kimi-k2.6", in_pricing=True)
+    assert providers.active_model() == "kimi-k2.6"
+
+    p = providers.build("kimi-k2.6", {}, provider_of="kimi")
+    assert isinstance(p, OpenAICompatProvider)
+    assert str(p.client.base_url).startswith("https://api.moonshot.cn")  # the edited endpoint
+    assert p.client.headers["Authorization"] == "Bearer sk-secret"
+
+    # a second provider: adding it leaves the first alone, and /model sees both vendors' models
+    providers.save_auth(
+        "deepseek", "https://api.deepseek.com/v1", "sk-other", ["deepseek-v4-flash"]
+    )
+    assert providers.auth()["providers"]["kimi"]["api_key"] == "sk-secret"
+    assert providers.configured_models() == [
+        ("kimi", "kimi-k2.6"),
+        ("kimi", "kimi-k2.7-code"),
+        ("deepseek", "deepseek-v4-flash"),
+    ]
+    # switching to another vendor's model is the same gesture as switching within one
+    providers.use_model("deepseek", "deepseek-v4-flash", in_pricing=True)
+    assert providers.active_model() == "deepseek-v4-flash"
+    providers.use_model("ollama", "qwen3:32b", in_pricing=False)
+    assert providers.active_model() == "ollama/qwen3:32b", "an unpriced model carries its provider"
+    providers.use_model("kimi", "kimi-k2.6", in_pricing=True)
+
+    # and the environment still wins, so a one-off export overrides the file
+    monkeypatch.setenv("MOONSHOT_API_KEY", "sk-from-env")
+    q = providers.build("kimi-k2.6", {}, provider_of="kimi")
+    assert isinstance(q, OpenAICompatProvider)
+    assert q.client.headers["Authorization"] == "Bearer sk-from-env"
+
+
+def test_a_missing_key_is_a_sentence_not_a_401(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="kaipi provider"):
+        providers.build("kimi-k2.6", {}, provider_of="kimi")
+    # ollama authenticates nobody, so it must not be caught by that check
+    assert providers.build("ollama/qwen3:32b", {})

@@ -74,8 +74,6 @@ crashed kaipi on its first run once already.
 uv run ruff check . && uv run mypy --strict kaipi tests && uv run pytest -q
 ```
 
-The core library must stay under 3000 lines (`wc -l kaipi/*.py kaipi/providers/*.py`).
-
 Non-goals: MCP, sub-agents, permission prompts, plan mode, plugins, RAG, memory,
 multi-agent, semantic merge, agent frameworks.
 

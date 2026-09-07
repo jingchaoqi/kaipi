@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import mockapi  # noqa: E402
 import smoke  # noqa: E402
 
-from kaipi import agent, cli, context, graph, ledger  # noqa: E402
+from kaipi import agent, cli, context, graph, ledger, providers  # noqa: E402
 from kaipi.model import ReferenceEdge  # noqa: E402
 
 
@@ -46,6 +46,11 @@ def session_on(url: str, model: str, provider_env: str, path: str = "/v1") -> tu
     smoke.make_repo(root)
     os.environ[f"{provider_env}_BASE_URL"] = url + path
     os.environ[f"{provider_env}_API_KEY"] = "mock-key"
+    # the preset decides which variable the key comes from, and for a gateway that is the
+    # vendor's own (MOONSHOT_API_KEY for kimi-anthropic), not one named after the preset
+    preset = providers.BUILTIN.get(model.split("/")[0])
+    if preset and preset.api_key_env:
+        os.environ[preset.api_key_env] = "mock-key"
     os.environ["KAIPI_MODEL"] = model
     s = cli.Session(root, new=True)
     tally = smoke.Tally(s._build(model))

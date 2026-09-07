@@ -69,6 +69,13 @@ class Builder:
 
 
 @pytest.fixture(autouse=True)
+def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """No test may read - or write - the developer's real ~/.config/kaipi, which holds
+    their API keys and decides which model kaipi would pick."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+@pytest.fixture(autouse=True)
 def no_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every endpoint in the suite is a mock on 127.0.0.1. A proxy in the developer's
     environment must not be routed through - and an `all_proxy=socks5://...` would make

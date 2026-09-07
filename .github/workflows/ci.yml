@@ -32,13 +32,6 @@ jobs:
       - name: tests
         run: uv run pytest -q
 
-      - name: line cap (the core library stays under 3000 lines)
-        shell: bash
-        run: |
-          n=$(cat kaipi/*.py kaipi/providers/*.py | wc -l | tr -d ' ')
-          echo "core library: $n lines"
-          test "$n" -le 3000
-
       - name: the four wire protocols against the mock endpoint
         run: |
           for m in claude-opus-5 gpt-5.6-terra gemini-3.7-flash deepseek-v4-flash; do

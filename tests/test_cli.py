@@ -31,6 +31,9 @@ class Echo:
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.Session, "_build", lambda self, model: Echo())
+    # a configured machine: the onboarding gate is about a fresh install, not about these
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setenv("KAIPI_MODEL", "claude-opus-5")
     (tmp_path / "AGENTS.md").write_text("Run tests with pytest.")
     return tmp_path
 
