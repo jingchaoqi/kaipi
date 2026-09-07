@@ -43,6 +43,17 @@ two presets; the `-anthropic` one is the endpoint each vendor documents for Clau
 | `groq` | openai-chat | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
 | `ollama` | openai-chat | `http://localhost:11434/v1` | `OLLAMA_API_KEY` (unused) |
 
+## Configuring one without exporting anything
+
+`kaipi provider` (or `/provider` in a session) asks for the vendor, its endpoint - editable,
+because several vendors run a separate Chinese endpoint with separate keys - the key, and
+the model ids you intend to use from it. `kaipi model` then switches between every model
+you listed, across all configured vendors, and activates one.
+
+That is stored in `~/.config/kaipi/auth.toml`, mode 600, never in the project. The
+environment still wins over it, so a one-off `MOONSHOT_API_KEY=... kaipi` overrides a saved
+key without unsaving it.
+
 `<PROVIDER>_BASE_URL` (dashes as underscores) overrides any base URL:
 `KIMI_BASE_URL=https://api.moonshot.cn/v1` and `GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4`
 switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of Anthropic.

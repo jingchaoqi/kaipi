@@ -100,11 +100,13 @@ git gc --prune=now                                # 让快照对象真正被回�
 `refs/kaipi/` 下面**，就是为了让 `git gc` 不会顺手清掉它们。所以只删 `.kaipi/` 目录不够——
 ref 还在，快照对象就永远留在你的 `.git` 里。删掉 ref 之后再 `gc`，它们才真的消失。
 
-**3. 全局价格覆盖（只有你自己建过才有）**
+**3. 全局配置：API key 和价格覆盖**
 
 ```sh
 rm -rf ~/.config/kaipi        # 设过 XDG_CONFIG_HOME 的话在 $XDG_CONFIG_HOME/kaipi
 ```
+
+里面是 `/provider` 存的 `auth.toml`（含 key，权限 600）和你可能建过的 `pricing.toml`。
 
 除此之外没有别的了：没有系统级配置、没有缓存目录、不往 `~/.gitconfig` 写东西，
 也从没碰过你的 index、stash 和分支。
@@ -122,13 +124,40 @@ git fsck                      # 无输出即仓库完好
 
 ## 开始用
 
-```sh
-export ANTHROPIC_API_KEY=...       # 也支持 OPENAI_API_KEY / GEMINI_API_KEY / DEEPSEEK_API_KEY ...
-export KAIPI_MODEL=claude-opus-5
+第一次跑 `kaipi`，它会带你配两件事，之后再也不用管：
 
-cd ~/你的项目                       # 建议是个 git 仓库：代码回退和探索保护需要它
+```sh
+cd ~/你的项目        # 建议是个 git 仓库：代码回退和探索保护需要它
 kaipi
 ```
+
+```
+👋 第一次用 kaipi，先花一分钟配两件事。
+第 1 步 / 共 2 步：选一个 API 提供商，填上地址和 key。
+
+选择 API 提供商
+   1. anthropic              anthropic         (官方默认)
+   ...
+   6. kimi                   openai-chat       https://api.moonshot.ai/v1
+序号: 6
+API 地址（不同地区可能不同，回车接受） [https://api.moonshot.ai/v1]: https://api.moonshot.cn/v1
+MOONSHOT_API_KEY 的 key: ********
+你要用的 model id（逗号分隔，可以多个）: kimi-k2.7-code, kimi-k2.6
+
+第 2 步 / 共 2 步：挑一个模型启用。
+   1. kimi-k2.7-code    kimi   in 0.95/out 4.0 每百万
+序号: 1
+
+🌱 配好了，直接说人话就行——它会自己看代码、跑命令。
+```
+
+**地址是可以改的**——不少厂商国内外端点不同（Moonshot 的 `.cn` 和 `.ai`、Z.ai 和智谱），
+预设给的是国际版，你可以直接改成你要用的那个。
+
+key 存在 `~/.config/kaipi/auth.toml`，权限 600。**从此不用 export**。
+想临时换一次，`export MOONSHOT_API_KEY=...` 仍然优先于配置文件。
+
+之后随时可以：`/provider` 加一家或改地址/key，`/model` 在**所有已配提供商的所有模型**里换。
 
 然后就是一个提示符，直接说人话：
 
@@ -167,6 +196,8 @@ root> 找一下 app.py 里的 bug 并修掉
 | `/rewind <节点id> [both\|code\|conversation]` | 回退。不给模式就交互式问你；`conversation` 只挪光标，`code` 只还原文件，`both` 两个都做 |
 | `/ledger` | 总账：花了多少、各项 token、探索 / 嫁接 / 打断分别替主干挡下了多少 |
 | `/canvas` | 把这个会话搬到浏览器（画布里敲 `/cli` 搬回来） |
+| `/provider` | 配置 API 提供商：地址、key、这家你要用的 model id 列表 |
+| `/model` | 在**所有已配提供商的所有模型**里换一个启用（下一个会话生效） |
 | `/quit`、`/exit` | 结束 |
 
 **按键**：`Esc` 停掉当前这一轮；提示符上按 `Ctrl-C` 直接退出（游标已存，下次接着来）；
@@ -186,6 +217,7 @@ root> 找一下 app.py 里的 bug 并修掉
 | `kaipi trunk` / `kaipi trunk pin <节点id>` | 同上 |
 | `kaipi rewind <节点id> [--mode both\|code\|conversation]` | 同 `/rewind` |
 | `kaipi ledger` | 同 `/ledger` |
+| `kaipi provider` / `kaipi model` | 同 `/provider` `/model`，不进会话也能配 |
 | `kaipi sessions` | 列出这个目录下所有会话（只有子命令有，斜杠命令里没有） |
 | `kaipi --help`、`kaipi <子命令> --help` | 用法 |
 
@@ -194,6 +226,8 @@ root> 找一下 app.py 里的 bug 并修掉
 **节点 id 可以只敲前几位或后几位**，只要在本次会话里不重复就行（树里显示的是后 6 位）。
 
 ### 环境变量
+
+配好 `/provider` 和 `/model` 之后这些都不需要了，它们只是**临时覆盖**（优先级高于配置文件）：
 
 | 变量 | 作用 |
 |---|---|

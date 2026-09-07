@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import tomllib
+from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
 
@@ -61,6 +63,7 @@ class ProviderConfig(BaseModel):
     # First-party Anthropic. The `-anthropic` gateways speak the same wire protocol but
     # not the preserved-thinking beta, so the capability is a table column, not a name test.
     native_anthropic: bool = False
+    needs_key: bool = True  # a self-hosted endpoint (ollama) authenticates nobody
 
 
 def _chat(url: str, env: str) -> ProviderConfig:
@@ -103,8 +106,76 @@ BUILTIN: dict[str, ProviderConfig] = {
     "qwen": _chat("https://dashscope.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
     "openrouter": _chat("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "groq": _chat("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
-    "ollama": _chat("http://localhost:11434/v1", "OLLAMA_API_KEY"),
+    "ollama": ProviderConfig(
+        api="openai-chat",
+        base_url="http://localhost:11434/v1",
+        api_key_env="OLLAMA_API_KEY",
+        needs_key=False,
+    ),
 }
+
+
+def auth_file() -> Path:
+    """`~/.config/kaipi/auth.toml`: what `/provider` writes. Never inside a project - a key
+    in a repository is a key in someone's clone."""
+    root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return root / "kaipi" / "auth.toml"
+
+
+def auth() -> dict[str, Any]:
+    p = auth_file()
+    return tomllib.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
+def save_auth(
+    name: str, base_url: str = "", api_key: str = "", models: list[str] | None = None
+) -> Path:
+    """Adds or updates one provider. Called with only a name it changes nothing but keeps
+    the file valid, so callers can save without re-asking for a key."""
+    data = auth()
+    entry = dict(data.setdefault("providers", {}).get(name, {}))
+    for k, v in (("base_url", base_url), ("api_key", api_key)):
+        if v:
+            entry[k] = v
+    if models:
+        entry["models"] = models
+    data["providers"][name] = entry
+    return _write(data)
+
+
+def use_model(provider: str, model: str, in_pricing: bool) -> Path:
+    """Activate one model. Stored as a spec build() understands: a bare id when pricing.toml
+    knows it (and therefore its provider), `<provider>/<id>` otherwise."""
+    data = auth()
+    data["model"] = model if in_pricing else f"{provider}/{model}"
+    data["provider"] = provider
+    return _write(data)
+
+
+def _write(data: dict[str, Any]) -> Path:
+    p = auth_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    body = [f'model = "{data.get("model", "")}"', f'provider = "{data.get("provider", "")}"', ""]
+    for who, cfg in data.get("providers", {}).items():
+        body += [f"[providers.{who}]"]
+        for k, v in cfg.items():
+            body += [f"{k} = {list(v)!r}" if isinstance(v, list) else f'{k} = "{v}"']
+        body += [""]
+    p.write_text("\n".join(body), encoding="utf-8")
+    p.chmod(0o600)  # it holds credentials
+    return p
+
+
+def active_model() -> str:
+    """The model spec `/model` last activated, if any."""
+    return str(auth().get("model", ""))
+
+
+def configured_models() -> list[tuple[str, str]]:
+    """(provider, model id) for every model the user listed, across all their providers."""
+    return [
+        (who, m) for who, cfg in auth().get("providers", {}).items() for m in cfg.get("models", [])
+    ]
 
 
 def build(
@@ -127,8 +198,21 @@ def build(
     cfg = known.get(name)
     if cfg is None:
         raise ValueError(f"unknown provider {name!r}; known: {', '.join(known)}")
-    key = os.environ.get(cfg.api_key_env, "") if cfg.api_key_env else ""
-    base = os.environ.get(f"{name.upper().replace('-', '_')}_BASE_URL", cfg.base_url).rstrip("/")
+    # Precedence: the environment (a deliberate one-off), then `/provider`'s file, then
+    # the preset. So an export still overrides a saved key without having to unsave it.
+    saved: dict[str, str] = auth().get("providers", {}).get(name, {})
+    key = (os.environ.get(cfg.api_key_env, "") if cfg.api_key_env else "") or saved.get(
+        "api_key", ""
+    )
+    env_base = os.environ.get(f"{name.upper().replace('-', '_')}_BASE_URL", "")
+    base = (env_base or saved.get("base_url", "") or cfg.base_url).rstrip("/")
+    # `api_key_env` empty means the endpoint was declared as needing no credential.
+    if cfg.needs_key and cfg.api_key_env and not key:
+        # A sentence the user can act on, rather than a 401 from the vendor five seconds later.
+        raise ValueError(
+            f"{name} 还没有 API key。运行 `kaipi provider` 配置一次，"
+            f"或者 export {cfg.api_key_env}=..."
+        )
     if cfg.api == "anthropic":
         from kaipi.providers.anthropic import AnthropicProvider
 

@@ -139,7 +139,9 @@ class Session:
         self._cheap: Provider | None = None
 
     def _start(self) -> Log:
-        model = os.environ.get("KAIPI_MODEL", self.pricing.model)
+        from kaipi.providers import active_model
+
+        model = os.environ.get("KAIPI_MODEL") or active_model() or self.pricing.model
         system = BASE_PROMPT
         agents_md = self.cwd / "AGENTS.md"
         if agents_md.exists():  # snapshotted: the system prompt is frozen for the session
@@ -366,6 +368,91 @@ def cmd_rewind(s: Session, ref: str, mode: str | None) -> None:
         cmd_go(s, nid)
 
 
+def cmd_provider() -> None:
+    """Pick a vendor, confirm its endpoint, paste a key: the three things that otherwise
+    have to be exported by hand every session. Regional endpoints differ (Moonshot and
+    Z.ai each have a .cn and an international one), so the URL is always editable."""
+    from kaipi.providers import BUILTIN, auth, save_auth
+
+    current = auth()
+    done = current.get("providers", {})
+    if done:
+        typer.echo(f"{BOLD}已配置的提供商{RESET}")
+        for n, saved in done.items():
+            models = ", ".join(saved.get("models", [])) or "(还没填模型)"
+            typer.echo(f"   · {n:<22} {DIM}{saved.get('base_url', '')}  {models}{RESET}")
+        typer.echo(f"{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}")
+
+    names = list(BUILTIN)
+    typer.echo(f"{BOLD}选择 API 提供商{RESET}")
+    for i, n in enumerate(names, 1):
+        cfg = BUILTIN[n]
+        mark = " (已配置)" if n in done else ""
+        url = cfg.base_url or "(官方默认)"
+        typer.echo(f"  {i:>2}. {n:<22} {DIM}{cfg.api:<17} {url}{RESET}{mark}")
+    pick = typer.prompt("序号", type=int)
+    if not 1 <= pick <= len(names):
+        raise typer.BadParameter(f"序号要在 1..{len(names)} 之间")
+    name = names[pick - 1]
+    cfg = BUILTIN[name]
+
+    saved = done.get(name, {})
+    base = typer.prompt(
+        "API 地址（不同地区可能不同，回车接受）",
+        default=saved.get("base_url") or cfg.base_url or "https://api.anthropic.com",
+    )
+    saved_key = saved.get("api_key", "")
+    key = typer.prompt(
+        f"{cfg.api_key_env} 的 key" + ("（回车保留已存的）" if saved_key else ""),
+        hide_input=True,
+        default="" if saved_key else None,
+        show_default=False,
+    ).strip()
+    known = [m for m, pr in ledger.Pricing.load().models.items() if pr.provider == name]
+    if known:
+        typer.echo(f"{DIM}价格表里这个提供商的模型：{', '.join(known)}{RESET}")
+    listed = typer.prompt(
+        "你要用的 model id（逗号分隔，可以多个）",
+        default=", ".join(saved.get("models", [])) or ", ".join(known[:2]),
+    )
+    picked = [m.strip() for m in listed.replace("，", ",").split(",") if m.strip()]
+
+    path = save_auth(name, base.strip().rstrip("/"), key, picked)
+    typer.echo(f"{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}")
+    typer.echo(f"{DIM}临时想换 key，export {cfg.api_key_env} 仍然优先于这里{RESET}")
+    typer.echo(f"{DIM}接下来用 /model 选一个模型启用{RESET}")
+
+
+def cmd_model() -> None:
+    """Switch models across every provider you configured. One list, so moving from a
+    Kimi model to a Claude one is the same gesture as moving between two Kimi ones."""
+    from kaipi.providers import active_model, configured_models, use_model
+
+    pairs = configured_models()
+    if not pairs:
+        typer.echo(
+            f"{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 model id{RESET}"
+        )
+        return
+    now, pricing = active_model(), ledger.Pricing.load()
+    typer.echo(f"{BOLD}选择模型{RESET}")
+    for i, (who, m) in enumerate(pairs, 1):
+        spec = m if m in pricing.models else f"{who}/{m}"
+        price = pricing.models.get(m)
+        cost = f"in {price.input}/out {price.output} 每百万" if price else "不在价格表，账本按 0 记"
+        typer.echo(
+            f"  {i:>2}. {m:<26} {DIM}{who:<12} {cost}{RESET}"
+            + (f"{GREEN} (当前){RESET}" if spec == now else "")
+        )
+    pick = typer.prompt("序号", type=int)
+    if not 1 <= pick <= len(pairs):
+        raise typer.BadParameter(f"序号要在 1..{len(pairs)} 之间")
+    who, model = pairs[pick - 1]
+    use_model(who, model, model in pricing.models)
+    typer.echo(f"{GREEN}已启用 {model}（{who}）{RESET}")
+    typer.echo(f"{DIM}当前会话的模型在开始时就冻结了；新开一个会话才会用上{RESET}")
+
+
 def cmd_ledger(s: Session) -> None:
     r = ledger.report(s.log.state, s.pricing)
     u = r.usage
@@ -563,7 +650,7 @@ def interactive(s: Session) -> str:
     typer.echo(
         f"{DIM}/tree  /go <id>  /graft <id> [--depth d] [--with-tool id..]  /archive <id>"
         f"  /restore <id>  /rewind <id>  /trunk [pin <id>]  /explore <text>  /ledger"
-        f"  /canvas  /quit   ·  Esc 停止当前回合{RESET}"
+        f"  /canvas  /provider  /model  /quit   ·  Esc 停止当前回合{RESET}"
     )
     while True:
         try:
@@ -635,6 +722,10 @@ def slash(s: Session, argv: list[str]) -> bool:
             cmd_restore(s, args[0])
         case "trunk":
             cmd_trunk(s, args[1] if len(args) == 2 and args[0] == "pin" else None)
+        case "provider":
+            cmd_provider()
+        case "model":
+            cmd_model()
         case "ledger":
             cmd_ledger(s)
         case "explore":
@@ -647,6 +738,30 @@ def slash(s: Session, argv: list[str]) -> bool:
 
 
 # --- typer wiring ---------------------------------------------------------------------
+
+
+def onboard() -> None:
+    """Two things stand between a fresh install and a conversation: somewhere to send the
+    request, and something to send it to. Ask for each in turn, and say when it is done."""
+    from kaipi.providers import BUILTIN, active_model, auth, configured_models
+
+    has_key = bool(auth().get("providers")) or any(
+        cfg.api_key_env and os.environ.get(cfg.api_key_env) for cfg in BUILTIN.values()
+    )
+    if not has_key:
+        typer.echo(f"{BOLD}👋 第一次用 kaipi，先花一分钟配两件事。{RESET}")
+        typer.echo(f"{DIM}第 1 步 / 共 2 步：选一个 API 提供商，填上地址和 key。{RESET}\n")
+        cmd_provider()
+        typer.echo("")
+    if not (os.environ.get("KAIPI_MODEL") or active_model()):
+        if configured_models():
+            typer.echo(f"{DIM}第 2 步 / 共 2 步：挑一个模型启用。{RESET}\n")
+            cmd_model()
+        else:
+            typer.echo(f"{RED}还没有可用的模型：再跑一次 /provider，把 model id 填上{RESET}")
+            raise typer.Exit(1)
+        typer.echo(f"\n{GREEN}🌱 配好了，直接说人话就行——它会自己看代码、跑命令。{RESET}")
+        typer.echo(f"{DIM}随时 /tree 看分支，Esc 停掉跑歪的一轮，/ledger 看省了多少。{RESET}\n")
 
 
 def _session(new: bool = False, *, mutate: bool = True) -> Session:
@@ -667,6 +782,7 @@ def main(
     """kaipi: interactive session in the current directory (resumes the latest one)."""
     if ctx.invoked_subcommand is None:
         refuse_if_open(Path.cwd())
+        onboard()
         run_surfaces(_session(new), "cli")
 
 
@@ -755,6 +871,18 @@ def ledger_cmd() -> None:
 @app.command()
 def sessions() -> None:
     cmd_sessions(Path.cwd())
+
+
+@app.command()
+def provider() -> None:
+    """configure an API provider: endpoint, key, and the model ids it offers you."""
+    cmd_provider()
+
+
+@app.command()
+def model() -> None:
+    """switch models across every provider you configured."""
+    cmd_model()
 
 
 if __name__ == "__main__":
