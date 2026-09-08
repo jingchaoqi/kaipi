@@ -65,7 +65,29 @@ keys, so they are separate presets (`kimi-cn`, `kimi-anthropic-cn`, `glm-cn`,
 `glm-anthropic-cn`) rather than a URL override on the international ones. DeepSeek has one
 global endpoint.
 
-### Vendor notes
+### Declaring the bash tool
+
+| Where | What is sent |
+|---|---|
+| first-party Anthropic | `{"type": "bash_20250124", "name": "bash"}` - the server-side tool, schema-less |
+| an Anthropic-compatible gateway | `{name, description, input_schema}` - an ordinary custom tool |
+| the other three protocols | an ordinary custom tool, always |
+
+This distinction is not cosmetic. `bash_20250124` is implemented by Anthropic; a gateway
+has never heard of that type, offers the model no tool at all, and the model can then only
+describe what it would do - "I will look at the structure, please wait" - and stop. That
+was a real bug, reported from a Moonshot session, and it is why `native_anthropic` is a
+column in the preset table rather than a comparison against the string "anthropic".
+
+## Rate limits
+
+Every provider translates the vendor's 429 into one `RateLimited`, carrying `retry-after`
+when the vendor sends one, and `agent.run_turn` owns the waiting policy. This matters more
+on Chinese entry-tier plans than the numbers suggest: an organisation limited to 3 requests
+a minute cannot finish a six-command turn without waiting, and the Anthropic SDK's two
+quick retries are not enough on their own.
+
+## Vendor notes
 
 - **DeepSeek**: `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-flash-vision-exp` (the
   old `deepseek-chat` / `deepseek-reasoner` aliases were retired 2026-07). Cache hits are

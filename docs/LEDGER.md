@@ -76,6 +76,14 @@ compares against *the same work on the trunk*, which is what a linear chat would
 it. And an aborted turn's own spend is still counted as **spend** in the totals - the
 saving is the re-reading that never happens, not a refund.
 
+## Turns that did not finish
+
+A turn stopped by the user and a turn ended by the provider are billed the same way: the
+node is `aborted`, and whatever it burned before it ended is in the totals. Only the
+re-reading is saved, never the spend - see the `interrupt` row above. A node that was
+created and then neither completed nor aborted (a crash, a kill -9) is a tombstone and
+costs nothing, because nothing was ever recorded for it.
+
 ## What is not in the ledger
 
 Code snapshots and rewind cost no tokens and are not reported. Dropped thinking blocks

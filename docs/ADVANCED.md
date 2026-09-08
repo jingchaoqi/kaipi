@@ -20,6 +20,11 @@ Endpoints: `GET /api/state`, `GET /api/node/<id>`, `GET /api/preview?src=&tools=
 `/api/rewind {id, mode}`, `/api/pending {edges}`, `/api/reset`, `/api/handoff`,
 `/api/stop`.
 
+The canvas folds a command's output to its first four lines and expands it on a click; the
+terminal prints the same four and says how many it kept back, since scrollback cannot be
+folded open again once printed. Neither truncates what is stored: the whole output is in
+the node payload, and `GET /api/node/<id>` returns it.
+
 `/api/stop` is the one call accepted while a turn is running - everything else is refused
 with 409 until it ends. It sets the turn's stop flag; the turn ends at the next step
 boundary, the running command is killed with its process group, and the node is recorded
@@ -91,6 +96,7 @@ fake.
 | sibling explorations sharing the fork-point prefix | **no** | same |
 | preserved thinking surviving a tool loop and a replay | **no** | first-party Anthropic only |
 | request shapes for all four wire protocols | mock only | `scripts/mockapi.py`, strictly validated |
+| a gateway accepting the custom bash tool and calling it | yes | Moonshot `/anthropic`, 2026-09-08: six commands in one turn |
 
 A mock run proves kaipi's requests are well formed and its prefixes are stable and shared.
 It cannot tell you what a real cache does. Anyone with an Anthropic key can close the

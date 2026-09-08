@@ -39,6 +39,20 @@ Two things follow. The tokens it burned **are** billed - they were really spent,
 ledger that hid them would be lying. And the cursor moves back to the node's **parent**,
 so the next input opens a *sibling*: you retry from where you were, not from the wreck.
 
+### 1.2 A turn the provider ended
+
+A rate limit is not a failure: an entry-tier endpoint can allow three requests a minute,
+and one turn with six commands is seven requests in as many seconds. The agent waits it
+out - the vendor's `retry-after` when it sends one, exponential backoff otherwise, up to
+five times and never more than a minute at a stretch - announcing each wait, because the
+difference between slow and hung is the only thing the user cannot see. Esc still works
+during a wait.
+
+Anything else the provider does - a 401, a dead network, an expired key - ends the turn
+the way a stop does: the node becomes `aborted`, so the tokens it already burned stay on
+the bill, the cursor moves back to the parent, and the surface prints one sentence. A
+provider must never be able to take a session down with it.
+
 ## 2. Edges
 
 **Lineage**: every node has exactly one `parent_id` (roots excepted). This is the tree
@@ -70,6 +84,21 @@ exploration whose invariant is: **the git working tree is identical on entry and
 **The trunk only receives what is explicitly dragged in.** Abandoning a branch injects
 nothing into the trunk. If a branch produced something worth keeping, graft its leaf.
 Explicit beats implicit.
+
+### 3.1 Changing which path is the trunk
+
+`trunk pin <id>` moves the trunk to another path. Nothing is deleted and no payload is
+touched: the old trunk becomes an ordinary off-trunk branch, still live, still reachable,
+and its tokens start counting as savings rather than as burden. The operation is a pure
+accounting change, which is why the command prints `(no prefix changes)` - the assembled
+prefixes are byte-identical, so cached prefixes stay valid. In particular the fork point
+keeps its breakpoint: a branch promoted to trunk goes on reading the same cached prefix
+it was already sharing with its old sibling.
+
+The cursor is separate from the trunk on purpose - one is where you are, the other is
+what you are building on - so pinning does not move it. A turn is an exploration when the
+cursor is not on the trunk leaf, which means promoting a branch you are not standing on
+takes `trunk pin` and then `go`.
 
 ## 4. Context assembly (deterministic)
 
