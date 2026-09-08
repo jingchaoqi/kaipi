@@ -34,6 +34,22 @@ def http(base_url: str, headers: dict[str, str]) -> httpx.Client:
     return httpx.Client(base_url=base_url, headers=headers, timeout=600, trust_env=not local)
 
 
+class RateLimited(Exception):
+    """The vendor said "too many requests". Every provider raises this one, so the agent
+    loop owns the waiting policy rather than each client library having its own."""
+
+    def __init__(self, detail: str, retry_after: float | None = None) -> None:
+        super().__init__(detail)
+        self.retry_after = retry_after
+
+
+def _retry_after(headers: Any) -> float | None:
+    try:
+        return float(headers.get("retry-after") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
 class Reply(BaseModel):
     content: list[dict[str, Any]]  # raw assistant blocks: text / tool_use / thinking ...
     stop_reason: str  # end_turn | tool_use | max_tokens | refusal

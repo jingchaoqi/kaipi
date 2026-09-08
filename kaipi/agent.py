@@ -23,12 +23,22 @@ from kaipi.model import (
     Usage,
     new_id,
 )
-from kaipi.providers import Provider
+from kaipi.providers import Provider, RateLimited, Reply
 from kaipi.store import Log
 
 MAX_TOOL_OUTPUT = 16_000  # ~4k tokens; the only automatic compression kaipi does
 MAX_STEPS = 30
+# A rate limit is a normal condition, not a failure: an entry-tier endpoint can allow as
+# few as 3 requests a minute, and one turn with six commands is seven requests in as many
+# seconds. Wait and retry rather than losing the turn.
+RATE_LIMIT_TRIES = 6
+RATE_LIMIT_MAX_WAIT = 60.0
 Hook = Callable[[str, str], None]  # (kind, text): "text" | "cmd" | "out" | "guard" | "stop"
+
+
+class Failed(Exception):
+    """The turn ended because the provider did, not because the user asked. The node is
+    already recorded as aborted - what it spent is on the bill - when this is raised."""
 
 
 class Interrupted(Exception):
@@ -94,6 +104,32 @@ def _kill(p: subprocess.Popen[str]) -> None:
         p.kill()
 
 
+def _complete(
+    provider: Provider,
+    ctx: context.Context,
+    messages: list[Message],
+    hook: Hook,
+    stop: threading.Event | None,
+) -> Reply:
+    """One request, waiting out the vendor's rate limit. The wait is announced (it is the
+    difference between "slow" and "hung") and interruptible: Esc during it still stops."""
+    for attempt in range(RATE_LIMIT_TRIES):
+        try:
+            return provider.complete(ctx.system, messages, ctx.cache_points)
+        except RateLimited as limit:
+            if attempt == RATE_LIMIT_TRIES - 1:
+                raise
+            wait = min(limit.retry_after or 2 ** (attempt + 1), RATE_LIMIT_MAX_WAIT)
+            tries = RATE_LIMIT_TRIES - 1
+            hook("wait", f"被限流，{wait:.0f} 秒后重试（第 {attempt + 1}/{tries} 次）")
+            end = time.monotonic() + wait
+            while time.monotonic() < end:
+                if stop is not None and stop.is_set():
+                    raise
+                time.sleep(0.1)
+    raise RuntimeError("unreachable")
+
+
 def run_turn(
     log: Log,
     provider: Provider,
@@ -145,7 +181,7 @@ def run_turn(
         for _ in range(max_steps):
             if stop is not None and stop.is_set():
                 raise abort()
-            reply = provider.complete(ctx.system, messages, ctx.cache_points)
+            reply = _complete(provider, ctx, messages, hook, stop)
             usage = usage + reply.usage
             last, dropped = reply.usage, dropped + reply.dropped_thinking
             messages.append({"role": "assistant", "content": reply.content})
@@ -177,8 +213,17 @@ def run_turn(
             messages.append(user)
         else:
             hook("stop", "max_steps")
+    except Interrupted:  # the user's own stop, already recorded: it is not a failure
+        raise
     except KeyboardInterrupt:  # Ctrl-C, which can land in the middle of a model call
         raise abort() from None
+    except Exception as e:
+        # The vendor refused, the network died, the key expired. The turn is over either
+        # way; what must not happen is losing the tokens it already burned and taking the
+        # whole session down with a traceback, so it ends as an aborted node like any
+        # other and the caller gets a sentence.
+        abort()
+        raise Failed(f"{type(e).__name__}: {e}".split("\n")[0][:300]) from None
 
     tree1 = guard.snapshot(cwd)
     if tree1:

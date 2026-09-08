@@ -9,7 +9,14 @@ import httpx
 
 from kaipi.ledger import estimate_tokens
 from kaipi.model import Message, Usage, blocks, text_of
-from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply, http
+from kaipi.providers import (
+    BASH_PARAMETERS,
+    BASH_TOOL_DESCRIPTION,
+    RateLimited,
+    Reply,
+    _retry_after,
+    http,
+)
 
 MAX_TOKENS = 16_000
 BASH_TOOL: dict[str, Any] = {
@@ -102,6 +109,8 @@ class GeminiProvider:
             "generationConfig": {"maxOutputTokens": MAX_TOKENS},
         }
         r = self.client.post(f"/models/{self.model}:generateContent", json=body)
+        if r.status_code == 429:
+            raise RateLimited(r.text[:200], _retry_after(r.headers))
         r.raise_for_status()
         data = r.json()
         self.seq += 1

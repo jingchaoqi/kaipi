@@ -223,6 +223,103 @@ def test_a_stopped_command_does_not_outlive_the_turn(log: Log, tmp_path: Path) -
         os.killpg(pid, 0)  # the whole group is gone, not just the shell
 
 
+def test_a_rate_limit_is_waited_out_not_lost(log: Log, tmp_path: Path) -> None:
+    """3 requests a minute is a real entry-tier limit, and one turn is several requests in
+    as many seconds. Hitting it must cost a wait, not the turn."""
+    from kaipi.providers import RateLimited
+
+    said: list[str] = []
+
+    class LimitedTwice:
+        model = "fake"
+        calls = 0
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            self.calls += 1
+            if self.calls <= 2:
+                raise RateLimited("max RPM: 3", retry_after=0.05)
+            return Reply(
+                content=[{"type": "text", "text": "done"}],
+                stop_reason="end_turn",
+                usage=Usage(output=1),
+            )
+
+        def count_tokens(self, text: str) -> int:
+            return 1
+
+    p = LimitedTwice()
+    nid = agent.run_turn(
+        log,
+        p,
+        None,
+        [],
+        "go",
+        exploration=False,
+        cwd=tmp_path,
+        hook=lambda k, t: said.append(k),
+    )
+    assert p.calls == 3, "it retried rather than giving up"
+    assert log.state.nodes[nid].completed, "and the turn finished normally"
+    assert said.count("wait") == 2, "each wait is announced, or it looks like a hang"
+
+
+def test_a_rate_limit_wait_is_interruptible(log: Log, tmp_path: Path) -> None:
+    """Waiting 60 seconds for a vendor is exactly when a user reaches for Esc."""
+    from kaipi.providers import RateLimited
+
+    stop = threading.Event()
+
+    class AlwaysLimited:
+        model = "fake"
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            stop.set()  # the user gives up while the first wait is running
+            raise RateLimited("max RPM: 3", retry_after=30)
+
+        def count_tokens(self, text: str) -> int:
+            return 1
+
+    start = time.monotonic()
+    with pytest.raises(agent.Failed):
+        agent.run_turn(
+            log, AlwaysLimited(), None, [], "go", exploration=False, cwd=tmp_path, stop=stop
+        )
+    assert time.monotonic() - start < 5, "it waited out the full retry-after despite the stop"
+
+
+def test_a_provider_that_refuses_ends_the_turn_without_taking_the_session(
+    log: Log, tmp_path: Path
+) -> None:
+    """A 401, a dead network, an expired key: the turn is over, but the tokens it already
+    burned are on the bill and the session survives to be told about it."""
+
+    class Refuses:
+        model = "fake"
+        calls = 0
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            self.calls += 1
+            if self.calls == 1:
+                return Reply(
+                    content=[
+                        {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "ls"}}
+                    ],
+                    stop_reason="tool_use",
+                    usage=Usage(output=7),
+                )
+            raise RuntimeError("upstream said no\nwith a second line nobody needs")
+
+        def count_tokens(self, text: str) -> int:
+            return 1
+
+    with pytest.raises(agent.Failed) as caught:
+        agent.run_turn(log, Refuses(), None, [], "go", exploration=False, cwd=tmp_path)
+    assert "upstream said no" in str(caught.value)
+    assert "\n" not in str(caught.value), "one line, not a traceback"
+    dead = next(n for n in log.state.nodes.values() if n.status == "aborted")
+    assert dead.usage.output == 7, "what it burned before failing is still billed"
+
+
 def _git_repo(path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=path, check=True)
     subprocess.run(

@@ -634,17 +634,33 @@ def cmd_rename(s: Session, name: str) -> None:
     typer.echo(f"{GREEN}这个对话现在叫「{name}」{RESET}")
 
 
+OUT_LINES = 4  # of a command's output, in the terminal
+
+
+def preview(out: str, lines: int = OUT_LINES) -> str:
+    """A command's output, shortened. Terminal scrollback cannot be folded open again once
+    printed, so the terminal shows the head and says how much it kept back; the whole thing
+    is in the node, and the canvas expands it on a click."""
+    kept = out.rstrip("\n").split("\n")
+    head = [ln[:200] for ln in kept[:lines]]
+    if len(kept) > lines:
+        head.append(f"… 还有 {len(kept) - lines} 行（/canvas 里点开看全部）")
+    return f"{DIM}" + "\n".join(head) + RESET
+
+
 def print_hook(kind: str, t: str) -> None:
     if kind == "text":
         typer.echo(t)
     elif kind == "cmd":
         typer.echo(f"{DIM}$ {t}{RESET}")
     elif kind == "out":
-        typer.echo(f"{DIM}{t[:2000]}{RESET}")
+        typer.echo(preview(t))
     elif kind == "guard":
         typer.echo(f"{RED}exploration branch dirtied the working tree{RESET}")
     elif kind == "stop":
         typer.echo(f"{RED}stopped: {t}{RESET}")
+    elif kind == "wait":
+        typer.echo(f"{DIM}⏳ {t}{RESET}")
     elif kind == "ledger":
         typer.echo(f"{DIM}{t}{RESET}")
 
@@ -682,11 +698,11 @@ def run_input(
             hook=hook,
             stop=stop,
         )
-    except agent.Interrupted as stopped:
-        # The cursor goes back to the parent, so the next input opens a sibling rather than
-        # continuing from a turn the user threw away; the grafts they staged are theirs, and
-        # come back with them rather than being lost with the discarded turn.
-        dead = s.log.state.nodes[stopped.node_id]
+    except (agent.Interrupted, agent.Failed):
+        # Whether the user stopped it or the provider did, the turn is over: the cursor goes
+        # back to the parent so the next input opens a sibling rather than continuing from
+        # the wreck, and the grafts they staged are theirs, not the discarded turn's.
+        dead = next(n for n in reversed(list(s.log.state.nodes.values())) if n.status == "aborted")
         s.leaf, s.pending = dead.parent_id, edges
         cost = s.pricing.price(dead.model).cost(dead.usage)
         hook("ledger", f"[{s.name(dead.id)} 已废弃] ${cost:.4f}  不会进入之后的上下文")
@@ -753,6 +769,13 @@ class EscWatcher:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
 
+def after_failure(s: Session, err: agent.Failed) -> None:
+    """A provider that refused ends the turn like a stop does: the node is aborted, the
+    tokens it burned are billed, and the cursor is back on the parent to try again."""
+    typer.echo(f"{RED}这一轮没能完成：{err}{RESET}")
+    typer.echo(f"{DIM}已花掉的 token 记在账上；下一句从 {s.name(s.leaf)} 重新长出兄弟节点{RESET}")
+
+
 def after_interrupt(s: Session, stopped: agent.Interrupted) -> None:
     """What the terminal says and asks once a turn has been stopped. Asked after the turn,
     on the main thread, so it never collides with a prompt that is still up."""
@@ -780,6 +803,9 @@ def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
             nid, dirty = run_input(s, text, explore=explore, stop=stop)
     except agent.Interrupted as stopped:
         after_interrupt(s, stopped)
+        return
+    except agent.Failed as err:
+        after_failure(s, err)
         return
     after_turn(s, nid, dirty)
 

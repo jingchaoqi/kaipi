@@ -105,7 +105,14 @@
   .ln { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
   .ln.cmd { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--bg); padding: 4px 8px; border-radius: 4px; }
   .ln.cmd::before { content: "$ "; color: var(--muted); }
-  .ln.out { font-family: var(--mono); font-size: 11.5px; color: var(--muted); max-height: 160px; overflow: auto; padding-left: 8px; border-left: 2px solid var(--line); }
+  /* a command's output: the head only, until it is clicked. Long output is the thing that
+     buries the answer, and most of it is never read. */
+  .ln.out { font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding-left: 8px; border-left: 2px solid var(--line); cursor: pointer; }
+  .ln.out:hover { border-left-color: var(--muted); }
+  .ln.out .rest { display: none; }
+  .ln.out.open .rest { display: block; }
+  .ln.out.open { max-height: 320px; overflow: auto; }
+  .ln.out .toggle { color: var(--graft); font-size: 11px; display: block; margin-top: 2px; }
   .ln.graft { font-size: 12px; color: var(--graft); border-left: 2px solid var(--graft); padding-left: 8px; max-height: 120px; overflow: auto; font-family: var(--mono); }
   .ln.guard { font-size: 12px; color: var(--explore); }
   .ln.sys { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; }
@@ -489,10 +496,24 @@ function renderTranscript() {
 }
 // The one place a transcript line is rendered: both the replay and the live stream use it.
 const LINE_CLASS = { user: 'q', assistant: 'a', text: 'a' };
+const OUT_HEAD = 4;   // lines of a command's output shown before it is clicked
 function line(e) {
-  const t = e.kind === 'out' ? e.text.slice(0, 4000) : e.text;
-  return `<div class="ln ${LINE_CLASS[e.kind] || e.kind}">${esc(t)}</div>`;
+  if (e.kind !== 'out') return `<div class="ln ${LINE_CLASS[e.kind] || e.kind}">${esc(e.text)}</div>`;
+  const all = e.text.slice(0, 20000).replace(/\n+$/, '').split('\n');
+  if (all.length <= OUT_HEAD) return `<div class="ln out open">${esc(all.join('\n'))}</div>`;
+  const head = esc(all.slice(0, OUT_HEAD).join('\n'));
+  const rest = esc(all.slice(OUT_HEAD).join('\n'));
+  const n = all.length - OUT_HEAD;
+  return `<div class="ln out" title="点击展开或收起">${head}\n<span class="rest">${rest}\n</span><span class="toggle">▸ 展开剩余 ${n} 行</span></div>`;
 }
+// one delegated handler: the transcript is re-rendered often, listeners on each line are not
+$('#transcript').addEventListener('click', e => {
+  const out = e.target.closest('.ln.out');
+  if (!out || !out.querySelector('.toggle')) return;
+  const open = out.classList.toggle('open');
+  const rest = out.querySelector('.rest').textContent.replace(/\n$/, '').split('\n').length;
+  out.querySelector('.toggle').textContent = open ? '▾ 收起' : `▸ 展开剩余 ${rest} 行`;
+});
 
 // ---------- composer & streaming ----------
 const input = $('#input');
