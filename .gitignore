@@ -9,3 +9,6 @@ dist/
 
 # the startup prompt: kept locally, not part of the repo
 CLAUDE.md
+
+# IDE 本地配置：每次开 IDE 都会变，跟仓库无关
+.idea/
