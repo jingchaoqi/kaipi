@@ -39,11 +39,22 @@ def short(node_id: str) -> str:
     return node_id[-6:]
 
 
-def _home(path: Path) -> str:
+def _home(path: Path, limit: int = 34) -> str:
+    """The working directory for the status bar. Shortened under $HOME, and elided from the
+    left past `limit`: the numbers to its right are the point of the bar, and a deep path -
+    a macOS $TMPDIR is 60 characters before it says anything - would push them off screen."""
     try:
-        return "~/" + str(path.relative_to(Path.home()))
+        out = "~/" + str(path.relative_to(Path.home()))
     except ValueError:
-        return str(path)
+        out = str(path)
+    if len(out) <= limit:
+        return out
+    parts = out.split("/")
+    for keep in range(2, len(parts)):  # widen from the tail until it no longer fits
+        tail = "…/" + "/".join(parts[-keep:])
+        if len(tail) > limit:
+            return "…/" + "/".join(parts[-(keep - 1) :])
+    return out
 
 
 def color(c: ledger.Color, s: str) -> str:
@@ -241,9 +252,10 @@ class Session:
     def burden_line(self) -> str:
         return f"trunk burden: {ledger.fmt(ledger.trunk_burden(self.log.state))}"
 
-    def status(self) -> str:
+    def status(self, width: int = 120) -> str:
         """The bar both surfaces show: where you are, what you are using, what it has cost
-        and what the shape of the session has saved."""
+        and what the shape of the session has saved. Everything but the path is a number
+        worth reading, so the path is what yields when the terminal is narrow."""
         st, spec = self.log.state, self.wanted_model()
         price = self.pricing.price(spec)
         burden = ledger.trunk_burden(st)
@@ -256,12 +268,29 @@ class Session:
         tokens = sum(t for t, _ in saved.values())
         money = sum(c for _, c in saved.values())
         who, model = self.pricing.split(spec)
-        where = f"{st.name} · {_home(self.cwd)}" if st.name else _home(self.cwd)
-        return (
-            f"{who}/{model}  {DIM}{where}{RESET}  "
-            f"context {window}  spent ${ledger.total_cost(st, self.pricing):.4f}  "
-            f"{GREEN}saved {ledger.fmt(tokens)}/turn = ${money:.4f}{RESET}"
-        )
+        spent = f"context {window}  spent ${ledger.total_cost(st, self.pricing):.4f}"
+        long, short_ = f"saved {ledger.fmt(tokens)}/turn = ${money:.4f}", f"saved ${money:.4f}"
+
+        def bar(where: str, figure: str) -> str:
+            head = f"{who}/{model}  " + (f"{DIM}{where}{RESET}  " if where else "")
+            return f"{head}{spent}  {GREEN}{figure}{RESET}"
+
+        def visible(text: str) -> int:
+            return len(text) - 9 * text.count(RESET)  # the escapes take no columns
+
+        # Narrower than everything fits: give up the path first, then the per-turn figure.
+        # A number that is not on screen is worth less than a path that is not.
+        name = f"{st.name} · " if st.name else ""
+        for where, figure in (
+            (name + _home(self.cwd, max(12, width - 86)), long),
+            (name.rstrip(" ·"), long),
+            ("", long),
+            ("", short_),
+        ):
+            out = bar(where, figure)
+            if visible(out) <= width:
+                return out
+        return bar("", short_)
 
 
 # --- verbs (shared by sub-commands and slash commands) --------------------------------
