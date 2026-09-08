@@ -64,7 +64,8 @@
   .node.aborted .strike { stroke: var(--red); stroke-width: 1.5; opacity: .6; }
   .edge.aborted { stroke: var(--red); stroke-dasharray: 3 3; opacity: .5; }
   .node.current rect.card { stroke-width: 2.5; }
-  .node.current rect.halo { fill: none; stroke: var(--trunk); stroke-opacity: .25; stroke-width: 8; rx: 12; }
+  .node rect.halo { fill: none; stroke: none; rx: 12; }  /* unstyled it would paint SVG's default black */
+  .node.current rect.halo { stroke: var(--trunk); stroke-opacity: .25; stroke-width: 8; }
   .node.explore.current rect.halo { stroke: var(--explore); }
   .node text { fill: var(--ink); font-family: var(--sans); font-size: 13px; pointer-events: none; }
   .node text.id { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
@@ -201,14 +202,14 @@ const api = {
   post: async (p, body) => { const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Kaipi-Token': TOKEN }, body: JSON.stringify(body || {}) }); const j = await r.json(); if (j.error) throw new Error(j.error); return j; },
 };
 const fmt = t => (t / 1000).toFixed(1) + 'k';
-const short = id => id ? id.slice(-6) : 'root';
+let byId = {};
+const short = id => id ? ((byId[id] && byId[id].label) || id.slice(-6)) : 'root';
 // also escapes quotes: several call sites interpolate into attributes, and some of this
 // text (tool-call ids, tool output) comes from the model rather than the user
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // clip to a visual width: CJK glyphs count double
 function clip(s, w) { let out = '', used = 0; for (const ch of s) { const cw = /[\u1100-\uFFFF]/.test(ch) ? 2 : 1; if (used + cw > w) return esc(out) + '…'; out += ch; used += cw; } return esc(out); }
 let S = null;            // last /api/state
-let byId = {};
 let pending = [];        // ReferenceEdge[]
 let view = { x: 40, y: 40, k: 1 };
 let fitted = false;

@@ -329,8 +329,8 @@ def test_provider_credentials_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_pa
         "kimi", "https://api.moonshot.cn/v1", "sk-secret", ["kimi-k2.6", "kimi-k2.7-code"]
     )
     assert path.stat().st_mode & 0o077 == 0, "a file holding a key must not be group/world readable"
-    providers.use_model("kimi", "kimi-k2.6", in_pricing=True)
-    assert providers.active_model() == "kimi-k2.6"
+    providers.use_model("kimi", "kimi-k2.6")
+    assert providers.active_model() == "kimi/kimi-k2.6"
 
     p = providers.build("kimi-k2.6", {}, provider_of="kimi")
     assert isinstance(p, OpenAICompatProvider)
@@ -348,11 +348,11 @@ def test_provider_credentials_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_pa
         ("deepseek", "deepseek-v4-flash"),
     ]
     # switching to another vendor's model is the same gesture as switching within one
-    providers.use_model("deepseek", "deepseek-v4-flash", in_pricing=True)
-    assert providers.active_model() == "deepseek-v4-flash"
-    providers.use_model("ollama", "qwen3:32b", in_pricing=False)
-    assert providers.active_model() == "ollama/qwen3:32b", "an unpriced model carries its provider"
-    providers.use_model("kimi", "kimi-k2.6", in_pricing=True)
+    providers.use_model("deepseek", "deepseek-v4-flash")
+    assert providers.active_model() == "deepseek/deepseek-v4-flash"
+    providers.use_model("ollama", "qwen3:32b")
+    assert providers.active_model() == "ollama/qwen3:32b"
+    providers.use_model("kimi", "kimi-k2.6")
 
     # and the environment still wins, so a one-off export overrides the file
     monkeypatch.setenv("MOONSHOT_API_KEY", "sk-from-env")
@@ -370,3 +370,78 @@ def test_a_missing_key_is_a_sentence_not_a_401(
         providers.build("kimi-k2.6", {}, provider_of="kimi")
     # ollama authenticates nobody, so it must not be caught by that check
     assert providers.build("ollama/qwen3:32b", {})
+
+
+def test_the_model_goes_to_the_provider_it_was_listed_under(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`kimi-k2.6` is priced under `kimi` (OpenAI-compatible, .ai). A user who listed it under
+    `kimi-anthropic` with the .cn endpoint must be routed there, and still see the price."""
+    from kaipi import ledger
+    from kaipi.providers.anthropic import AnthropicProvider
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_ANTHROPIC_BASE_URL", raising=False)
+    providers.save_auth(
+        "kimi-anthropic", "https://api.moonshot.cn/anthropic", "sk-cn", ["kimi-k2.6"]
+    )
+    providers.use_model("kimi-anthropic", "kimi-k2.6")
+    spec = providers.active_model()
+    assert spec == "kimi-anthropic/kimi-k2.6"
+
+    pricing = ledger.Pricing.load()
+    price = pricing.find(spec)
+    assert price is not None and price.provider == "kimi-anthropic"
+    assert price.input == pricing.models["kimi-k2.6"].input, "the price follows the model id"
+    assert pricing.split(spec) == ("kimi-anthropic", "kimi-k2.6")
+    assert pricing.split("claude-opus-5") == ("anthropic", "claude-opus-5")
+    assert pricing.find("kimi-anthropic/no-such-model") is None
+    assert pricing.price("kimi-anthropic/no-such-model").provider == "kimi-anthropic"
+
+    p = providers.build(spec, {})
+    assert isinstance(p, AnthropicProvider) and p.model == "kimi-k2.6"
+    assert str(p.client.base_url).startswith("https://api.moonshot.cn/anthropic")
+
+
+def test_model_ids_are_parsed_the_way_people_type_them() -> None:
+    want = ["kimi-k2.7-code", "kimi-k2.6"]
+    assert providers.parse_models("kimi-k2.7-code,kimi-k2.6") == want
+    assert providers.parse_models("kimi-k2.7-code，kimi-k2.6") == want, "full-width comma"
+    assert providers.parse_models("  kimi-k2.7-code ,  kimi-k2.6 ") == want, "spaces around"
+    assert providers.parse_models("kimi-k2.7-code kimi-k2.6") == want, "whitespace alone"
+    assert providers.parse_models("kimi-k2.7-code，， kimi-k2.6,") == want, "repeats and a tail"
+    assert providers.parse_models("") == []
+
+
+def test_the_chinese_platforms_are_their_own_presets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kimi and GLM run a Chinese platform on a separate account: its own endpoint, its own
+    key. A preset each, so nobody has to retype a URL, and the international key never
+    leaks to the other endpoint through a shared environment variable."""
+    from kaipi import ledger
+    from kaipi.providers.anthropic import AnthropicProvider
+
+    cn = {
+        "kimi-cn": ("openai-chat", "https://api.moonshot.cn/v1", "MOONSHOT_CN_API_KEY"),
+        "kimi-anthropic-cn": (
+            "anthropic",
+            "https://api.moonshot.cn/anthropic",
+            "MOONSHOT_CN_API_KEY",
+        ),
+        "glm-cn": ("openai-chat", "https://open.bigmodel.cn/api/paas/v4", "ZHIPU_API_KEY"),
+        "glm-anthropic-cn": (
+            "anthropic",
+            "https://open.bigmodel.cn/api/anthropic",
+            "ZHIPU_API_KEY",
+        ),
+    }
+    for name, (api, url, env) in cn.items():
+        cfg = providers.BUILTIN[name]
+        assert (cfg.api, cfg.base_url, cfg.api_key_env) == (api, url, env), name
+        assert cfg.api_key_env != providers.BUILTIN[name.removesuffix("-cn")].api_key_env
+
+    monkeypatch.setenv("MOONSHOT_CN_API_KEY", "sk-cn")
+    p = providers.build("kimi-anthropic-cn/kimi-k2.7-code", {})
+    assert isinstance(p, AnthropicProvider) and p.compat and p.model == "kimi-k2.7-code"
+    assert str(p.client.base_url).startswith("https://api.moonshot.cn/anthropic")
+    assert ledger.Pricing.load().find("kimi-anthropic-cn/kimi-k2.7-code") is not None

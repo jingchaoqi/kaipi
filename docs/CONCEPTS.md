@@ -94,6 +94,12 @@ Context is a pure function of (leaf, reference edges, archived set). The only
 session-level input is the system prompt, which is frozen at `session_started`
 (`AGENTS.md` is snapshotted into it) because editing it invalidates every cache below.
 
+The model is not session-level: each node records the model it ran on, and the next node
+runs on whatever `/model` currently names. `session_started` keeps the model the session
+began with only as a record. Switching models mid-lineage rewrites the cache (caches are
+model-scoped) and, with preserved thinking, drops the earlier model's thinking blocks;
+kaipi allows it and lets the ledger show the cost rather than forbidding it.
+
 The exploration read-only notice is a text block in the new user message, **not** a
 system-prompt suffix: a different system prompt would give explorations a different
 cache namespace from the trunk they fork from.
@@ -123,13 +129,22 @@ cache namespace from the trunk they fork from.
 ## 7. Surfaces
 
 The session lives in one process and is open on exactly one surface at a time: the
-terminal (readline) or the canvas (a local web page served by the same process). `/canvas`
+terminal or the canvas (a local web page served by the same process). The terminal keeps a
+fixed area at the bottom - the input line with the status bar under it - and scrolls the
+agent's output above it; while a turn runs the area stays, the bar says so, Esc stops the
+turn and a line typed meanwhile is queued as the next input (`kaipi/tui.py`, on
+prompt_toolkit; without a tty a plain line loop takes over). `/canvas`
 in the terminal opens the canvas and closes the prompt; `/cli` on the canvas closes the
 canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
 same directory while a surface is open.
+
+Every `kaipi` is a fresh conversation. An old one is picked up on purpose - `-c` for the
+latest, `-r <id>` for a given one, `/resume` inside a session - never by accident. A
+conversation can be named (`/rename`); the name is an event in its own log, so it folds
+like everything else and travels with the file.
 
 ### 7.1 Configuration is a conversation, not an export
 

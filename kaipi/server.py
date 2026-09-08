@@ -104,6 +104,7 @@ class Canvas:
             nodes.append(
                 {
                     "id": n.id,
+                    "label": st.label(n.id),
                     "parent_id": n.parent_id,
                     "status": n.status,
                     "seq": n.seq,
@@ -137,11 +138,13 @@ class Canvas:
     def bar(self) -> dict[str, Any]:
         """What the canvas puts in its status bar; the CLI prints the same numbers."""
         s, st = self.s, self.s.log.state
-        price = s.pricing.price(st.model)
+        spec = s.wanted_model()
+        price = s.pricing.price(spec)
+        who, model = s.pricing.split(spec)
         saved = ledger.saved_by_kind(st, s.pricing)
         return {
-            "provider": price.provider,
-            "model": st.model,
+            "provider": who,
+            "model": model,
             "cwd": str(s.cwd),
             "window": price.context,
             "burden": ledger.trunk_burden(st),
@@ -176,9 +179,12 @@ class Canvas:
             nid = self.s.resolve(argv[1])
             paths = cli.rewind_paths(self.s.log.state, nid)
             return (
-                f"a code rewind to {cli.short(nid)} would restore: {', '.join(paths) or '(none)'}"
+                f"a code rewind to {self.s.name(nid)} would restore: "
+                f"{', '.join(paths) or '(none)'}"
                 "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
             )
+        if argv[0] == "resume" and len(argv) == 1:  # the CLI would prompt; list instead
+            return "\n".join(line for _, line in cli.session_rows(self.s.cwd, self.s.log.path.name))
         buf = io.StringIO()
         with self.lock, contextlib.redirect_stdout(buf):
             try:

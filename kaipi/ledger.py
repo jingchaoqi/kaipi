@@ -79,9 +79,29 @@ class Pricing(BaseModel):
             providers = {}
         return cls(**raw.get("defaults", {}), models=raw.get("models", {}), providers=providers)
 
-    def price(self, model: str) -> Price:
+    def find(self, spec: str) -> Price | None:
+        """A spec is a model id listed here, or `<provider>/<model id>`. Prices belong to the
+        model, not to the endpoint: `kimi-anthropic/kimi-k2.6` costs what `kimi-k2.6` costs,
+        but is routed to the provider the user named, never to the one the price row names."""
+        if spec in self.models:
+            return self.models[spec]
+        name, _, model = spec.partition("/")
+        if model and model in self.models:
+            return self.models[model].model_copy(update={"provider": name})
+        return None
+
+    def price(self, spec: str) -> Price:
         """Unknown models cost 0 so the ledger still adds up in tokens; the CLI warns."""
-        return self.models.get(model, Price())
+        found = self.find(spec)
+        if found is not None:
+            return found
+        name, _, model = spec.partition("/")
+        return Price(provider=name) if model else Price()
+
+    def split(self, spec: str) -> tuple[str, str]:
+        """(provider, model id) for the status bars."""
+        name, _, model = spec.partition("/")
+        return (name, model) if model else (self.price(spec).provider, spec)
 
 
 def estimate_tokens(text: str) -> int:
@@ -152,7 +172,9 @@ def savings(state: State, pricing: Pricing, estimate: Estimator = estimate_token
     t = graph.trunk(state)
     trunk_nodes = graph.lineage(state, t) if t else []
     trunk_ids = {n.id for n in trunk_nodes}
-    rate = pricing.price(state.model).cache_read / 1_000_000
+    # priced at the model the trunk is currently running on, which is what re-reads it
+    rate = pricing.price(trunk_nodes[-1].model if trunk_nodes else state.model).cache_read
+    rate /= 1_000_000
 
     def collected(seq: int) -> int:  # trunk turns that would have re-read those tokens
         return sum(1 for n in trunk_nodes if n.seq > seq)

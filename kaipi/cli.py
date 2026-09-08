@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -18,6 +19,7 @@ from kaipi.model import (
     NodeArchived,
     NodeRestored,
     ReferenceEdge,
+    SessionRenamed,
     SessionStarted,
     TrunkPinned,
     new_id,
@@ -117,31 +119,63 @@ class Session:
     """Everything a command needs: the log, the cursor (current leaf + pending grafts),
     pricing and lazily built providers."""
 
-    def __init__(self, cwd: Path, *, new: bool = False) -> None:
+    def __init__(self, cwd: Path, *, new: bool = False, resume: str | None = None) -> None:
+        """`new`: a fresh conversation (empty leftovers from earlier fresh starts are
+        dropped rather than piled up). `resume`: a session id, or a prefix/suffix of one.
+        Neither: the most recent session, which is what the sub-commands act on."""
         self.cwd = cwd
         self.pricing = ledger.Pricing.load()
         self.cursor_path = cwd / ".kaipi" / "cursor.json"
-        cur = Cursor()
-        if self.cursor_path.exists() and not new:
-            cur = Cursor.model_validate_json(self.cursor_path.read_text())
         existing = list_sessions(cwd)
-        if new or not existing:
+        if new:
+            for p in existing:
+                if not Log(p).state.nodes:
+                    p.unlink()
             self.log = self._start()
-            cur = Cursor()
+        elif resume is not None:
+            self.log = Log(find_session(cwd, resume))
+        elif not existing:
+            self.log = self._start()
         else:
+            cur = self._cursor()
             path = sessions_dir(cwd) / (cur.session or existing[-1].name)
             self.log = Log(path if path.exists() else existing[-1])
-        self.leaf = cur.leaf if cur.leaf in self.log.state.nodes else None
-        self.pending = cur.pending
-        if self.leaf is None:
-            self.leaf = graph.trunk(self.log.state)
+        self._place()
         self._provider: Provider | None = None
+        self._provider_spec: str | None = None  # what it was built for; None if injected
         self._cheap: Provider | None = None
 
-    def _start(self) -> Log:
+    def _cursor(self) -> Cursor:
+        if self.cursor_path.exists():
+            return Cursor.model_validate_json(self.cursor_path.read_text())
+        return Cursor()
+
+    def _place(self) -> None:
+        """Leaf and staged grafts for the open log: the cursor's if it points into this
+        session, otherwise the trunk leaf."""
+        cur = self._cursor()
+        mine = cur.session == self.log.path.name
+        self.leaf = cur.leaf if mine and cur.leaf in self.log.state.nodes else None
+        self.pending = cur.pending if mine else []
+        if self.leaf is None:
+            self.leaf = graph.trunk(self.log.state)
+
+    def switch(self, path: Path) -> None:
+        """`/resume` inside a session: open another log in place."""
+        self.save()
+        self.log = Log(path)
+        self._place()
+        self.save()
+
+    def wanted_model(self) -> str:
+        """What a session started right now would use: the environment, then `/model`'s
+        choice, then the packaged default."""
         from kaipi.providers import active_model
 
-        model = os.environ.get("KAIPI_MODEL") or active_model() or self.pricing.model
+        return os.environ.get("KAIPI_MODEL") or active_model() or self.pricing.model
+
+    def _start(self) -> Log:
+        model = self.wanted_model()
         system = BASE_PROMPT
         agents_md = self.cwd / "AGENTS.md"
         if agents_md.exists():  # snapshotted: the system prompt is frozen for the session
@@ -162,15 +196,17 @@ class Session:
     def _build(self, model: str) -> Provider:
         from kaipi.providers import ProviderConfig, build
 
-        price = self.pricing.models.get(model)
+        price = self.pricing.find(model)
         if price is None:
             typer.echo(f"{RED}warning: {model} not in pricing.toml; costs will read 0{RESET}")
         cfgs = {k: ProviderConfig(**v) for k, v in self.pricing.providers.items()}
         try:
+            # A spec that names its provider is routed there; only a bare id borrows the
+            # provider its price row names.
             return build(
                 model,
                 cfgs,
-                provider_of=price.provider if price else None,
+                provider_of=None if "/" in model else (price.provider if price else None),
                 adaptive_thinking=price.adaptive_thinking if price else True,
             )
         except ValueError as e:
@@ -178,8 +214,13 @@ class Session:
 
     @property
     def provider(self) -> Provider:
-        if self._provider is None:
-            self._provider = self._build(self.log.state.model)
+        """The model the next turn uses: whatever `/model` (or the environment) says right
+        now, not what the session started with. Each node records the model it ran on, so
+        switching mid-session is ordinary; it costs one cache write, and on Anthropic the
+        thinking blocks a different model produced are dropped from the prefix."""
+        spec = self.wanted_model()
+        if self._provider is None or self._provider_spec not in (None, spec):
+            self._provider, self._provider_spec = self._build(spec), spec
         return self._provider
 
     @property
@@ -189,10 +230,13 @@ class Session:
         return self._cheap
 
     def resolve(self, ref: str) -> str:
-        ids = [i for i in self.log.state.nodes if i == ref or i.endswith(ref) or i.startswith(ref)]
-        if len(ids) != 1:
-            raise typer.BadParameter(f"{ref}: {'no such node' if not ids else 'ambiguous'}")
-        return ids[0]
+        found = self.log.state.find(ref)
+        if found is None:
+            raise typer.BadParameter(f"{ref}: 没有这个节点（用 /tree 里的编号，如 N3）")
+        return found
+
+    def name(self, node_id: str | None) -> str:
+        return self.log.state.label(node_id)
 
     def burden_line(self) -> str:
         return f"trunk burden: {ledger.fmt(ledger.trunk_burden(self.log.state))}"
@@ -200,8 +244,8 @@ class Session:
     def status(self) -> str:
         """The bar both surfaces show: where you are, what you are using, what it has cost
         and what the shape of the session has saved."""
-        st = self.log.state
-        price = self.pricing.price(st.model)
+        st, spec = self.log.state, self.wanted_model()
+        price = self.pricing.price(spec)
         burden = ledger.trunk_burden(st)
         window = (
             f"{ledger.fmt(burden)}/{price.context // 1000}k"
@@ -211,8 +255,10 @@ class Session:
         saved = ledger.saved_by_kind(st, self.pricing)
         tokens = sum(t for t, _ in saved.values())
         money = sum(c for _, c in saved.values())
+        who, model = self.pricing.split(spec)
+        where = f"{st.name} · {_home(self.cwd)}" if st.name else _home(self.cwd)
         return (
-            f"{price.provider}/{st.model}  {DIM}{_home(self.cwd)}{RESET}  "
+            f"{who}/{model}  {DIM}{where}{RESET}  "
             f"context {window}  spent ${ledger.total_cost(st, self.pricing):.4f}  "
             f"{GREEN}saved {ledger.fmt(tokens)}/turn = ${money:.4f}{RESET}"
         )
@@ -239,7 +285,7 @@ def cmd_tree(s: Session) -> None:
             cost = s.pricing.price(n.model).cost(n.usage)
             label = context.user_input(n)[:44]
             line = (
-                f"{here}{mark} {indent}{short(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
+                f"{here}{mark} {indent}{s.name(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
                 f"{label}{status}"
             )
             typer.echo(line if n.status == "live" else f"{DIM}{line}{RESET}")
@@ -252,7 +298,7 @@ def cmd_tree(s: Session) -> None:
 def cmd_go(s: Session, ref: str) -> None:
     nid = s.resolve(ref)
     if s.log.state.nodes[nid].status != "live":
-        raise typer.BadParameter(f"{short(nid)} is not live; restore it first")
+        raise typer.BadParameter(f"{s.name(nid)} is not live; restore it first")
     st = s.log.state
     t = graph.trunk(st)
     if t is not None and nid != t and st.trunk_pin != t:
@@ -260,7 +306,7 @@ def cmd_go(s: Session, ref: str) -> None:
         s.log.append(TrunkPinned(node_id=t))
     s.leaf = nid
     kind = "trunk" if nid == t else "exploration"
-    typer.echo(f"at {short(nid)} ({kind}); next input opens a branch here")
+    typer.echo(f"at {s.name(nid)} ({kind}); next input opens a branch here")
 
 
 def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
@@ -272,7 +318,7 @@ def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
     before = ledger.trunk_burden(st)
     on_trunk = s.leaf == graph.trunk(st)
     typer.echo(
-        f"graft {short(src)} -> next node  depth={depth}  "
+        f"graft {s.name(src)} -> next node  depth={depth}  "
         + "  ".join(f"{d}: +{ledger.fmt(n)}" for d, n in preview.items())
     )
     after = before + preview[depth] if on_trunk else before
@@ -283,7 +329,7 @@ def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
 
 def cmd_archive(s: Session, ref: str) -> None:
     nid = _set_status(s, ref, NodeArchived, "archived")
-    typer.echo(f"{DIM}restore with /restore {short(nid)}{RESET}")
+    typer.echo(f"{DIM}restore with /restore {s.name(nid)}{RESET}")
 
 
 def cmd_restore(s: Session, ref: str) -> None:
@@ -301,7 +347,7 @@ def _set_status(
     if s.leaf not in s.log.state.nodes or s.log.state.nodes[s.leaf].status != "live":
         s.leaf = graph.trunk(s.log.state)  # the cursor left with the subtree
     c, why = ledger.cache_color(s.log.state)
-    typer.echo(f"{word} {len(ids)} node(s) under {short(nid)}")
+    typer.echo(f"{word} {len(ids)} node(s) under {s.name(nid)}")
     typer.echo(color(c, ledger.delta(before, ledger.trunk_burden(s.log.state))) + f"  ({why})")
     return nid
 
@@ -312,14 +358,14 @@ def cmd_trunk(s: Session, ref: str | None) -> None:
         pin = st.trunk_pin
         heur = graph.trunk(st.model_copy(update={"trunk_pin": None}))
         typer.echo(
-            f"trunk: {short(graph.trunk(st) or '-')}  pinned: {short(pin) if pin else 'no'}"
-            f"  heuristic: {short(heur) if heur else '-'}"
+            f"trunk: {s.name(graph.trunk(st))}  pinned: {s.name(pin) if pin else 'no'}"
+            f"  heuristic: {s.name(heur) if heur else '-'}"
         )
         return
     nid = s.resolve(ref)
     before = ledger.trunk_burden(st)
     s.log.append(TrunkPinned(node_id=nid))
-    typer.echo(f"trunk pinned to {short(nid)}")
+    typer.echo(f"trunk pinned to {s.name(nid)}")
     typer.echo(
         color("green", ledger.delta(before, ledger.trunk_burden(s.log.state)))
         + "  (no prefix changes)"
@@ -338,7 +384,7 @@ def rewind_code(state: State, cwd: Path, node_id: str) -> list[str]:
     refs/kaipi/undo so the step itself can be undone with git."""
     n = state.nodes[node_id]
     if not n.tree:
-        raise typer.BadParameter(f"{short(node_id)} has no snapshot (not a git repo?)")
+        raise typer.BadParameter(f"{state.label(node_id)} has no snapshot (not a git repo?)")
     paths = rewind_paths(state, node_id)
     cur = guard.snapshot(cwd)
     if cur:
@@ -358,11 +404,11 @@ def cmd_rewind(s: Session, ref: str, mode: str | None) -> None:
     if mode not in ("both", "code", "conversation"):
         raise typer.BadParameter("mode must be both | code | conversation")
     if mode != "code" and s.log.state.nodes[nid].status != "live":
-        raise typer.BadParameter(f"{short(nid)} is not live; restore it or rewind code only")
+        raise typer.BadParameter(f"{s.name(nid)} is not live; restore it or rewind code only")
     if mode in ("both", "code"):
         done = rewind_code(s.log.state, s.cwd, nid)
         typer.echo(
-            f"restored {len(done)} file(s) to {short(nid)}; previous state at refs/kaipi/undo"
+            f"restored {len(done)} file(s) to {s.name(nid)}; previous state at refs/kaipi/undo"
         )
     if mode in ("both", "conversation"):
         cmd_go(s, nid)
@@ -372,7 +418,7 @@ def cmd_provider() -> None:
     """Pick a vendor, confirm its endpoint, paste a key: the three things that otherwise
     have to be exported by hand every session. Regional endpoints differ (Moonshot and
     Z.ai each have a .cn and an international one), so the URL is always editable."""
-    from kaipi.providers import BUILTIN, auth, save_auth
+    from kaipi.providers import BUILTIN, auth, parse_models, save_auth
 
     current = auth()
     done = current.get("providers", {})
@@ -415,7 +461,7 @@ def cmd_provider() -> None:
         "你要用的 model id（逗号分隔，可以多个）",
         default=", ".join(saved.get("models", [])) or ", ".join(known[:2]),
     )
-    picked = [m.strip() for m in listed.replace("，", ",").split(",") if m.strip()]
+    picked = parse_models(listed)
 
     path = save_auth(name, base.strip().rstrip("/"), key, picked)
     typer.echo(f"{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}")
@@ -437,7 +483,7 @@ def cmd_model() -> None:
     now, pricing = active_model(), ledger.Pricing.load()
     typer.echo(f"{BOLD}选择模型{RESET}")
     for i, (who, m) in enumerate(pairs, 1):
-        spec = m if m in pricing.models else f"{who}/{m}"
+        spec = f"{who}/{m}"
         price = pricing.models.get(m)
         cost = f"in {price.input}/out {price.output} 每百万" if price else "不在价格表，账本按 0 记"
         typer.echo(
@@ -448,28 +494,27 @@ def cmd_model() -> None:
     if not 1 <= pick <= len(pairs):
         raise typer.BadParameter(f"序号要在 1..{len(pairs)} 之间")
     who, model = pairs[pick - 1]
-    use_model(who, model, model in pricing.models)
-    typer.echo(f"{GREEN}已启用 {model}（{who}）{RESET}")
-    typer.echo(f"{DIM}当前会话的模型在开始时就冻结了；新开一个会话才会用上{RESET}")
+    use_model(who, model)
+    typer.echo(f"{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}")
 
 
 def cmd_ledger(s: Session) -> None:
     r = ledger.report(s.log.state, s.pricing)
     u = r.usage
-    typer.echo(f"{BOLD}session {s.log.path.stem}  model {s.log.state.model}{RESET}")
+    typer.echo(f"{BOLD}session {s.log.path.stem}  started on {s.log.state.model}{RESET}")
     typer.echo(
         f"total cost: ${r.total_cost:.4f}   tokens: uncached {ledger.fmt(u.input_uncached)}"
         f"  cache write {ledger.fmt(u.cache_write)}  cache read {ledger.fmt(u.cache_read)}"
         f"  output {ledger.fmt(u.output)}"
     )
     typer.echo(
-        f"trunk: {short(r.trunk) if r.trunk else '-'}   trunk burden: {ledger.fmt(r.trunk_burden)}"
+        f"trunk: {s.name(r.trunk) if r.trunk else '-'}   trunk burden: {ledger.fmt(r.trunk_burden)}"
     )
     if r.branches:
         typer.echo("explorations (one-time cost | tokens kept out of the trunk):")
         for b in r.branches:
             typer.echo(
-                f"  {short(b.leaf_id)} {b.status:<9} {b.nodes} node(s)"
+                f"  {s.name(b.leaf_id)} {b.status:<9} {b.nodes} node(s)"
                 f"  ${b.one_time_cost:.4f} | {ledger.fmt(b.blocked_tokens)}"
             )
     saved = ledger.saved_by_kind(s.log.state, s.pricing)
@@ -491,10 +536,73 @@ def cmd_ledger(s: Session) -> None:
         typer.echo(f"{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}")
 
 
-def cmd_sessions(cwd: Path) -> None:
-    for p in list_sessions(cwd):
+def find_session(cwd: Path, ref: str) -> Path:
+    hits = [
+        p
+        for p in list_sessions(cwd)
+        if p.stem == ref or p.stem.endswith(ref) or p.stem.startswith(ref)
+    ]
+    if len(hits) != 1:
+        raise typer.BadParameter(f"{ref}: {'no such session' if not hits else 'ambiguous'}")
+    return hits[0]
+
+
+def session_title(st: State) -> str:
+    """What a session is about: its name, else the question that opened it."""
+    if st.name:
+        return st.name
+    first = next((context.user_input(n) for n in st.nodes.values() if n.parent_id is None), "")
+    return first.splitlines()[0][:40] if first else "(空对话)"
+
+
+def session_rows(cwd: Path, current: str = "") -> list[tuple[Path, str]]:
+    """(path, one line) per session, newest first."""
+    rows = []
+    for p in reversed(list_sessions(cwd)):
         st = Log(p).state
-        typer.echo(f"{p.stem}  {st.model}  {len(st.nodes)} node(s)")
+        when = datetime.fromtimestamp(p.stat().st_mtime).strftime("%m-%d %H:%M")
+        mark = " (当前)" if p.name == current else ""
+        rows.append(
+            (p, f"{short(p.stem)}  {when}  {len(st.nodes):>3} 轮  {session_title(st)}{mark}")
+        )
+    return rows
+
+
+def cmd_sessions(cwd: Path) -> None:
+    for _, line in session_rows(cwd):
+        typer.echo(line)
+
+
+def cmd_resume(s: Session, ref: str | None) -> None:
+    """Pick up an earlier conversation in this directory. Without an id: a numbered list."""
+    if ref is None:
+        rows = session_rows(s.cwd, s.log.path.name)
+        typer.echo(f"{BOLD}这个目录里的对话{RESET}")
+        for i, (_, line) in enumerate(rows, 1):
+            typer.echo(f"  {i:>2}. {line}")
+        pick = typer.prompt("序号（回车取消）", default=0, type=int, show_default=False)
+        if not 1 <= pick <= len(rows):
+            return
+        path = rows[pick - 1][0]
+    else:
+        path = find_session(s.cwd, ref)
+    if path.name == s.log.path.name:
+        typer.echo(f"{DIM}已经在这个对话里{RESET}")
+        return
+    s.switch(path)
+    st = s.log.state
+    typer.echo(
+        f"{GREEN}接上 {short(st.session_id)}  {session_title(st)}{RESET}  "
+        f"{DIM}{len(st.nodes)} 轮，光标在 {s.name(s.leaf)}{RESET}"
+    )
+
+
+def cmd_rename(s: Session, name: str) -> None:
+    name = name.strip()
+    if not name:
+        raise typer.BadParameter("用法：/rename <名字>")
+    s.log.append(SessionRenamed(name=name))
+    typer.echo(f"{GREEN}这个对话现在叫「{name}」{RESET}")
 
 
 def print_hook(kind: str, t: str) -> None:
@@ -552,7 +660,7 @@ def run_input(
         dead = s.log.state.nodes[stopped.node_id]
         s.leaf, s.pending = dead.parent_id, edges
         cost = s.pricing.price(dead.model).cost(dead.usage)
-        hook("ledger", f"[{short(dead.id)} 已废弃] ${cost:.4f}  不会进入之后的上下文")
+        hook("ledger", f"[{s.name(dead.id)} 已废弃] ${cost:.4f}  不会进入之后的上下文")
         raise
     if not exploration and st.trunk_pin is not None and st.trunk_pin == s.leaf:
         s.log.append(TrunkPinned(node_id=nid))  # extending the pinned leaf moves the pin
@@ -562,7 +670,7 @@ def run_input(
     kind = "exploration" if exploration else "trunk"
     hook(
         "ledger",
-        f"[{short(nid)} {kind}] ${cost:.4f}  cache read "
+        f"[{s.name(nid)} {kind}] ${cost:.4f}  cache read "
         f"{ledger.fmt(n.usage.cache_read)}/{ledger.fmt(n.usage.context)}  {s.burden_line()}",
     )
     return nid, n.guard_dirty
@@ -616,45 +724,91 @@ class EscWatcher:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
 
-def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
-    try:
-        with EscWatcher() as stop:
-            nid, dirty = run_input(s, text, explore=explore, stop=stop)
-    except agent.Interrupted as stopped:
-        typer.echo(f"{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}")
-        if s.log.state.nodes[stopped.node_id].guard_dirty and typer.confirm(
-            "被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?", default=False
-        ):
-            guard.reset(s.cwd)
-        typer.echo(
-            f"{DIM}下一句会从 {short(s.leaf) if s.leaf else 'root'} 重新长出一个兄弟节点{RESET}"
-        )
-        return
+def after_interrupt(s: Session, stopped: agent.Interrupted) -> None:
+    """What the terminal says and asks once a turn has been stopped. Asked after the turn,
+    on the main thread, so it never collides with a prompt that is still up."""
+    typer.echo(f"{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}")
+    if s.log.state.nodes[stopped.node_id].guard_dirty and typer.confirm(
+        "被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?", default=False
+    ):
+        guard.reset(s.cwd)
+    typer.echo(f"{DIM}下一句会从 {s.name(s.leaf)} 重新长出一个兄弟节点{RESET}")
+
+
+def after_turn(s: Session, nid: str, dirty: bool) -> None:
     if dirty:
         if typer.confirm(
             "revert working tree (git checkout -- . && git clean -fd)?", default=False
         ):
             guard.reset(s.cwd)
-        elif typer.confirm(f"pin trunk to {short(nid)} instead?", default=False):
+        elif typer.confirm(f"pin trunk to {s.name(nid)} instead?", default=False):
             cmd_trunk(s, nid)
 
 
+def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
+    try:
+        with EscWatcher() as stop:
+            nid, dirty = run_input(s, text, explore=explore, stop=stop)
+    except agent.Interrupted as stopped:
+        after_interrupt(s, stopped)
+        return
+    after_turn(s, nid, dirty)
+
+
+# (name, arguments, what it does): the one list behind /help, the start-up line and the
+# slash completion in the terminal. Order is the order they are shown in.
+COMMANDS: list[tuple[str, str, str]] = [
+    ("tree", "", "会话树：主干、光标、每个节点的 token 和花费"),
+    ("explore", "<你的问题>", "从当前位置岔出去问一句，主干钉在原地不动"),
+    ("go", "<节点id>", "把光标移到某个节点，下一句从那里长出分支"),
+    (
+        "graft",
+        "<节点id> [--depth leaf|leaf+summary|branch] [--with-tool <id>...]",
+        "把那个节点嫁接进下一句输入，只搬结论",
+    ),
+    ("archive", "<节点id>", "把节点连同整棵子树收起来，退出上下文"),
+    ("restore", "<节点id>", "撤销归档"),
+    ("trunk", "[pin <节点id>]", "显示主干，或把主干钉到某个节点"),
+    ("rewind", "<节点id> [both|code|conversation]", "回退：只挪光标、只还原代码，或两个都做"),
+    ("ledger", "", "总账：花费、各项 token、探索/嫁接/打断各省了多少"),
+    ("canvas", "", "把会话搬到浏览器（画布里敲 /cli 搬回来）"),
+    ("provider", "", "配置 API 提供商：地址、key、模型 id"),
+    ("model", "", "换一个模型，下一句开始生效"),
+    ("resume", "[对话id]", "接上这个目录里的旧对话；不带参数就列出来选"),
+    ("rename", "<名字>", "给当前对话起个名字"),
+    ("help", "", "显示这份清单"),
+    ("quit", "", "结束（/exit 也一样）"),
+]
+NODE_ARG = {"go", "graft", "archive", "restore", "rewind"}  # first argument is a node id
+
+HELP = "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。"
+
+
+def cmd_help() -> None:
+    width = max(len(f"/{n} {a}".strip()) for n, a, _ in COMMANDS)
+    for n, a, what in COMMANDS:
+        typer.echo(f"  {BOLD}{f'/{n} {a}'.strip():<{width}}{RESET}  {DIM}{what}{RESET}")
+    typer.echo(f"  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}")
+
+
 def interactive(s: Session) -> str:
-    """The readline loop. Returns "canvas" when the user hands the session to the canvas."""
+    """The terminal loop. Returns "canvas" when the user hands the session to the canvas.
+    On a tty this is the fixed-bottom layout in `kaipi.tui`; anywhere else (a pipe, the
+    tests) a plain line loop that prints the status bar once."""
+    set_lock(s.cwd, "cli")
+    typer.echo(f"{DIM}{HELP}{RESET}")
+    if sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("KAIPI_PLAIN"):
+        from kaipi import tui
+
+        return tui.loop(s)
     try:
         import readline  # noqa: F401
     except ImportError:
         pass
-    set_lock(s.cwd, "cli")
     typer.echo(f"kaipi  {s.status()}")
-    typer.echo(
-        f"{DIM}/tree  /go <id>  /graft <id> [--depth d] [--with-tool id..]  /archive <id>"
-        f"  /restore <id>  /rewind <id>  /trunk [pin <id>]  /explore <text>  /ledger"
-        f"  /canvas  /provider  /model  /quit   ·  Esc 停止当前回合{RESET}"
-    )
     while True:
         try:
-            line = input(f"{short(s.leaf) if s.leaf else 'root'}> ").strip()
+            line = input(f"{s.name(s.leaf)}> ").strip()
         except (EOFError, KeyboardInterrupt):
             return "quit"
         if not line:
@@ -694,6 +848,8 @@ def run_surfaces(s: Session, surface: str) -> None:
     finally:
         s.save()
         release_lock(s.cwd)
+        if not s.log.state.nodes:  # a conversation nobody had: leave no file behind
+            s.log.path.unlink(missing_ok=True)
 
 
 def slash(s: Session, argv: list[str]) -> bool:
@@ -728,6 +884,12 @@ def slash(s: Session, argv: list[str]) -> bool:
             cmd_model()
         case "ledger":
             cmd_ledger(s)
+        case "help":
+            cmd_help()
+        case "resume":
+            cmd_resume(s, args[0] if args else None)
+        case "rename":
+            cmd_rename(s, " ".join(args))
         case "explore":
             cli_turn(s, " ".join(args), explore=True)
         case "rewind":
@@ -764,35 +926,41 @@ def onboard() -> None:
         typer.echo(f"{DIM}随时 /tree 看分支，Esc 停掉跑歪的一轮，/ledger 看省了多少。{RESET}\n")
 
 
-def _session(new: bool = False, *, mutate: bool = True) -> Session:
+def _session(*, mutate: bool = True) -> Session:
+    """The most recent session, for the sub-commands that act on one from outside."""
     if mutate:
         refuse_if_open(Path.cwd())
     elif not list_sessions(Path.cwd()):
         # a read-only command must not conjure an empty session into `kaipi sessions`
         typer.echo(f"{DIM}no session in this directory yet; run `kaipi` to start one{RESET}")
         raise typer.Exit(0)
-    return Session(Path.cwd(), new=new)
+    return Session(Path.cwd())
+
+
+ContinueOpt = Annotated[bool, typer.Option("--continue", "-c", help="接上最近的那个对话")]
+ResumeOpt = Annotated[str | None, typer.Option("--resume", "-r", help="接上指定 id 的对话")]
+
+
+def _open(cont: bool, resume: str | None) -> Session:
+    """Every `kaipi` is a fresh conversation unless told which old one to pick up."""
+    refuse_if_open(Path.cwd())
+    if resume is not None:
+        return Session(Path.cwd(), resume=resume)
+    return Session(Path.cwd(), new=not cont)
 
 
 @app.callback()
-def main(
-    ctx: typer.Context,
-    new: Annotated[bool, typer.Option("--new", help="start a fresh session")] = False,
-) -> None:
-    """kaipi: interactive session in the current directory (resumes the latest one)."""
+def main(ctx: typer.Context, cont: ContinueOpt = False, resume: ResumeOpt = None) -> None:
+    """kaipi: a fresh conversation in the current directory; -c or -r picks up an old one."""
     if ctx.invoked_subcommand is None:
-        refuse_if_open(Path.cwd())
         onboard()
-        run_surfaces(_session(new), "cli")
+        run_surfaces(_open(cont, resume), "cli")
 
 
 @app.command()
-def canvas(
-    new: Annotated[bool, typer.Option("--new", help="start a fresh session")] = False,
-) -> None:
-    """open the session on the canvas (browser) instead of the terminal."""
-    refuse_if_open(Path.cwd())
-    run_surfaces(_session(new), "canvas")
+def canvas(cont: ContinueOpt = False, resume: ResumeOpt = None) -> None:
+    """open the conversation on the canvas (browser) instead of the terminal."""
+    run_surfaces(_open(cont, resume), "canvas")
 
 
 @app.command()

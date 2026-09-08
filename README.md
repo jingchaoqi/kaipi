@@ -138,14 +138,14 @@ kaipi
 选择 API 提供商
    1. anthropic              anthropic         (官方默认)
    ...
-   6. kimi                   openai-chat       https://api.moonshot.ai/v1
-序号: 6
-API 地址（不同地区可能不同，回车接受） [https://api.moonshot.ai/v1]: https://api.moonshot.cn/v1
-MOONSHOT_API_KEY 的 key: ********
+   8. kimi-cn                openai-chat       https://api.moonshot.cn/v1
+序号: 8
+API 地址（不同地区可能不同，回车接受） [https://api.moonshot.cn/v1]:
+MOONSHOT_CN_API_KEY 的 key: ********
 你要用的 model id（逗号分隔，可以多个）: kimi-k2.7-code, kimi-k2.6
 
 第 2 步 / 共 2 步：挑一个模型启用。
-   1. kimi-k2.7-code    kimi   in 0.95/out 4.0 每百万
+   1. kimi-k2.7-code    kimi-cn   in 0.95/out 4.0 每百万
 序号: 1
 
 🌱 配好了，直接说人话就行——它会自己看代码、跑命令。
@@ -167,8 +167,8 @@ root> 找一下 app.py 里的 bug 并修掉
     $ cat app.py
     ...
     已修复：rate_limit 现在和 LIMIT 比较。测试通过。
-[078S8K trunk] $0.0064  cache read 0.3k/0.7k  trunk burden: 0.4k
-078S8K>
+[N1 trunk] $0.0064  cache read 0.3k/0.7k  trunk burden: 0.4k
+N1>
 ```
 
 每轮结束的那一行才是重点：这轮花了多少钱、多少是从缓存里读的、
@@ -195,21 +195,29 @@ root> 找一下 app.py 里的 bug 并修掉
 | `/trunk pin <节点id>` | 把主干钉到这个节点 |
 | `/rewind <节点id> [both\|code\|conversation]` | 回退。不给模式就交互式问你；`conversation` 只挪光标，`code` 只还原文件，`both` 两个都做 |
 | `/ledger` | 总账：花了多少、各项 token、探索 / 嫁接 / 打断分别替主干挡下了多少 |
+| `/help` | 所有命令及用法 |
 | `/canvas` | 把这个会话搬到浏览器（画布里敲 `/cli` 搬回来） |
 | `/provider` | 配置 API 提供商：地址、key、这家你要用的 model id 列表 |
-| `/model` | 在**所有已配提供商的所有模型**里换一个启用（下一个会话生效） |
+| `/model` | 在**所有已配提供商的所有模型**里换一个启用，下一句开始生效 |
+| `/resume [对话id]` | 接上这个目录里的旧对话；不带参数就列出来选 |
+| `/rename <名字>` | 给当前对话起个名字，列表和状态栏里都会显示 |
 | `/quit`、`/exit` | 结束 |
 
-**按键**：`Esc` 停掉当前这一轮；提示符上按 `Ctrl-C` 直接退出（游标已存，下次接着来）；
-`↑`、`↓` 翻历史输入。
+**布局**：输入框和状态栏固定在终端最下方，上下各一条线隔开，模型的输出在上方滚动。敲 `/` 会弹出命令补全，带用法说明；需要节点 id 的命令，空格后补全的是这个会话里的节点，旁边是那一轮的问题。一轮正在跑的时候这块区域不动，
+状态栏前面会亮出"运行中 · Esc 停止"；这时候敲的话会排队，这一轮结束后接着执行。
+
+**按键**：`Esc` 停掉当前这一轮；提示符上按 `Ctrl-C` 直接退出（游标已存，下次接着来），
+运行中按 `Ctrl-C` 等于 `Esc`；`↑`、`↓` 翻历史输入（存在 `.kaipi/history`）。
+没有终端的时候（管道、脚本）退回到逐行读输入的普通模式，`KAIPI_PLAIN=1` 也能强制这样。
 
 ### 会话外的子命令
 
 | 命令 | 作用 |
 |---|---|
-| `kaipi` | 开一个交互式会话（自动接上这个目录里最近的那个） |
-| `kaipi --new` | 强制开一个全新会话，不接旧的 |
-| `kaipi canvas [--new]` | 直接开在浏览器里，跳过终端 |
+| `kaipi` | 开一个**新**对话 |
+| `kaipi -c` | 接上这个目录里最近的那个对话 |
+| `kaipi -r <对话id>` | 接上指定的对话（id 敲前几位或后几位都行） |
+| `kaipi canvas [-c \| -r <对话id>]` | 直接开在浏览器里，跳过终端 |
 | `kaipi tree` | 同 `/tree` |
 | `kaipi go <节点id>` | 同 `/go` |
 | `kaipi graft <节点id> [--depth ...] [--with-tool ...]` | 同 `/graft` |
@@ -218,12 +226,13 @@ root> 找一下 app.py 里的 bug 并修掉
 | `kaipi rewind <节点id> [--mode both\|code\|conversation]` | 同 `/rewind` |
 | `kaipi ledger` | 同 `/ledger` |
 | `kaipi provider` / `kaipi model` | 同 `/provider` `/model`，不进会话也能配 |
-| `kaipi sessions` | 列出这个目录下所有会话（只有子命令有，斜杠命令里没有） |
+| `kaipi sessions` | 列出这个目录下所有对话：id、时间、轮数、名字或第一句 |
 | `kaipi --help`、`kaipi <子命令> --help` | 用法 |
 
 `/explore` 是要发一句话给模型的，所以只有斜杠命令形式。
 
-**节点 id 可以只敲前几位或后几位**，只要在本次会话里不重复就行（树里显示的是后 6 位）。
+**节点按创建顺序编号：N1、N2、N3……**，`/tree` 和状态栏里显示的就是这个。命令里写 `N3` 或 `3`
+都行。每个节点内部另有一个不变的 id，只在日志和本地 API 里出现，命令里敲它的前几位或后几位也认。
 
 ### 环境变量
 
