@@ -4,7 +4,7 @@
   `uv run ruff check . && uv run mypy --strict kaipi tests && uv run pytest -q`
 - There is no hard line limit any more, but small is still the point: prefer deleting a
   special case to adding one, and do not add an abstraction for generality alone. The core
-  library is around 3.2k lines (`wc -l kaipi/*.py kaipi/providers/*.py`); if a change makes
+  library is around 3.7k lines (`wc -l kaipi/*.py kaipi/providers/*.py`); if a change makes
   it much larger, that is worth a second look rather than a rule violation.
 - `docs/CONCEPTS.md` is the constitution. Change it in the same commit as any semantic change.
 - No agent frameworks, no MCP, no sub-agents, no plugin system. One tool (`bash`), one

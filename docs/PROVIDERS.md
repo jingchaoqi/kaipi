@@ -32,8 +32,12 @@ two presets; the `-anthropic` one is the endpoint each vendor documents for Clau
 | `deepseek-anthropic` | anthropic | `https://api.deepseek.com/anthropic` | `DEEPSEEK_API_KEY` |
 | `kimi` | openai-chat | `https://api.moonshot.ai/v1` | `MOONSHOT_API_KEY` |
 | `kimi-anthropic` | anthropic | `https://api.moonshot.ai/anthropic` | `MOONSHOT_API_KEY` |
+| `kimi-cn` | openai-chat | `https://api.moonshot.cn/v1` | `MOONSHOT_CN_API_KEY` |
+| `kimi-anthropic-cn` | anthropic | `https://api.moonshot.cn/anthropic` | `MOONSHOT_CN_API_KEY` |
 | `glm` | openai-chat | `https://api.z.ai/api/paas/v4` | `ZAI_API_KEY` |
 | `glm-anthropic` | anthropic | `https://api.z.ai/api/anthropic` | `ZAI_API_KEY` |
+| `glm-cn` | openai-chat | `https://open.bigmodel.cn/api/paas/v4` | `ZHIPU_API_KEY` |
+| `glm-anthropic-cn` | anthropic | `https://open.bigmodel.cn/api/anthropic` | `ZHIPU_API_KEY` |
 | `opencode` (Zen) | openai-chat | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `opencode-anthropic` | anthropic | `https://opencode.ai/zen` | `OPENCODE_API_KEY` |
 | `opencode-go` | openai-chat | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
@@ -55,8 +59,11 @@ environment still wins over it, so a one-off `MOONSHOT_API_KEY=... kaipi` overri
 key without unsaving it.
 
 `<PROVIDER>_BASE_URL` (dashes as underscores) overrides any base URL:
-`KIMI_BASE_URL=https://api.moonshot.cn/v1` and `GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4`
-switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of Anthropic.
+`ANTHROPIC_BASE_URL` puts a gateway in front of Anthropic, `KIMI_CN_BASE_URL` moves the
+`kimi-cn` preset. The Chinese platforms of Kimi and GLM are separate accounts with separate
+keys, so they are separate presets (`kimi-cn`, `kimi-anthropic-cn`, `glm-cn`,
+`glm-anthropic-cn`) rather than a URL override on the international ones. DeepSeek has one
+global endpoint.
 
 ### Vendor notes
 
@@ -67,9 +74,9 @@ switch to the China endpoints; `ANTHROPIC_BASE_URL` puts a gateway in front of A
 - **Kimi**: `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `kimi-k2.5` on the OpenAI-style
   endpoint. On the Anthropic-style endpoint the 1M-context id is `kimi-k3[1m]`:
   `KAIPI_MODEL=kimi-anthropic/kimi-k3[1m]`. The China platform is a separate endpoint with
-  separate keys and its own model list - a key from one does not work on the other - so
-  point kaipi at it explicitly:
-  `KIMI_BASE_URL=https://api.moonshot.cn/v1 MOONSHOT_API_KEY=... KAIPI_MODEL=kimi-k2.7-code`.
+  separate keys and its own model list - a key from one does not work on the other - so it
+  is its own preset: pick `kimi-cn` or `kimi-anthropic-cn` in `/provider`, or
+  `MOONSHOT_CN_API_KEY=... KAIPI_MODEL=kimi-cn/kimi-k2.7-code`.
   Verified live on 2026-09-05 against `api.moonshot.cn` with `kimi-k2.7-code`: requests,
   the bash tool round-trip and the four usage counts all check out, and the endpoint returns
   no cache fields at all on a short prompt, so the ledger reads 0 cache tokens rather than
@@ -104,8 +111,14 @@ honoured; endpoints come only from your user config or the packaged defaults.
   `KAIPI_MODEL=deepseek-v4-flash`, `KAIPI_MODEL=kimi-k3`, `KAIPI_MODEL=glm-5.2`.
 - Anything else works as `<provider>/<model id>` and is priced at 0 (the CLI warns):
   `KAIPI_MODEL=ollama/qwen3:32b`, `KAIPI_MODEL=openrouter/anthropic/claude-sonnet-5`.
-- One session, one model: caches are model-scoped and thinking blocks are model-bound,
-  so the model is fixed at `session_started`.
+- `<provider>/<model id>` also works for a listed model, and wins over the price row's
+  provider: `kimi-anthropic/kimi-k2.6` goes to the endpoint and key you gave
+  `kimi-anthropic` in `/provider`, priced as `kimi-k2.6`. `/model` always stores this form,
+  so the provider you listed a model under is the one it is sent to.
+- `/model` takes effect on the next turn of the current session; every node records the
+  model it ran on and is priced at it. Switching pays one cache write (caches are
+  model-scoped) and, on Anthropic, drops the previous model's thinking blocks from the
+  prefix (they are model-bound), so it is not free - but it is not a new session either.
 
 ## What differs per protocol, and what the ledger does about it
 

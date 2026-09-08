@@ -12,6 +12,7 @@ dependencies = [
     # that path, so a user without a proxy pays nothing but the download.
     "httpx[socks]>=0.28",
     "pydantic>=2.11",
+    "prompt-toolkit>=3.0",
     "python-ulid>=3",
     "typer>=0.15",
 ]

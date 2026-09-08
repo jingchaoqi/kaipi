@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -92,12 +93,17 @@ BUILTIN: dict[str, ProviderConfig] = {
     # DeepSeek: V4 Flash / Pro. Both protocols on the same key.
     "deepseek": _chat("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
     "deepseek-anthropic": _msgs("https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY"),
-    # Moonshot Kimi: K2.x / K3. `.ai` is the international endpoint; set KIMI_BASE_URL for .cn.
+    # Moonshot Kimi: K2.x / K3. `.ai` is the international platform, `.cn` the Chinese one;
+    # they are separate accounts with separate keys, so the `-cn` presets take their own.
     "kimi": _chat("https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
     "kimi-anthropic": _msgs("https://api.moonshot.ai/anthropic", "MOONSHOT_API_KEY"),
-    # Z.ai GLM: 5.x. International endpoints; set GLM_BASE_URL for open.bigmodel.cn.
+    "kimi-cn": _chat("https://api.moonshot.cn/v1", "MOONSHOT_CN_API_KEY"),
+    "kimi-anthropic-cn": _msgs("https://api.moonshot.cn/anthropic", "MOONSHOT_CN_API_KEY"),
+    # GLM 5.x: Z.ai internationally, 智谱 open.bigmodel.cn in China; same split, own keys.
     "glm": _chat("https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
     "glm-anthropic": _msgs("https://api.z.ai/api/anthropic", "ZAI_API_KEY"),
+    "glm-cn": _chat("https://open.bigmodel.cn/api/paas/v4", "ZHIPU_API_KEY"),
+    "glm-anthropic-cn": _msgs("https://open.bigmodel.cn/api/anthropic", "ZHIPU_API_KEY"),
     # OpenCode Zen (pay per token) and Go (subscription): one key, many vendors behind it.
     "opencode": _chat("https://opencode.ai/zen/v1", "OPENCODE_API_KEY"),
     "opencode-anthropic": _msgs("https://opencode.ai/zen", "OPENCODE_API_KEY"),
@@ -143,11 +149,20 @@ def save_auth(
     return _write(data)
 
 
-def use_model(provider: str, model: str, in_pricing: bool) -> Path:
-    """Activate one model. Stored as a spec build() understands: a bare id when pricing.toml
-    knows it (and therefore its provider), `<provider>/<id>` otherwise."""
+def parse_models(listed: str) -> list[str]:
+    """Model ids as a person types them at a prompt: separated by commas, full-width commas
+    (a Chinese input method produces those) or plain whitespace, with any spacing around
+    them. Ids never contain spaces, so whitespace alone is a separator too."""
+    return [m for m in re.split(r"[,\uff0c\s]+", listed) if m]
+
+
+def use_model(provider: str, model: str) -> Path:
+    """Activate one model, always as `<provider>/<id>`. The provider is the one the user
+    listed the model under in `/provider`, with the endpoint and key they gave it; a price
+    row for the same id may name a different provider (`kimi` for `kimi-k2.6`), and that
+    must never win over the user's choice."""
     data = auth()
-    data["model"] = model if in_pricing else f"{provider}/{model}"
+    data["model"] = f"{provider}/{model}"
     data["provider"] = provider
     return _write(data)
 

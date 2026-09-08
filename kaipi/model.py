@@ -167,6 +167,11 @@ class TrunkPinned(_Ev):
     node_id: str | None
 
 
+class SessionRenamed(_Ev):
+    type: Literal["session_renamed"] = "session_renamed"
+    name: str
+
+
 class SummaryGenerated(_Ev):
     type: Literal["summary_generated"] = "summary_generated"
     node_id: str
@@ -185,6 +190,7 @@ Event = Annotated[
     | NodeRestored
     | NodeTombstoned
     | TrunkPinned
+    | SessionRenamed
     | SummaryGenerated,
     Field(discriminator="type"),
 ]
