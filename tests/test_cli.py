@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -413,3 +414,25 @@ def test_nodes_are_shown_and_addressed_by_number(repo: Path) -> None:
     assert s.leaf == ids[0], "the last /go n1 moved the cursor"
     with pytest.raises(typer.BadParameter):
         s.resolve("N9")
+
+
+def test_a_deep_working_directory_does_not_push_the_numbers_off_the_bar(repo: Path) -> None:
+    """The status bar is one line. A macOS $TMPDIR is 60 characters before it says anything,
+    and a path allowed to run that long takes the context, the spend and the savings with it
+    off the right-hand edge - which is what it did, on macOS only, until this was fixed."""
+    deep = repo / "a-rather-long-directory-name" / "and-another-one" / "and-a-third-here"
+    deep.mkdir(parents=True)
+    s = cli.Session(deep, new=True)
+
+    def plain(width: int) -> str:
+        return re.sub(r"\x1b\[[0-9;]*m", "", s.status(width))
+
+    for width in (72, 80, 100, 120, 200):
+        bar = plain(width)
+        assert len(bar) <= width, f"the bar overflows {width} columns: {bar}"
+        for part in ("context", "spent", "saved"):
+            assert part in bar, f"{part} was pushed off a {width}-column bar"
+
+    assert plain(120).count("…/") == 1, "the head of the path is elided, not the tail"
+    assert "and-a-third-here" in plain(120), "the end of the path is the useful end"
+    assert "and-a-third-here" not in plain(72), "at 72 columns the path is what yields"

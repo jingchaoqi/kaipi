@@ -115,12 +115,15 @@ class Terminal:
         )
 
     @staticmethod
-    def rule() -> str:
+    def columns() -> int:
         try:
-            cols = get_app().output.get_size().columns
+            return int(get_app().output.get_size().columns)
         except Exception:  # noqa: BLE001 - no running app: a sane default
-            cols = 80
-        return f"{cli.DIM}{'─' * cols}{cli.RESET}"
+            return 80
+
+    @classmethod
+    def rule(cls) -> str:
+        return f"{cli.DIM}{'─' * cls.columns()}{cli.RESET}"
 
     def label(self) -> str:
         return f"{self.s.name(self.s.leaf)}> "
@@ -133,7 +136,7 @@ class Terminal:
             # the turn finished while the busy prompt was up: hand control back
             get_app().exit(result="")
         head = f"{BUSY}  " if self.running else ""
-        return ANSI(f"{self.rule()}\n{head}{self.s.status()}")
+        return ANSI(f"{self.rule()}\n{head}{self.s.status(self.columns())}")
 
     def echo(self, line: str) -> None:
         print(f"{cli.BOLD}{self.label()}{cli.RESET}{line}")
