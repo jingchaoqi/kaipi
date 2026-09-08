@@ -951,7 +951,7 @@ def onboard() -> None:
         else:
             typer.echo(f"{RED}还没有可用的模型：再跑一次 /provider，把 model id 填上{RESET}")
             raise typer.Exit(1)
-        typer.echo(f"\n{GREEN}🌱 配好了，直接说人话就行——它会自己看代码、跑命令。{RESET}")
+        typer.echo(f"\n{GREEN}配置完成！直接描述你要做的事，它会自己查看代码、执行命令。{RESET}")
         typer.echo(f"{DIM}随时 /tree 看分支，Esc 停掉跑歪的一轮，/ledger 看省了多少。{RESET}\n")
 
 

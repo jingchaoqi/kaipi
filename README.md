@@ -148,7 +148,7 @@ MOONSHOT_CN_API_KEY 的 key: ********
    1. kimi-k2.7-code    kimi-cn   in 0.95/out 4.0 每百万
 序号: 1
 
-🌱 配好了，直接说人话就行——它会自己看代码、跑命令。
+配置完成！直接描述你要做的事，它会自己查看代码、执行命令。
 ```
 
 **地址是可以改的**——不少厂商国内外端点不同（Moonshot 的 `.cn` 和 `.ai`、Z.ai 和智谱），
@@ -159,7 +159,7 @@ key 存在 `~/.config/kaipi/auth.toml`，权限 600。**从此不用 export**。
 
 之后随时可以：`/provider` 加一家或改地址/key，`/model` 在**所有已配提供商的所有模型**里换。
 
-然后就是一个提示符，直接说人话：
+然后就是一个提示符，直接描述你要做的事：
 
 ```
 kaipi  anthropic/claude-opus-5  ~/你的项目  context 0.0k/200k  spent $0.0000  saved 0.0k/turn = $0.0000
