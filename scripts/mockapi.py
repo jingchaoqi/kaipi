@@ -218,10 +218,12 @@ class MockAPI:
         self.check_frozen_system(str(body["model"]), system[0]["text"], body["messages"][:1])
         for t in body.get("tools", []):
             self.check_bash_tool(t.get("name", ""), t.get("input_schema"))
-            if t.get("type") != "bash_20250124":
-                raise Rejected("the bash tool must be declared by its Anthropic type")
-            if "input_schema" in t:
+            builtin = t.get("type") == "bash_20250124"
+            if builtin and "input_schema" in t:
                 raise Rejected("bash_20250124 is schema-less; do not send input_schema")
+            if not builtin and "input_schema" not in t:
+                # what a gateway receives has to be a tool it can actually offer the model
+                raise Rejected("a custom tool must carry an input_schema")
 
         thinking = body.get("thinking")
         if thinking is not None:

@@ -122,7 +122,13 @@ def test_anthropic_compatible_gateways(endpoint, model: str, env: str, path: str
         if isinstance(m.get("content"), list) and "cache_control" in m["content"][-1]
     ]
     assert marked, "cache breakpoints are still useful on a compat gateway"
-    assert body["tools"] == [{"type": "bash_20250124", "name": "bash"}]
+    # Not the server-side `bash_20250124`: a gateway has never heard of it, hands the model
+    # no tool at all, and the model answers "I will look into that" and stops - which is
+    # exactly what a Moonshot session did before this was fixed.
+    tool = body["tools"][0]
+    assert "type" not in tool, "a gateway gets an ordinary custom tool, not Anthropic's builtin"
+    assert tool["name"] == "bash" and tool["description"]
+    assert tool["input_schema"]["properties"]["command"]["type"] == "string"
     assert s.log.state.nodes[s.leaf or ""].usage.output > 0
 
 

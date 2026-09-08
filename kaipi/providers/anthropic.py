@@ -8,14 +8,23 @@ import anthropic
 
 from kaipi.ledger import estimate_tokens
 from kaipi.model import Message, Usage
-from kaipi.providers import Reply
+from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
 
 BINDING_BETA = "thinking-binding-controls-2026-08-01"
 MAX_TOKENS = 32_000
 # kaipi never edits history; if it ever did, the API drops the affected thinking blocks
 # instead of failing the request, and the ledger counts them.
 PREFIX_MISMATCH = "drop_block"
-BASH_TOOL: dict[str, str] = {"type": "bash_20250124", "name": "bash"}
+# First-party Anthropic implements bash as a server-side tool, declared by type and
+# schema-less. A compatible gateway does not: it sees a tool type it has never heard of,
+# hands the model nothing, and the model answers "I will look into it" and stops. So a
+# gateway gets the ordinary custom tool that every Messages implementation understands.
+BASH_TOOL: dict[str, Any] = {"type": "bash_20250124", "name": "bash"}
+BASH_TOOL_COMPAT: dict[str, Any] = {
+    "name": "bash",
+    "description": BASH_TOOL_DESCRIPTION,
+    "input_schema": BASH_PARAMETERS,
+}
 
 
 class AnthropicProvider:
@@ -54,7 +63,7 @@ class AnthropicProvider:
             "model": self.model,
             "max_tokens": MAX_TOKENS,
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            "tools": [BASH_TOOL],
+            "tools": [BASH_TOOL_COMPAT if self.compat else BASH_TOOL],
             "messages": msgs,
         }
         if self.thinking:
