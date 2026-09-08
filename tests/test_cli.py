@@ -281,12 +281,7 @@ def test_switching_the_model_takes_effect_on_the_next_turn(
     assert cli.Session(repo).log.state.model == "claude-opus-5", "the start is a record"
 
 
-@pytest.mark.skipif(
-    sys.platform != "linux",
-    reason="the bar is drawn only after a cursor-position reply, and a pty opened from "
-    "Python on macOS never delivers one to prompt_toolkit (real Terminal.app does); the "
-    "terminal is exercised on Linux here and by hand on a Mac",
-)
+@pytest.mark.skipif(not hasattr(__import__("os"), "openpty"), reason="needs a pty")
 def test_the_tty_surface_keeps_input_and_status_at_the_bottom(repo: Path) -> None:
     """On a real terminal the loop is prompt_toolkit's: a prompt with the status bar under
     it. Drive it through a pty: the bar renders, a slash command runs above it, /quit ends
