@@ -111,6 +111,31 @@ def main() -> int:
         check(pg.evaluate("S.nodes.length") == 1, "first turn created one node")
         check("rate_limit" in pg.inner_text("#transcript"), "the answer reaches the transcript")
 
+        # a command's output is folded until it is clicked: long output buries the answer
+        pg.locator("#transcript .more").first.click()  # the tool calls of that turn
+        time.sleep(0.5)
+        # a handle, not a locator: `:not(.open)` would stop matching the moment it opens
+        folded = pg.query_selector("#transcript .ln.out:not(.open)")
+        check(folded is not None, "a long command output starts folded")
+        assert folded is not None
+        shown = folded.inner_text().strip()
+        check(
+            "展开剩余" in shown and len(shown.splitlines()) <= 6,
+            "folded means a few lines and an invitation to open it",
+            shown.splitlines()[-1][:40],
+        )
+        folded.click()
+        time.sleep(0.2)
+        opened = folded.inner_text()
+        check(
+            "收起" in opened and len(opened.splitlines()) > len(shown.splitlines()),
+            "clicking shows the whole output",
+            f"{len(shown.splitlines())} -> {len(opened.splitlines())} lines",
+        )
+        folded.click()
+        time.sleep(0.2)
+        check("展开剩余" in folded.inner_text(), "and clicking again folds it back")
+
         say("Now fix the bug in app.py and run the tests.")
         ids = [n["id"] for n in pg.evaluate("S.nodes")]
         check(len(ids) == 2, "second turn extends the trunk")

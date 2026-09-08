@@ -8,7 +8,13 @@ import anthropic
 
 from kaipi.ledger import estimate_tokens
 from kaipi.model import Message, Usage
-from kaipi.providers import BASH_PARAMETERS, BASH_TOOL_DESCRIPTION, Reply
+from kaipi.providers import (
+    BASH_PARAMETERS,
+    BASH_TOOL_DESCRIPTION,
+    RateLimited,
+    Reply,
+    _retry_after,
+)
 
 BINDING_BETA = "thinking-binding-controls-2026-08-01"
 MAX_TOKENS = 32_000
@@ -77,12 +83,15 @@ class AnthropicProvider:
         body = self._request(system, messages, cache_points)
         # The SDK takes these three as arguments; everything else rides along as extra_body.
         sdk = {k: body.pop(k) for k in ("model", "max_tokens", "messages")}
-        with self.client.messages.stream(
-            **sdk,
-            extra_body=body,
-            extra_headers={"anthropic-beta": BINDING_BETA} if self.thinking else {},
-        ) as stream:
-            msg = stream.get_final_message()
+        try:
+            with self.client.messages.stream(
+                **sdk,
+                extra_body=body,
+                extra_headers={"anthropic-beta": BINDING_BETA} if self.thinking else {},
+            ) as stream:
+                msg = stream.get_final_message()
+        except anthropic.RateLimitError as e:
+            raise RateLimited(str(e)[:200], _retry_after(e.response.headers)) from None
         content = [b.model_dump(mode="json", exclude_none=True) for b in msg.content]
         u = msg.usage
         dropped = len(getattr(msg, "input_transformations", None) or [])

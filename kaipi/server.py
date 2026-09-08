@@ -217,8 +217,10 @@ class Canvas:
             self.dirty = dirty
             self.s.save()
             self.hub.publish(type="done", node=nid, dirty=dirty, exploration=exploration)
-        except agent.Interrupted as stopped:
-            dead = self.s.log.state.nodes[stopped.node_id]
+        except (agent.Interrupted, agent.Failed):
+            dead = next(
+                n for n in reversed(list(self.s.log.state.nodes.values())) if n.status == "aborted"
+            )
             self.dirty = dead.guard_dirty
             self.s.save()
             self.hub.publish(
