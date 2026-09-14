@@ -57,8 +57,9 @@ def _home(path: Path, limit: int = 34) -> str:
     return out
 
 
-def color(c: ledger.Color, s: str) -> str:
-    return f"{GREEN if c == 'green' else RED}{s}{RESET}"
+def say(lines: list[str]) -> None:
+    for line in lines:
+        typer.echo(line)
 
 
 # --- surface lock: a session is open in exactly one place (CLI or canvas) at a time ----
@@ -135,6 +136,7 @@ class Session:
         dropped rather than piled up). `resume`: a session id, or a prefix/suffix of one.
         Neither: the most recent session, which is what the sub-commands act on."""
         self.cwd = cwd
+        self.ansi = True  # the terminal colours what the verbs say; the canvas turns this off
         self.pricing = ledger.Pricing.load()
         self.cursor_path = cwd / ".kaipi" / "cursor.json"
         existing = list_sessions(cwd)
@@ -249,6 +251,14 @@ class Session:
     def name(self, node_id: str | None) -> str:
         return self.log.state.label(node_id)
 
+    def palette(self) -> tuple[str, str, str, str, str]:
+        """GREEN, RED, DIM, BOLD, RESET for whichever surface holds the session."""
+        return (GREEN, RED, DIM, BOLD, RESET) if self.ansi else ("", "", "", "", "")
+
+    def color(self, c: ledger.Color, text: str) -> str:
+        green, red, _, _, reset = self.palette()
+        return f"{green if c == 'green' else red}{text}{reset}"
+
     def burden_line(self) -> str:
         return f"trunk burden: {ledger.fmt(ledger.trunk_burden(self.log.state))}"
 
@@ -293,13 +303,17 @@ class Session:
         return bar("", short_)
 
 
-# --- verbs (shared by sub-commands and slash commands) --------------------------------
+# --- verbs (shared by sub-commands, slash commands and the canvas) --------------------
+# A verb returns what it has to say; the surface holding the session shows it. The ones
+# that have to ask something (a picker, a y/n) live with the terminal, not here.
 
 
-def cmd_tree(s: Session) -> None:
+def cmd_tree(s: Session) -> list[str]:
     st = s.log.state
+    _, RED, DIM, _, RESET = s.palette()
     t = graph.trunk(st)
     trunk_ids = {n.id for n in graph.lineage(st, t)} if t else set()
+    out: list[str] = []
 
     def walk(parent: str | None, indent: str) -> None:
         for n in graph.children(st, parent, live_only=False):
@@ -317,14 +331,15 @@ def cmd_tree(s: Session) -> None:
                 f"{here}{mark} {indent}{s.name(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
                 f"{label}{status}"
             )
-            typer.echo(line if n.status == "live" else f"{DIM}{line}{RESET}")
+            out.append(line if n.status == "live" else f"{DIM}{line}{RESET}")
             walk(n.id, indent + "  ")
 
     walk(None, "")
-    typer.echo(f"{DIM}* trunk  > current  |  {s.burden_line()}{RESET}")
+    out.append(f"{DIM}* trunk  > current  |  {s.burden_line()}{RESET}")
+    return out
 
 
-def cmd_go(s: Session, ref: str) -> None:
+def cmd_go(s: Session, ref: str) -> list[str]:
     nid = s.resolve(ref)
     if s.log.state.nodes[nid].status != "live":
         raise typer.BadParameter(f"{s.name(nid)} is not live; restore it first")
@@ -335,10 +350,10 @@ def cmd_go(s: Session, ref: str) -> None:
         s.log.append(TrunkPinned(node_id=t))
     s.leaf = nid
     kind = "trunk" if nid == t else "exploration"
-    typer.echo(f"at {s.name(nid)} ({kind}); next input opens a branch here")
+    return [f"at {s.name(nid)} ({kind}); next input opens a branch here"]
 
 
-def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
+def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> list[str]:
     src = s.resolve(ref)
     edge = ReferenceEdge(src_id=src, dst_id="", depth=depth, include_tool_outputs=with_tool)
     st = s.log.state
@@ -346,28 +361,30 @@ def cmd_graft(s: Session, ref: str, depth: Depth, with_tool: list[str]) -> None:
     s.pending.append(edge)
     before = ledger.trunk_burden(st)
     on_trunk = s.leaf == graph.trunk(st)
-    typer.echo(
+    out = [
         f"graft {s.name(src)} -> next node  depth={depth}  "
         + "  ".join(f"{d}: +{ledger.fmt(n)}" for d, n in preview.items())
-    )
+    ]
     after = before + preview[depth] if on_trunk else before
-    typer.echo(color("green", ledger.delta(before, after)) + "  (append-only)")
+    out.append(s.color("green", ledger.delta(before, after)) + "  (append-only)")
     if with_tool:
-        typer.echo(f"including tool outputs: {', '.join(with_tool)}")
+        out.append(f"including tool outputs: {', '.join(with_tool)}")
+    return out
 
 
-def cmd_archive(s: Session, ref: str) -> None:
-    nid = _set_status(s, ref, NodeArchived, "archived")
-    typer.echo(f"{DIM}restore with /restore {s.name(nid)}{RESET}")
+def cmd_archive(s: Session, ref: str) -> list[str]:
+    _, _, DIM, _, RESET = s.palette()
+    out = _set_status(s, ref, NodeArchived, "archived")
+    return [*out, f"{DIM}restore with /restore {s.name(s.resolve(ref))}{RESET}"]
 
 
-def cmd_restore(s: Session, ref: str) -> None:
-    _set_status(s, ref, NodeRestored, "restored")
+def cmd_restore(s: Session, ref: str) -> list[str]:
+    return _set_status(s, ref, NodeRestored, "restored")
 
 
 def _set_status(
     s: Session, ref: str, event: type[NodeArchived] | type[NodeRestored], word: str
-) -> str:
+) -> list[str]:
     """Archive or restore a whole subtree (one atomic operation, §2.1) and price it."""
     nid = s.resolve(ref)
     ids = graph.subtree(s.log.state, nid)
@@ -376,34 +393,32 @@ def _set_status(
     if s.leaf not in s.log.state.nodes or s.log.state.nodes[s.leaf].status != "live":
         s.leaf = graph.trunk(s.log.state)  # the cursor left with the subtree
     c, why = ledger.cache_color(s.log.state)
-    typer.echo(f"{word} {len(ids)} node(s) under {s.name(nid)}")
-    typer.echo(color(c, ledger.delta(before, ledger.trunk_burden(s.log.state))) + f"  ({why})")
-    return nid
+    return [
+        f"{word} {len(ids)} node(s) under {s.name(nid)}",
+        s.color(c, ledger.delta(before, ledger.trunk_burden(s.log.state))) + f"  ({why})",
+    ]
 
 
-def cmd_trunk(s: Session, ref: str | None) -> None:
+def cmd_trunk(s: Session, ref: str | None) -> list[str]:
     st = s.log.state
     if ref is None:
         pin = st.trunk_pin
         heur = graph.trunk(st.model_copy(update={"trunk_pin": None}))
-        typer.echo(
+        return [
             f"trunk: {s.name(graph.trunk(st))}  pinned: {s.name(pin) if pin else 'no'}"
             f"  heuristic: {s.name(heur) if heur else '-'}"
-        )
-        return
+        ]
     nid = s.resolve(ref)
     before = ledger.trunk_burden(st)
     s.log.append(TrunkPinned(node_id=nid))
-    typer.echo(f"trunk pinned to {s.name(nid)}")
+    out = [f"trunk pinned to {s.name(nid)}"]
     if s.leaf != nid and graph.trunk(s.log.state) == nid:
         # Pinning a branch means building on it; left behind, the next turn would be a
         # read-only exploration. Users tripped on that twice.
         s.leaf = nid
-        typer.echo(f"cursor moved to {s.name(nid)}")
-    typer.echo(
-        color("green", ledger.delta(before, ledger.trunk_burden(s.log.state)))
-        + "  (no prefix changes)"
-    )
+        out.append(f"cursor moved to {s.name(nid)}")
+    delta = ledger.delta(before, ledger.trunk_burden(s.log.state))
+    return [*out, s.color("green", delta) + "  (no prefix changes)"]
 
 
 def rewind_paths(state: State, node_id: str) -> list[str]:
@@ -427,25 +442,27 @@ def rewind_code(state: State, cwd: Path, node_id: str) -> list[str]:
     return paths
 
 
-def cmd_rewind(s: Session, ref: str, mode: str | None) -> None:
+def rewind_preview(s: Session, ref: str) -> str:
     nid = s.resolve(ref)
     paths = rewind_paths(s.log.state, nid)
-    if mode is None:  # interactive: show what a code rewind would touch, then ask
-        typer.echo(f"files a code rewind would restore: {', '.join(paths) if paths else '(none)'}")
-        mode = typer.prompt("rewind [both|code|conversation|cancel]", default="both")
-    if mode == "cancel":
-        return
+    return f"files a code rewind to {s.name(nid)} would restore: {', '.join(paths) or '(none)'}"
+
+
+def cmd_rewind(s: Session, ref: str, mode: str) -> list[str]:
+    nid = s.resolve(ref)
     if mode not in ("both", "code", "conversation"):
         raise typer.BadParameter("mode must be both | code | conversation")
     if mode != "code" and s.log.state.nodes[nid].status != "live":
         raise typer.BadParameter(f"{s.name(nid)} is not live; restore it or rewind code only")
+    out = []
     if mode in ("both", "code"):
         done = rewind_code(s.log.state, s.cwd, nid)
-        typer.echo(
+        out.append(
             f"restored {len(done)} file(s) to {s.name(nid)}; previous state at refs/kaipi/undo"
         )
     if mode in ("both", "conversation"):
-        cmd_go(s, nid)
+        out += cmd_go(s, nid)
+    return out
 
 
 def cmd_provider() -> None:
@@ -532,22 +549,22 @@ def cmd_model() -> None:
     typer.echo(f"{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}")
 
 
-def cmd_ledger(s: Session) -> None:
+def cmd_ledger(s: Session) -> list[str]:
+    GREEN, RED, DIM, BOLD, RESET = s.palette()
     r = ledger.report(s.log.state, s.pricing)
     u = r.usage
-    typer.echo(f"{BOLD}session {s.log.path.stem}  started on {s.log.state.model}{RESET}")
-    typer.echo(
+    out = [
+        f"{BOLD}session {s.log.path.stem}  started on {s.log.state.model}{RESET}",
         f"total cost: ${r.total_cost:.4f}   tokens: uncached {ledger.fmt(u.input_uncached)}"
         f"  cache write {ledger.fmt(u.cache_write)}  cache read {ledger.fmt(u.cache_read)}"
-        f"  output {ledger.fmt(u.output)}"
-    )
-    typer.echo(
-        f"trunk: {s.name(r.trunk) if r.trunk else '-'}   trunk burden: {ledger.fmt(r.trunk_burden)}"
-    )
+        f"  output {ledger.fmt(u.output)}",
+        f"trunk: {s.name(r.trunk) if r.trunk else '-'}"
+        f"   trunk burden: {ledger.fmt(r.trunk_burden)}",
+    ]
     if r.branches:
-        typer.echo("explorations (one-time cost | tokens kept out of the trunk):")
+        out.append("explorations (one-time cost | tokens kept out of the trunk):")
         for b in r.branches:
-            typer.echo(
+            out.append(
                 f"  {s.name(b.leaf_id)} {b.status:<9} {b.nodes} node(s)"
                 f"  ${b.one_time_cost:.4f} | {ledger.fmt(b.blocked_tokens)}"
             )
@@ -558,16 +575,17 @@ def cmd_ledger(s: Session) -> None:
         "interrupt": "打断的回合不进上下文",
     }
     total_tok = sum(t for t, _ in saved.values())
-    typer.echo(
+    out.append(
         f"{GREEN}saved {ledger.fmt(total_tok)} per trunk turn"
         f" = ${sum(c for _, c in saved.values()):.4f} not spent so far{RESET}"
     )
     for kind, (tok, money) in saved.items():
         if tok:
-            typer.echo(f"  {ledger.fmt(tok):>7}/turn  ${money:<8.4f} {DIM}{labels[kind]}{RESET}")
+            out.append(f"  {ledger.fmt(tok):>7}/turn  ${money:<8.4f} {DIM}{labels[kind]}{RESET}")
     dropped = sum(n.dropped_thinking for n in s.log.state.nodes.values())
     if dropped:
-        typer.echo(f"{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}")
+        out.append(f"{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}")
+    return out
 
 
 def find_session(cwd: Path, ref: str) -> Path:
@@ -602,41 +620,37 @@ def session_rows(cwd: Path, current: str = "") -> list[tuple[Path, str]]:
     return rows
 
 
-def cmd_sessions(cwd: Path) -> None:
-    for _, line in session_rows(cwd):
-        typer.echo(line)
+def pick_session(s: Session) -> str | None:
+    """`/resume` without an id, in the terminal: a numbered list to choose from."""
+    rows = session_rows(s.cwd, s.log.path.name)
+    typer.echo(f"{BOLD}这个目录里的对话{RESET}")
+    for i, (_, line) in enumerate(rows, 1):
+        typer.echo(f"  {i:>2}. {line}")
+    pick = typer.prompt("序号（回车取消）", default=0, type=int, show_default=False)
+    return rows[pick - 1][0].stem if 1 <= pick <= len(rows) else None
 
 
-def cmd_resume(s: Session, ref: str | None) -> None:
-    """Pick up an earlier conversation in this directory. Without an id: a numbered list."""
-    if ref is None:
-        rows = session_rows(s.cwd, s.log.path.name)
-        typer.echo(f"{BOLD}这个目录里的对话{RESET}")
-        for i, (_, line) in enumerate(rows, 1):
-            typer.echo(f"  {i:>2}. {line}")
-        pick = typer.prompt("序号（回车取消）", default=0, type=int, show_default=False)
-        if not 1 <= pick <= len(rows):
-            return
-        path = rows[pick - 1][0]
-    else:
-        path = find_session(s.cwd, ref)
+def cmd_resume(s: Session, ref: str) -> list[str]:
+    """Pick up an earlier conversation in this directory."""
+    GREEN, _, DIM, _, RESET = s.palette()
+    path = find_session(s.cwd, ref)
     if path.name == s.log.path.name:
-        typer.echo(f"{DIM}已经在这个对话里{RESET}")
-        return
+        return [f"{DIM}已经在这个对话里{RESET}"]
     s.switch(path)
     st = s.log.state
-    typer.echo(
+    return [
         f"{GREEN}接上 {short(st.session_id)}  {session_title(st)}{RESET}  "
         f"{DIM}{len(st.nodes)} 轮，光标在 {s.name(s.leaf)}{RESET}"
-    )
+    ]
 
 
-def cmd_rename(s: Session, name: str) -> None:
+def cmd_rename(s: Session, name: str) -> list[str]:
+    GREEN, _, _, _, RESET = s.palette()
     name = name.strip()
     if not name:
         raise typer.BadParameter("用法：/rename <名字>")
     s.log.append(SessionRenamed(name=name))
-    typer.echo(f"{GREEN}这个对话现在叫「{name}」{RESET}")
+    return [f"{GREEN}这个对话现在叫「{name}」{RESET}"]
 
 
 OUT_LINES = 4  # of a command's output, in the terminal
@@ -799,7 +813,7 @@ def after_turn(s: Session, nid: str, dirty: bool) -> None:
         ):
             guard.reset(s.cwd)
         elif typer.confirm(f"pin trunk to {s.name(nid)} instead?", default=False):
-            cmd_trunk(s, nid)
+            say(cmd_trunk(s, nid))
 
 
 def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
@@ -844,11 +858,14 @@ NODE_ARG = {"go", "graft", "archive", "restore", "rewind"}  # first argument is 
 HELP = "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。"
 
 
-def cmd_help() -> None:
+def cmd_help(s: Session) -> list[str]:
+    _, _, DIM, BOLD, RESET = s.palette()
     width = max(len(f"/{n} {a}".strip()) for n, a, _ in COMMANDS)
-    for n, a, what in COMMANDS:
-        typer.echo(f"  {BOLD}{f'/{n} {a}'.strip():<{width}}{RESET}  {DIM}{what}{RESET}")
-    typer.echo(f"  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}")
+    out = [
+        f"  {BOLD}{f'/{n} {a}'.strip():<{width}}{RESET}  {DIM}{what}{RESET}"
+        for n, a, what in COMMANDS
+    ]
+    return [*out, f"  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}"]
 
 
 def interactive(s: Session) -> str:
@@ -856,6 +873,7 @@ def interactive(s: Session) -> str:
     On a tty this is the fixed-bottom layout in `kaipi.tui`; anywhere else (a pipe, the
     tests) a plain line loop that prints the status bar once."""
     set_lock(s.cwd, "cli")
+    s.ansi = True  # back from the canvas, which turned colours off
     typer.echo(f"{DIM}{HELP}{RESET}")
     if sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("KAIPI_PLAIN"):
         from kaipi import tui
@@ -912,15 +930,18 @@ def run_surfaces(s: Session, surface: str) -> None:
             s.log.path.unlink(missing_ok=True)
 
 
-def slash(s: Session, argv: list[str]) -> bool:
-    verb, args = argv[0], argv[1:]
-    match verb:
-        case "quit" | "exit":
-            return False
+def verb(s: Session, argv: list[str]) -> list[str] | None:
+    """A slash command either surface can run: what it has to say. None when it is not one
+    of those - it asks something, runs a turn, or does not exist."""
+    name, args = argv[0], argv[1:]
+    if name in NODE_ARG and not args:
+        usage = next(a for n, a, _ in COMMANDS if n == name)
+        raise typer.BadParameter(f"用法：/{name} {usage}")
+    match name:
         case "tree":
-            cmd_tree(s)
+            return cmd_tree(s)
         case "go":
-            cmd_go(s, args[0])
+            return cmd_go(s, args[0])
         case "graft":
             depth: Depth = "leaf+summary"
             tools: list[str] = []
@@ -931,31 +952,50 @@ def slash(s: Session, argv: list[str]) -> bool:
             if "--with-tool" in args:
                 i = args.index("--with-tool")
                 tools, args = args[i + 1 :], args[:i]
-            cmd_graft(s, args[0], depth, tools)
+            return cmd_graft(s, args[0], depth, tools)
         case "archive":
-            cmd_archive(s, args[0])
+            return cmd_archive(s, args[0])
         case "restore":
-            cmd_restore(s, args[0])
+            return cmd_restore(s, args[0])
         case "trunk":
-            cmd_trunk(s, args[1] if len(args) == 2 and args[0] == "pin" else None)
+            return cmd_trunk(s, args[1] if len(args) == 2 and args[0] == "pin" else None)
+        case "ledger":
+            return cmd_ledger(s)
+        case "help":
+            return cmd_help(s)
+        case "resume" if args:
+            return cmd_resume(s, args[0])
+        case "rename":
+            return cmd_rename(s, " ".join(args))
+        case "rewind" if len(args) > 1:
+            return cmd_rewind(s, args[0], args[1])
+    return None
+
+
+def slash(s: Session, argv: list[str]) -> bool:
+    """A slash command in the terminal. False means quit."""
+    name, args = argv[0], argv[1:]
+    match name:
+        case "quit" | "exit":
+            return False
         case "provider":
             cmd_provider()
         case "model":
             cmd_model()
-        case "ledger":
-            cmd_ledger(s)
-        case "help":
-            cmd_help()
-        case "resume":
-            cmd_resume(s, args[0] if args else None)
-        case "rename":
-            cmd_rename(s, " ".join(args))
         case "explore":
             cli_turn(s, " ".join(args), explore=True)
-        case "rewind":
-            cmd_rewind(s, args[0], args[1] if len(args) > 1 else None)
+        case "resume" if not args:
+            picked = pick_session(s)
+            if picked:
+                say(cmd_resume(s, picked))
+        case "rewind" if len(args) == 1:
+            typer.echo(rewind_preview(s, args[0]))
+            mode = typer.prompt("rewind [both|code|conversation|cancel]", default="both")
+            if mode != "cancel":
+                say(cmd_rewind(s, args[0], mode))
         case _:
-            typer.echo(f"{RED}unknown command /{verb}{RESET}")
+            out = verb(s, argv)
+            say(out if out is not None else [f"{RED}unknown command /{name}{RESET}"])
     return True
 
 
@@ -1025,13 +1065,13 @@ def canvas(cont: ContinueOpt = False, resume: ResumeOpt = None) -> None:
 
 @app.command()
 def tree() -> None:
-    cmd_tree(_session(mutate=False))
+    say(cmd_tree(_session(mutate=False)))
 
 
 @app.command()
 def go(node_id: str) -> None:
     s = _session()
-    cmd_go(s, node_id)
+    say(cmd_go(s, node_id))
     s.save()
 
 
@@ -1044,21 +1084,21 @@ def graft(
     s = _session()
     if depth not in ("leaf", "leaf+summary", "branch"):
         raise typer.BadParameter("depth must be leaf | leaf+summary | branch")
-    cmd_graft(s, node_id, depth, with_tool or [])  # type: ignore[arg-type]
+    say(cmd_graft(s, node_id, depth, with_tool or []))  # type: ignore[arg-type]
     s.save()
 
 
 @app.command()
 def archive(node_id: str) -> None:
     s = _session()
-    cmd_archive(s, node_id)
+    say(cmd_archive(s, node_id))
     s.save()
 
 
 @app.command()
 def restore(node_id: str) -> None:
     s = _session()
-    cmd_restore(s, node_id)
+    say(cmd_restore(s, node_id))
     s.save()
 
 
@@ -1069,7 +1109,7 @@ def rewind(
 ) -> None:
     """rewind code and/or conversation to a node; only agent-touched files are restored."""
     s = _session()
-    cmd_rewind(s, node_id, mode)
+    say(cmd_rewind(s, node_id, mode))
     s.save()
 
 
@@ -1081,24 +1121,24 @@ app.add_typer(trunk_app, name="trunk")
 def trunk(ctx: typer.Context) -> None:
     """show the trunk; `kaipi trunk pin <id>` re-pins it."""
     if ctx.invoked_subcommand is None:
-        cmd_trunk(_session(mutate=False), None)
+        say(cmd_trunk(_session(mutate=False), None))
 
 
 @trunk_app.command("pin")
 def trunk_pin(node_id: str) -> None:
     s = _session()
-    cmd_trunk(s, node_id)
+    say(cmd_trunk(s, node_id))
     s.save()
 
 
 @app.command("ledger")
 def ledger_cmd() -> None:
-    cmd_ledger(_session(mutate=False))
+    say(cmd_ledger(_session(mutate=False)))
 
 
 @app.command()
 def sessions() -> None:
-    cmd_sessions(Path.cwd())
+    say([line for _, line in session_rows(Path.cwd())])
 
 
 @app.command()

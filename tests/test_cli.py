@@ -149,7 +149,11 @@ def test_rewind_slash_prompt(repo: Path) -> None:
     # not a git repo: `both` fails on the code half, `conversation` works
     out = r.invoke(cli.app, ["-c"], input=f"/rewind {root[-6:]}\nconversation\n/quit\n")
     assert out.exit_code == 0, out.output
-    assert "files a code rewind would restore" in out.output
+    assert "files a code rewind to N1 would restore: (none)" in out.output
+    out = r.invoke(cli.app, ["-c"], input="/go\n/tree\n/quit\n")  # a missing id is a usage hint
+    assert (
+        out.exit_code == 0 and "用法：/go <节点id>" in out.output and "trunk burden" in out.output
+    )
     assert cli.Session(repo).leaf == root
     out = r.invoke(cli.app, ["rewind", root[-6:], "--mode", "code"])
     assert out.exit_code != 0 and "no snapshot" in out.output
