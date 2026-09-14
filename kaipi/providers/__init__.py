@@ -192,9 +192,37 @@ def _write(data: dict[str, Any]) -> Path:
         for k, v in cfg.items():
             body += [f"{k} = {list(v)!r}" if isinstance(v, list) else f'{k} = "{v}"']
         body += [""]
-    p.write_text("\n".join(body), encoding="utf-8")
-    p.chmod(0o600)  # it holds credentials
+    # It holds credentials: 600 before a byte is written, not after - write-then-chmod
+    # leaves the key world-readable for a moment under the usual 022 umask.
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    p.chmod(0o600)  # O_CREAT's mode does not apply to a file that already existed
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(body))
     return p
+
+
+# The variables a key can arrive in, and the keys this process has handed to a provider.
+# build() adds what pricing.toml's own providers declare, and it runs before any turn can
+# reach bash. A command the agent runs inherits none of these and can print none of them.
+KEY_ENVS = {c.api_key_env for c in BUILTIN.values() if c.api_key_env} | {"ANTHROPIC_AUTH_TOKEN"}
+KEYS_IN_USE: set[str] = set()
+
+
+def agent_env() -> dict[str, str]:
+    """The environment for a command the agent runs: everything but the keys. `env` or
+    `printenv` would otherwise put a key into the session log and send it to the model."""
+    return {k: v for k, v in os.environ.items() if k not in KEY_ENVS}
+
+
+def redact(text: str) -> str:
+    """Every key kaipi knows - saved by `/provider` or exported - replaced before a command's
+    output reaches the session log or the model. There is no sandbox, so a command can still
+    read auth.toml; this is what stops it handing the key back."""
+    keys = {cfg.get("api_key", "") for cfg in auth().get("providers", {}).values()}
+    keys |= {os.environ.get(n, "") for n in KEY_ENVS} | KEYS_IN_USE
+    for k in sorted((k for k in keys if len(k) >= 12), key=len, reverse=True):
+        text = text.replace(k, "[kaipi: API key redacted]")
+    return text
 
 
 def active_model() -> str:
@@ -235,6 +263,9 @@ def build(
     key = (os.environ.get(cfg.api_key_env, "") if cfg.api_key_env else "") or saved.get(
         "api_key", ""
     )
+    KEY_ENVS.update(c.api_key_env for c in providers.values() if c.api_key_env)
+    if key:
+        KEYS_IN_USE.add(key)
     env_base = os.environ.get(f"{name.upper().replace('-', '_')}_BASE_URL", "")
     base = (env_base or saved.get("base_url", "") or cfg.base_url).rstrip("/")
     # `api_key_env` empty means the endpoint was declared as needing no credential.

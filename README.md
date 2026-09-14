@@ -157,6 +157,10 @@ MOONSHOT_CN_API_KEY 的 key: ********
 key 存在 `~/.config/kaipi/auth.toml`，权限 600。**从此不用 export**。
 想临时换一次，`export MOONSHOT_API_KEY=...` 仍然优先于配置文件。
 
+key 不会出现在别的地方：它只存在你家目录下这一个文件里，不在项目里，git 管不到。
+agent 执行命令时拿不到存 key 的环境变量；命令输出里要是出现了 key（比如它去 `cat` 了那个文件），
+写进会话记录、发给模型之前会先换成 `[kaipi: API key redacted]`。
+
 之后随时可以：`/provider` 加一家或改地址/key，`/model` 在**所有已配提供商的所有模型**里换。
 
 然后就是一个提示符，直接描述你要做的事：

@@ -189,6 +189,15 @@ repository is a key in someone's clone. The environment still wins over the file
 one-off export overrides a saved key without unsaving it. A missing key is refused with a
 sentence naming the command that fixes it, rather than by letting the vendor answer 401.
 
+The agent's bash is the one way a key could leave that file, so it is closed from both
+ends. Commands run without the variables a key can arrive in (every preset's
+`api_key_env`, those of the providers `pricing.toml` declares, and `ANTHROPIC_AUTH_TOKEN`),
+and a command's output has every known key - saved, exported, or handed to a provider -
+replaced by `[kaipi: API key redacted]` before it is truncated, logged
+or sent. There is no sandbox, so a command can still read `auth.toml`; what it cannot do is
+hand the key back into a session log or a request. The file itself is created mode 600
+before the key is written into it.
+
 The canvas API can run bash, so it accepts a request only when all three hold: the Host
 header names loopback and the port actually bound (comparing Origin to the client's own Host
 would accept a DNS-rebound name, where both say `evil.com`); Origin, if present, is the

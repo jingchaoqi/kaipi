@@ -23,7 +23,7 @@ from kaipi.model import (
     Usage,
     new_id,
 )
-from kaipi.providers import Provider, RateLimited, Reply
+from kaipi.providers import Provider, RateLimited, Reply, agent_env, redact
 from kaipi.store import Log
 
 MAX_TOOL_OUTPUT = 16_000  # ~4k tokens; the only automatic compression kaipi does
@@ -64,6 +64,7 @@ def run_bash(cmd: str, cwd: Path, timeout: int = 300, stop: threading.Event | No
         cmd,
         shell=True,
         cwd=cwd,
+        env=agent_env(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -94,7 +95,7 @@ def run_bash(cmd: str, cwd: Path, timeout: int = 300, stop: threading.Event | No
     text = out + (("\n" + err) if err else "")
     if p.returncode and not note:
         text += f"\n[exit {p.returncode}]"
-    return truncate((text or "(no output)") + note)
+    return truncate(redact(text or "(no output)") + note)  # redact first: a cut key is a leak
 
 
 def _kill(p: subprocess.Popen[str]) -> None:
