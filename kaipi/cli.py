@@ -395,6 +395,11 @@ def cmd_trunk(s: Session, ref: str | None) -> None:
     before = ledger.trunk_burden(st)
     s.log.append(TrunkPinned(node_id=nid))
     typer.echo(f"trunk pinned to {s.name(nid)}")
+    if s.leaf != nid and graph.trunk(s.log.state) == nid:
+        # Pinning a branch means building on it; left behind, the next turn would be a
+        # read-only exploration. Users tripped on that twice.
+        s.leaf = nid
+        typer.echo(f"cursor moved to {s.name(nid)}")
     typer.echo(
         color("green", ledger.delta(before, ledger.trunk_burden(s.log.state)))
         + "  (no prefix changes)"

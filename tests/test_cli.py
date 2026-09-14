@@ -80,6 +80,7 @@ def test_cli_end_to_end(repo: Path) -> None:
     assert r.invoke(cli.app, ["restore", side[-6:]]).exit_code == 0
     out = r.invoke(cli.app, ["trunk", "pin", side[-6:]])
     assert out.exit_code == 0 and "trunk pinned" in out.output
+    assert "cursor moved to" in out.output and cli.Session(repo).leaf == side
     assert "pinned: " + s.name(side) in r.invoke(cli.app, ["trunk"]).output
     assert r.invoke(cli.app, ["sessions"]).output.count("轮") == 1
 

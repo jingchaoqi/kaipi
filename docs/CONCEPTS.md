@@ -95,10 +95,11 @@ prefixes are byte-identical, so cached prefixes stay valid. In particular the fo
 keeps its breakpoint: a branch promoted to trunk goes on reading the same cached prefix
 it was already sharing with its old sibling.
 
-The cursor is separate from the trunk on purpose - one is where you are, the other is
-what you are building on - so pinning does not move it. A turn is an exploration when the
-cursor is not on the trunk leaf, which means promoting a branch you are not standing on
-takes `trunk pin` and then `go`.
+The cursor is separate from the trunk - one is where you are, the other is what you are
+building on - but pinning moves the cursor onto the pinned node. A turn is an exploration
+when the cursor is not on the trunk leaf, so a pin that left the cursor behind would make
+the very next turn a read-only exploration of the branch just abandoned. When the pinned
+node is not live the pin is stale, the heuristic trunk stands, and the cursor stays put.
 
 ## 4. Context assembly (deterministic)
 
