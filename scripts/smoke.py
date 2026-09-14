@@ -248,6 +248,10 @@ def main() -> int:
         "it proves nothing about any API, only that the script and the checks run)",
     )
     args = ap.parse_args()
+    # Never the developer's ~/.config/kaipi: its active model would replace the default and
+    # its saved endpoint and key would beat the mock's - a --mock run once reached a live API
+    # that way. Keys come from the environment only.
+    os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="kaipi-smoke-config-")
 
     mock = None
     if args.mock:
