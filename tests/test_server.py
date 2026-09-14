@@ -124,6 +124,12 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
     # slash commands typed on the canvas go through the same verbs
     out = call("/api/command", {"line": "/tree"})["output"]
     assert "trunk burden" in out and "\x1b" not in out
+    assert "\x1b" not in call("/api/command", {"line": "/ledger"})["output"]
+    # a verb that would ask on stdin must not wait there with the lock held
+    assert "needs the terminal" in call("/api/command", {"line": "/provider"})["output"]
+    assert "unknown command" in call("/api/command", {"line": "/nope"})["output"]
+    assert call("/api/command", {"line": "/go nope"})["output"].startswith("error:")
+    assert "用法：/rewind <节点id>" in call("/api/command", {"line": "/rewind"})["output"]
     assert call("/api/archive", {"id": side}) == {"ok": True}
     assert [n["status"] for n in call("/api/state")["nodes"] if n["id"] == side] == ["archived"]
     assert call("/api/restore", {"id": side}) == {"ok": True}

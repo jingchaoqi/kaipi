@@ -3,11 +3,8 @@ time: the CLI hands the session to the canvas with /canvas and takes it back wit
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import queue
-import re
 import secrets
 import threading
 import webbrowser
@@ -23,7 +20,6 @@ from kaipi import agent, cli, context, graph, guard, ledger
 from kaipi.model import Node, ReferenceEdge, blocks, text_of
 
 CANVAS_HTML = Path(__file__).with_name("canvas.html")
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class Hub:
@@ -74,7 +70,7 @@ def transcript(n: Node) -> list[dict[str, str]]:
 
 
 # The verbs that take one node id and nothing else.
-ID_VERBS: dict[str, Callable[[cli.Session, str], None]] = {
+ID_VERBS: dict[str, Callable[[cli.Session, str], list[str]]] = {
     "/api/go": cli.cmd_go,
     "/api/archive": cli.cmd_archive,
     "/api/restore": cli.cmd_restore,
@@ -87,6 +83,7 @@ class Canvas:
 
     def __init__(self, s: cli.Session, hub: Hub) -> None:
         self.s = s
+        s.ansi = False  # the browser shows what the verbs say as plain text
         self.hub = hub
         self.repo = guard.is_repo(s.cwd)  # constant for the session
         self.lock = threading.RLock()
@@ -175,24 +172,25 @@ class Canvas:
         if argv[0] == "explore":  # a model turn: must stream, must not hold the lock
             self.turn(" ".join(argv[1:]), explore=True)
             return "exploration started"
-        if argv[0] == "rewind" and len(argv) == 2:  # the CLI would prompt; the canvas can't
-            nid = self.s.resolve(argv[1])
-            paths = cli.rewind_paths(self.s.log.state, nid)
-            return (
-                f"a code rewind to {self.s.name(nid)} would restore: "
-                f"{', '.join(paths) or '(none)'}"
-                "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
-            )
-        if argv[0] == "resume" and len(argv) == 1:  # the CLI would prompt; list instead
-            return "\n".join(line for _, line in cli.session_rows(self.s.cwd, self.s.log.path.name))
-        buf = io.StringIO()
-        with self.lock, contextlib.redirect_stdout(buf):
+        with self.lock:
             try:
-                cli.slash(self.s, argv)
+                out = cli.verb(self.s, argv)
             except Exception as e:  # noqa: BLE001 - surfaced to the user verbatim
-                print(f"error: {e}")
-        self.s.save()
-        return _ANSI.sub("", buf.getvalue()).rstrip()
+                return f"error: {e}"
+            self.s.save()
+        if out is not None:
+            return "\n".join(out)
+        # The rest would ask something in the terminal; the canvas says what it can instead.
+        if argv[0] == "rewind" and len(argv) == 2:
+            return (
+                cli.rewind_preview(self.s, argv[1])
+                + "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
+            )
+        if argv[0] == "resume":
+            return "\n".join(line for _, line in cli.session_rows(self.s.cwd, self.s.log.path.name))
+        if argv[0] in {n for n, _, _ in cli.COMMANDS}:
+            return f"/{argv[0]} needs the terminal: /cli, then run it there"
+        return f"unknown command /{argv[0]}"
 
     def turn(self, text: str, explore: bool = False) -> None:
         with self.lock:
