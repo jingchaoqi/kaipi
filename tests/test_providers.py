@@ -361,6 +361,51 @@ def test_provider_credentials_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert q.client.headers["Authorization"] == "Bearer sk-from-env"
 
 
+def test_the_key_file_is_private_before_the_key_is_in_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import os
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    modes: list[int] = []
+    real = os.fdopen
+
+    def spy(fd: int, *a: Any, **kw: Any) -> Any:
+        modes.append(os.fstat(fd).st_mode & 0o777)  # the moment before the key is written
+        return real(fd, *a, **kw)
+
+    monkeypatch.setattr(os, "fdopen", spy)
+    providers.save_auth("kimi", "", "sk-first-secret-value")
+    providers.auth_file().chmod(0o644)  # an older kaipi, or a hand edit, left it readable
+    providers.save_auth("kimi", "", "sk-second-secret-value")
+    assert modes == [0o600, 0o600]
+
+
+def test_a_command_the_agent_runs_cannot_hand_a_key_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from kaipi import agent
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    saved, exported = "sk-saved-0123456789abcdef", "sk-exported-0123456789abcdef"
+    providers.save_auth("kimi-anthropic-cn", "", saved)
+    monkeypatch.setenv("MOONSHOT_CN_API_KEY", exported)
+    monkeypatch.setenv("KAIPI_HARMLESS", "still-here")
+
+    out = agent.run_bash('env; cat "$XDG_CONFIG_HOME/kaipi/auth.toml"', tmp_path)
+    assert "MOONSHOT_CN_API_KEY" not in out and "KAIPI_HARMLESS=still-here" in out
+    assert saved not in out and "[kaipi: API key redacted]" in out
+    # a key the command got from somewhere else than the environment is caught the same way
+    assert exported not in agent.run_bash(f"echo {exported}", tmp_path)
+
+    # a provider pricing.toml declares, under a variable no preset uses
+    custom = {"gw": providers.ProviderConfig(api="openai-chat", api_key_env="GW_SECRET_TOKEN")}
+    monkeypatch.setenv("GW_SECRET_TOKEN", "gw-0123456789abcdef")
+    providers.build("gw/some-model", custom)
+    out = agent.run_bash("env; echo gw-0123456789abcdef", tmp_path)
+    assert "GW_SECRET_TOKEN" not in out and "gw-0123456789abcdef" not in out
+
+
 def test_a_missing_key_is_a_sentence_not_a_401(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

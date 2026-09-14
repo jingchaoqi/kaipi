@@ -56,7 +56,8 @@ you listed, across all configured vendors, and activates one.
 
 That is stored in `~/.config/kaipi/auth.toml`, mode 600, never in the project. The
 environment still wins over it, so a one-off `MOONSHOT_API_KEY=... kaipi` overrides a saved
-key without unsaving it.
+key without unsaving it. Neither place reaches the agent: its commands run without the key
+variables, and any key in their output is redacted (see CONCEPTS.md).
 
 `<PROVIDER>_BASE_URL` (dashes as underscores) overrides any base URL:
 `ANTHROPIC_BASE_URL` puts a gateway in front of Anthropic, `KIMI_CN_BASE_URL` moves the
