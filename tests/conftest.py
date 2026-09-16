@@ -16,10 +16,12 @@ from kaipi.store import Log
 
 
 def turn(
-    text: str, answer: str, tool: tuple[str, str, str] | None = None
+    text: str, answer: str, tool: tuple[str, str, str] | None = None, notice: str = ""
 ) -> list[dict[str, object]]:
-    """A frozen payload: user text, optional (id, cmd, output) bash call, final answer."""
-    msgs: list[dict[str, object]] = [{"role": "user", "content": [{"type": "text", "text": text}]}]
+    """A frozen payload: user text, optional (id, cmd, output) bash call, final answer.
+    `notice` is the guard note the turn was written under, where the agent puts it."""
+    said: list[dict[str, str]] = [{"type": "text", "text": t} for t in (notice, text) if t]
+    msgs: list[dict[str, object]] = [{"role": "user", "content": said}]
     if tool:
         tid, cmd, out = tool
         msgs.append(
@@ -52,6 +54,7 @@ class Builder:
         tool: tuple[str, str, str] | None = None,
         edges: list[ReferenceEdge] | None = None,
         tokens: int = 100,
+        notice: str = "",
     ) -> str:
         nid = f"n{len(self.log.state.nodes) + 1:02d}"
         self.log.append(NodeCreated(id=nid, parent_id=parent, model="fake"))
@@ -60,7 +63,7 @@ class Builder:
         self.log.append(
             NodeCompleted(
                 id=nid,
-                payload=turn(text, answer, tool),
+                payload=turn(text, answer, tool, notice),
                 usage=Usage(input_uncached=tokens, output=10),
                 context_tokens=tokens,
             )

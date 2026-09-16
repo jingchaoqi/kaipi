@@ -221,3 +221,65 @@ def test_incomplete_node_is_tombstoned_on_fold(log: Log, tree: dict[str, str]) -
     log.append(NodeCreated(id="crash", parent_id=tree["a1"], model="fake"))
     assert log.state.nodes["crash"].status == "tombstone"
     assert graph.trunk(log.state) == tree["a1"]
+
+
+def test_a_promoted_branch_is_told_it_may_write_again(log: Log) -> None:
+    """A payload is frozen, so the read-only notice an exploration wrote stays in its own
+    history after `trunk pin` makes that branch the trunk (§3.1). The model obeyed it and
+    refused to touch files on what was by then the trunk. The correction can only be
+    appended, never edited in."""
+    b = Builder(log)
+    root = b.node(None, "start")
+    trunk_leaf = b.node(root, "on the trunk")
+    side = b.node(root, "an exploration", notice=context.GUARD_TEXT)
+    log.append(TrunkPinned(node_id=trunk_leaf))
+
+    # while it is an exploration: the read-only notice, as before
+    ctx = context.build(log.state, side, [], "next", guard=True)
+    assert context.GUARD_TEXT in str(ctx.messages[-1])
+
+    before = json.dumps(ctx.messages[:-1], ensure_ascii=False)  # what the cache depends on
+    log.append(TrunkPinned(node_id=side))  # the exploration is the trunk now
+    after = context.build(log.state, side, [], "next", guard=False)
+    assert context.RELEASE_TEXT in str(after.messages[-1]), "the stale notice is overruled"
+    assert json.dumps(after.messages[:-1], ensure_ascii=False) == before, (
+        "byte-identical prefix: the cache survives"
+    )
+
+    # it is said once: the next turn's lineage already carries it
+    freed = b.node(side, "now writing", notice=context.RELEASE_TEXT)
+    log.append(TrunkPinned(node_id=freed))
+    again = context.build(log.state, freed, [], "and again", guard=False)
+    assert context.GUARD_TAG not in str(again.messages[-1]), "not repeated once it stands"
+
+    # a trunk that was never read-only pays nothing for any of this
+    plain = context.build(log.state, trunk_leaf, [], "hello", guard=False)
+    assert context.GUARD_TAG not in str(plain.messages[-1])
+
+    # and the reverse: the old trunk, now an ordinary branch, is told it is read-only
+    explore = context.build(log.state, trunk_leaf, [], "look around", guard=True)
+    assert context.GUARD_TEXT in str(explore.messages[-1])
+
+
+def test_nothing_but_kaipi_can_speak_for_the_guard(log: Log) -> None:
+    """Two ways the release could have been silently suppressed, leaving a promoted branch
+    read-only for good - history cannot be edited, so there would be no way back."""
+    b = Builder(log)
+    root = b.node(None, "start")
+
+    # the model quoting the notice back (it has the text in context, and is asked about it)
+    quoted = b.node(
+        root,
+        "what does that note say?",
+        answer=context.GUARD_TEXT + " - that is what it says",
+        notice=context.GUARD_TEXT,
+    )
+    log.append(TrunkPinned(node_id=quoted))
+    ctx = context.build(log.state, quoted, [], "now write the file", guard=False)
+    assert context.RELEASE_TEXT in str(ctx.messages[-1]), "an echo is not kaipi speaking"
+
+    # a session started under an older wording: payloads are frozen, so it is still there
+    old_wording = b.node(root, "from an older version", notice=f"{context.GUARD_TAG}read only.")
+    log.append(TrunkPinned(node_id=old_wording))
+    ctx = context.build(log.state, old_wording, [], "now write", guard=False)
+    assert context.RELEASE_TEXT in str(ctx.messages[-1]), "any standing notice is overruled"

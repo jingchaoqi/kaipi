@@ -134,7 +134,9 @@ class FakeProvider:
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         self.step += 1
         blob = json.dumps(messages, ensure_ascii=False)
-        readonly = context.GUARD_TAG in blob.rsplit("kaipi:graft", 1)[-1][-4000:]
+        # GUARD_TEXT, not GUARD_TAG: the release notice carries the same tag and says the
+        # opposite, so matching the tag would read "you may write again" as read-only.
+        readonly = context.GUARD_TEXT in blob.rsplit("kaipi:graft", 1)[-1][-4000:]
         size = len(blob) // 4
         cached = min(self.prev, size)
         self.prev = size
