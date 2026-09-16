@@ -64,7 +64,8 @@ acyclic by construction. Depth:
 
 - `leaf`: the source's user input + final answer; tool outputs omitted.
 - `leaf+summary` (default): `leaf` plus a summary of the path from the common ancestor
-  to the source, generated lazily by a cheap model.
+  to the source, generated lazily by a cheap model - the session's own unless the packaged
+  `summary_model` belongs to the same vendor (see LEDGER.md).
 - `branch`: every node after the common ancestor, inlined; tool outputs still omitted.
 
 `--with-tool <tool_use id>` includes specific tool outputs (a failing test log, say).
