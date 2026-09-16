@@ -121,6 +121,11 @@ Graft blocks are snapshotted into the new node's payload at creation. Archiving 
 changing the source later does not touch them. A graft is paid for once; afterwards it
 is prefix and descendants inherit it through the cache.
 
+`raw` prints this assembly for the turn that has not happened yet - the same
+`context.build` the agent calls, with a placeholder where the user's input will go - so
+what a graft really carries can be read rather than inferred. It sends nothing, so a
+`leaf+summary` graft with no summary yet shows `(no summary available)` there.
+
 Context is a pure function of (leaf, reference edges, archived set). The only
 session-level input is the system prompt, which is frozen at `session_started`
 (`AGENTS.md` is snapshotted into it) because editing it invalidates every cache below.
