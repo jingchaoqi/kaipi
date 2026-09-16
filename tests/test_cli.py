@@ -10,8 +10,8 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from kaipi import cli
-from kaipi.model import Message, Usage
+from kaipi import cli, ledger
+from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 
 
@@ -436,3 +436,123 @@ def test_a_deep_working_directory_does_not_push_the_numbers_off_the_bar(repo: Pa
     assert plain(120).count("…/") == 1, "the head of the path is elided, not the tail"
     assert "and-a-third-here" in plain(120), "the end of the path is the useful end"
     assert "and-a-third-here" not in plain(72), "at 72 columns the path is what yields"
+
+
+def test_a_graft_summary_stays_with_the_session_provider(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The packaged cheap model belongs to Anthropic. A user configured for another vendor
+    has no key for it - and never asked for their conversation to go there."""
+    asked: list[str] = []
+
+    def spy(self: cli.Session, model: str) -> Echo:
+        asked.append(model)
+        if not model.startswith("claude-"):  # this machine is configured for Anthropic only
+            raise typer.BadParameter(f"{model} 还没有 API key")
+        return Echo()
+
+    monkeypatch.setattr(cli.Session, "_build", spy)
+    monkeypatch.setenv("KAIPI_MODEL", "kimi-anthropic-cn/kimi-k2.7-code")
+    s = cli.Session(repo, new=True)
+    s._provider, s._provider_spec = Echo(), None  # the session's own, already built
+    assert s.cheap is s._provider
+    assert "claude-haiku-4-5" not in asked, "a second vendor must not be reached for a summary"
+
+    # on the session's own vendor the packaged cheap model is used - and if it cannot be
+    # built after all, the session's provider takes over rather than the graft failing
+    monkeypatch.setenv("KAIPI_MODEL", "claude-opus-5")
+    s = cli.Session(repo, new=True)
+    assert s.cheap is not s.provider and "claude-haiku-4-5" in asked
+    monkeypatch.setattr(
+        cli.Session, "_build", lambda self, m: Echo() if m == "claude-opus-5" else fail(m)
+    )
+    s = cli.Session(repo, new=True)
+    assert s.cheap is s.provider
+
+    # a model switch rebuilds it: otherwise the next summary goes to the vendor left behind
+    asked.clear()
+    monkeypatch.setattr(cli.Session, "_build", spy)
+    s = cli.Session(repo, new=True)
+    haiku = s.cheap
+    monkeypatch.setenv("KAIPI_MODEL", "kimi-anthropic-cn/kimi-k2.7-code")
+    s._provider, s._provider_spec = Echo(), None
+    assert s.cheap is not haiku and s.cheap is s._provider
+
+    # an unlisted bare id names no vendor, so nothing is assumed: the session's own model
+    monkeypatch.setenv("KAIPI_MODEL", "qwen3-32b")
+    s = cli.Session(repo, new=True)
+    s._provider, s._provider_spec = Echo(), None
+    assert s.cheap is s._provider
+
+
+def fail(model: str) -> Echo:
+    raise typer.BadParameter(f"{model} 还没有 API key")
+
+
+def test_an_empty_summary_is_billed_but_not_cached(repo: Path) -> None:
+    """The request was made and paid for, so it is on the bill; but an empty summary that
+    stuck would make every later graft of that node carry "(no summary available)"."""
+
+    class NoProse(Echo):
+        def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+            if system.startswith("Summarise"):  # a tool call and no text: agentic models do this
+                return Reply(
+                    content=[{"type": "tool_use", "id": "t1", "name": "bash", "input": {}}],
+                    stop_reason="tool_use",
+                    usage=Usage(input_uncached=30, output=7),
+                )
+            return super().complete(system, messages, cache_points)
+
+    s = cli.Session(repo, new=True)
+    s._provider = s._cheap = NoProse()
+    root, _ = cli.run_input(s, "one", hook=lambda k, t: None)
+    side, _ = cli.run_input(s, "aside", hook=lambda k, t: None)
+    s.leaf = root
+    s.pending = [ReferenceEdge(src_id=side, dst_id="", depth="leaf+summary")]
+    cli.run_input(s, "two", hook=lambda k, t: None)
+    st = s.log.state
+    assert st.nodes[side].summary == "", "recorded, so the spend is on the bill"
+    assert ledger.report(st, s.pricing).usage.output >= 7, "the summary request is billed"
+    assert not any(g.depth == "leaf+summary" for g in st.nodes[s.leaf or ""].grafts)
+
+
+def test_a_summary_that_fails_cannot_strand_the_session(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before this, the staged edge survived the failure, so every later input died on it
+    and nothing could clear it: the conversation was over."""
+
+    class Refuses(Echo):
+        def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+            if system.startswith("Summarise"):
+                raise RuntimeError("no key for the summary model")
+            return super().complete(system, messages, cache_points)
+
+    s = cli.Session(repo, new=True)
+    s._provider = s._cheap = Refuses()
+    root, _ = cli.run_input(s, "one", hook=lambda k, t: None)
+    side, _ = cli.run_input(s, "aside", hook=lambda k, t: None)  # a branch worth grafting
+    s.leaf = root
+    s.pending = [ReferenceEdge(src_id=side, dst_id="", depth="leaf+summary")]
+    said: list[str] = []
+    nid, _ = cli.run_input(s, "two", hook=lambda k, t: said.append(t))
+    assert s.pending == [], "the staged edge is gone whatever the summary did"
+    grafts = s.log.state.nodes[nid].grafts
+    assert [g.depth for g in grafts] == ["leaf"] and any("摘要没生成" in t for t in said)
+    # and the next input runs normally rather than hitting the same failure again
+    assert cli.run_input(s, "three", hook=lambda k, t: None)[0] != nid
+
+
+def test_the_tree_shows_grafts_and_staged_grafts(repo: Path) -> None:
+    s = cli.Session(repo, new=True)
+    s._provider = s._cheap = Echo()
+    root, _ = cli.run_input(s, "one", hook=lambda k, t: None)
+    side, _ = cli.run_input(s, "aside", hook=lambda k, t: None)
+    s.leaf = root
+    s.pending = [ReferenceEdge(src_id=side, dst_id="", depth="leaf")]
+    s.ansi = False
+    assert "已登记待嫁接（下一句生效）：N2(leaf)" in "\n".join(cli.cmd_tree(s))
+    nid, _ = cli.run_input(s, "two", hook=lambda k, t: None)
+    tree = "\n".join(cli.cmd_tree(s))
+    assert "⟵N2" in tree and "⟵嫁接" in tree
+    assert s.log.state.nodes[nid].grafts, "the graft is a prefix of this node, not a node"

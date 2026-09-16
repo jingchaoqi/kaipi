@@ -13,7 +13,7 @@ from typing import Annotated, Any
 import typer
 from pydantic import BaseModel, Field
 
-from kaipi import agent, context, graph, guard, ledger, summarize
+from kaipi import agent, context, graph, guard, ledger, providers, summarize
 from kaipi.model import (
     Depth,
     NodeArchived,
@@ -157,6 +157,7 @@ class Session:
         self._provider: Provider | None = None
         self._provider_spec: str | None = None  # what it was built for; None if injected
         self._cheap: Provider | None = None
+        self._cheap_for: str | None = None  # the spec it was built for; None if injected
 
     def _cursor(self) -> Cursor:
         if self.cursor_path.exists():
@@ -236,10 +237,32 @@ class Session:
             self._provider, self._provider_spec = self._build(spec), spec
         return self._provider
 
+    def vendor(self, spec: str) -> str:
+        """Who a model spec would be routed to, or "" when nothing says. Deliberately not
+        `pricing.split`, whose fallback answers "anthropic" for an unlisted bare id - a
+        guess is exactly what must not decide where a conversation is sent."""
+        if "/" in spec:
+            return spec.partition("/")[0]
+        price = self.pricing.find(spec)
+        return price.provider if price else ""
+
     @property
     def cheap(self) -> Provider:
-        if self._cheap is None:
-            self._cheap = self._build(self.pricing.summary_model)
+        """Graft summaries stay with the provider the session is on. `pricing.toml` names one
+        cheap model for everyone and it belongs to some vendor - taking it would send the
+        user's conversation to an account they never chose, or fail for want of a key they
+        never had. It is used only when both specs name the same vendor, and it is rebuilt
+        on a model switch for the same reason `provider` is."""
+        spec = self.wanted_model()
+        if self._cheap is None or self._cheap_for not in (None, spec):
+            summary = self.pricing.summary_model
+            mine = self.vendor(spec)
+            try:
+                usable = bool(mine) and self.vendor(summary) == mine
+                self._cheap = self._build(summary) if usable else self.provider
+            except (typer.BadParameter, ValueError):
+                self._cheap = self.provider
+            self._cheap_for = spec
         return self._cheap
 
     def resolve(self, ref: str) -> str:
@@ -327,15 +350,23 @@ def cmd_tree(s: Session) -> list[str]:
             own = ledger.fmt(ledger.own_tokens(st, n.id))
             cost = s.pricing.price(n.model).cost(n.usage)
             label = context.user_input(n)[:44]
+            # A graft leaves no node of its own: it is a prefix of the node it was staged
+            # for, so the tree says which conclusions that node carries.
+            graft = (
+                f" {DIM}⟵{','.join(s.name(g.src_id) for g in n.grafts)}{RESET}" if n.grafts else ""
+            )
             line = (
                 f"{here}{mark} {indent}{s.name(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
-                f"{label}{status}"
+                f"{label}{graft}{status}"
             )
             out.append(line if n.status == "live" else f"{DIM}{line}{RESET}")
             walk(n.id, indent + "  ")
 
     walk(None, "")
-    out.append(f"{DIM}* trunk  > current  |  {s.burden_line()}{RESET}")
+    if s.pending:  # staged but not used yet: no node carries them until the next input
+        staged = "  ".join(f"{s.name(e.src_id)}({e.depth})" for e in s.pending)
+        out.append(f"{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}")
+    out.append(f"{DIM}* trunk  > current  ⟵嫁接  |  {s.burden_line()}{RESET}")
     return out
 
 
@@ -701,16 +732,25 @@ def run_input(
     if exploration and s.leaf == t and st.trunk_pin != t:
         s.log.append(TrunkPinned(node_id=t))
     edges = s.pending
+    s.pending = []  # cleared before anything can fail: a staged graft must never strand the
+    use: list[ReferenceEdge] = []  # session: a summary the cheap model refused used to do that
     for e in edges:
         if e.depth == "leaf+summary":
-            summarize.ensure_summary(s.log, s.cheap, e.src_id, s.leaf)
-    s.pending = []
+            try:
+                summarize.ensure_summary(s.log, s.cheap, e.src_id, s.leaf)
+            except Exception as err:  # noqa: BLE001 - the graft is the point, the summary a nicety
+                # The downgrade is for this attempt only: `edges` goes back to the cursor if
+                # the turn is stopped, and what the user staged is what they get on the retry.
+                e = e.model_copy(update={"depth": "leaf"})
+                why = providers.redact(str(err))  # a gateway can echo the key in its error
+                hook("ledger", f"[{s.name(e.src_id)} 摘要没生成：{why}] 改按 leaf 嫁接")
+        use.append(e)
     try:
         nid = agent.run_turn(
             s.log,
             s.provider,
             s.leaf,
-            edges,
+            use,  # this attempt's edges; `edges` is what the cursor gets back if it is stopped
             text,
             exploration=exploration,
             cwd=s.cwd,

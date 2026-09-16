@@ -48,8 +48,12 @@ to the fork point; the CLI prints `cache read x/y` after each turn so this is vi
 
 ## Graft summaries
 
-A `leaf+summary` graft makes one extra request to the cheap model (`summary_model` in
-`pricing.toml`). That spend belongs to no node, so it is recorded on the
+A `leaf+summary` graft makes one extra request to a cheap model. `summary_model` in
+`pricing.toml` names one, but it is used only when it belongs to the vendor the session is
+already on; otherwise the session's own model writes the summary. One packaged model name
+must not send someone's conversation to an account they never chose - or fail the graft for
+want of a key they never had. A summary that fails is not fatal either: the graft degrades
+to `leaf` and the turn goes on. That spend belongs to no node, so it is recorded on the
 `summary_generated` event and added to the session totals separately, priced at the cheap
 model's rate. `scripts/smoke.py` checks that the ledger totals equal the sum of what the
 API reported, which is what caught this being missing.
