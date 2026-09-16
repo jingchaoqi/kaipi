@@ -140,6 +140,21 @@ The exploration read-only notice is a text block in the new user message, **not*
 system-prompt suffix: a different system prompt would give explorations a different
 cache namespace from the trunk they fork from.
 
+That notice is frozen into the payload of every turn written under it, and `trunk pin`
+changes which branch may write without touching a byte of any payload (§3.1). So a branch
+promoted to the trunk still has "this is read-only" in its own history, and the model obeys
+it - it refused to edit files on what was by then the trunk. Editing history is not an
+option (invariant 3, and it would rewrite the cache), so the correction is **appended** to
+the next input, where the newest notice wins: "this branch is the trunk now, the earlier
+read-only notice no longer applies". The prefix is byte-identical, so the cache survives.
+
+Which notice a turn carries is therefore a function of two things - what the lineage last
+said, and what is true now - and a turn pays for one only when they disagree: an
+exploration repeats the read-only notice, a promoted branch says the release once and its
+descendants inherit it, and a trunk that was never read-only carries nothing. The reverse
+case needs no special handling: an old trunk that became an ordinary branch gets the
+read-only notice on its next turn like any other exploration.
+
 ## 5. The seven invariants (each has a test)
 
 1. Every node has exactly one parent.

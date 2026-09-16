@@ -15,6 +15,15 @@ GUARD_TEXT = (
     "not create, modify or delete files, and do not run commands that change the working "
     "tree.</kaipi:guard>"
 )
+# Frozen payloads carry the notice that was true when they were written, and re-pinning the
+# trunk changes which branch may write without touching a byte of them (§3.1). So the change
+# is announced the only way that keeps the prefix identical: appended to the new input, where
+# the newest notice wins. It costs once - the turn after it, the lineage already says so.
+RELEASE_TEXT = (
+    f"{GUARD_TAG}This branch is the trunk now, so the read-only notice earlier in this "
+    "conversation no longer applies: you may create, modify and delete files again. The "
+    "latest notice is the one in force.</kaipi:guard>"
+)
 
 
 class Context(BaseModel):
@@ -112,12 +121,25 @@ def graft_message(grafts: list[GraftBlock]) -> Message:
     return {"role": "user", "content": [{"type": "text", "text": g.text} for g in grafts]}
 
 
-def input_message(text: str, *, guard: bool) -> Message:
+def input_message(text: str, *, notice: str = "") -> Message:
     blocks: list[dict[str, str]] = []
-    if guard:
-        blocks.append({"type": "text", "text": GUARD_TEXT})
+    if notice:
+        blocks.append({"type": "text", "text": notice})
     blocks.append({"type": "text", "text": text})
     return {"role": "user", "content": blocks}
+
+
+def standing_notice(messages: list[Message]) -> str:
+    """The last guard notice in what has been said so far - what the model currently believes
+    about writing to disk. User role only, like every other tag reader here: a model that
+    quotes the notice back, or a `cat` of this file, must not count as kaipi saying it."""
+    for m in reversed(messages):
+        if m["role"] != "user":
+            continue
+        for t in texts(m["content"]):
+            if classify(t) == "guard":
+                return t
+    return ""
 
 
 # --- assembly -------------------------------------------------------------------
@@ -141,11 +163,19 @@ def build(
             messages.extend(n.payload)
             if n.id in (fork, leaf_id):
                 points.add(len(messages) - 1)
+    # What the lineage last said about writing, and what is true now. Any standing notice
+    # that is not already the release is one to overrule - not only today's exact wording:
+    # payloads are frozen, so a session resumed from an older version carries whatever that
+    # version said, and comparing for equality would leave it read-only for good.
+    standing = standing_notice(messages)
+    notice = (
+        GUARD_TEXT if guard else (RELEASE_TEXT if standing and standing != RELEASE_TEXT else "")
+    )
     grafts = [render_graft(state, e, leaf_id) for e in edges]
     payload_start = len(messages)
     if grafts:
         messages.append(graft_message(grafts))
-    messages.append(input_message(text, guard=guard))
+    messages.append(input_message(text, notice=notice))
     return Context(
         system=state.system_prompt,
         messages=messages,

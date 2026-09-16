@@ -75,7 +75,7 @@ def test_child_turn_replays_lineage_with_cache_points(log: Log, tmp_path: Path) 
     msgs, points = p.requests[2]
     assert msgs[:2] == log.state.nodes[root].payload
     assert points == [1]  # root is both the fork point and the lineage end
-    assert msgs[2]["content"][0]["text"].startswith(context.GUARD_TAG)
+    assert msgs[2]["content"][0]["text"] == context.GUARD_TEXT  # read-only, not the release
     assert graph.fork_point(log.state, graph.trunk(log.state) or "") == root
 
 
