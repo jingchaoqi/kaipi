@@ -22,7 +22,9 @@ from kaipi.model import (
     SessionRenamed,
     SessionStarted,
     TrunkPinned,
+    blocks,
     new_id,
+    text_of,
 )
 from kaipi.providers import Provider
 from kaipi.store import Log, State, kaipi_dir, list_sessions, sessions_dir
@@ -367,6 +369,51 @@ def cmd_tree(s: Session) -> list[str]:
         staged = "  ".join(f"{s.name(e.src_id)}({e.depth})" for e in s.pending)
         out.append(f"{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}")
     out.append(f"{DIM}* trunk  > current  ⟵嫁接  |  {s.burden_line()}{RESET}")
+    return out
+
+
+PLACEHOLDER = "「您即将输入的下一句」"
+
+
+def cmd_raw(s: Session) -> list[str]:
+    """Exactly what the next turn would send, assembled by the same `context.build` the agent
+    uses (§4), with the input you have not typed yet standing in for itself. It sends
+    nothing: the size is `ledger.estimate_tokens`, not the provider's counter, which is an
+    HTTP round trip on two of the four protocols. So a `leaf+summary` graft whose summary
+    does not exist yet shows `(no summary available)` here and gets one when you really
+    send."""
+    _, RED, DIM, _, RESET = s.palette()
+    st = s.log.state
+    ctx = context.build(st, s.leaf, s.pending, PLACEHOLDER, guard=graph.is_exploration(st, s.leaf))
+    out = [f"{DIM}=== system prompt ==={RESET}", ctx.system]
+    out.append(f"{DIM}--- ↑ 缓存断点（system prompt 末尾，Anthropic 系协议固定放这一个）---{RESET}")
+    total = ledger.estimate_tokens(ctx.system)
+    for i, m in enumerate(ctx.messages):
+        out.append(f"{DIM}=== 第 {i + 1}/{len(ctx.messages)} 条消息 · {m['role']} ==={RESET}")
+        for b in blocks(m["content"]):
+            kind = str(b.get("type", ""))
+            if kind == "tool_use":
+                body = f"$ {b.get('input', {}).get('command', '')}"
+            elif kind == "tool_result":
+                body = text_of(b.get("content", ""))
+            else:
+                body = str(b.get("text", "")) or f"({kind})"
+            out.append(f"{DIM}  [{kind}]{RESET}")
+            out.append(body)
+            total += ledger.estimate_tokens(body)  # every block, not just the text ones:
+        if i in ctx.cache_points:  # a test log is most of what a real turn weighs
+            out.append(f"{DIM}--- ↑ 缓存断点（第 {i + 1} 条消息末尾）---{RESET}")
+    points = len(ctx.cache_points) + 1  # the fixed one on the system prompt is not in the set
+    out.append(
+        f"{DIM}=== {len(ctx.messages)} 条消息  约 {ledger.fmt(total)} token"
+        f"（本地估算，没有发任何请求）  缓存断点 {points} 处 ==={RESET}"
+    )
+    stale = [
+        g.src_id for g in ctx.grafts if g.depth == "leaf+summary" and not st.nodes[g.src_id].summary
+    ]
+    if stale:
+        names = "、".join(s.name(i) for i in stale)
+        out.append(f"{RED}{names} 的摘要还没生成，真正发送时才会生成{RESET}")
     return out
 
 
@@ -873,6 +920,7 @@ def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
 # slash completion in the terminal. Order is the order they are shown in.
 COMMANDS: list[tuple[str, str, str]] = [
     ("tree", "", "会话树：主干、光标、每个节点的 token 和花费"),
+    ("raw", "", "原样打印下一轮要发给模型的全部内容，含嫁接块；不发送、不花钱"),
     ("explore", "<你的问题>", "从当前位置岔出去问一句，主干钉在原地不动"),
     ("go", "<节点id>", "把光标移到某个节点，下一句从那里长出分支"),
     (
@@ -980,6 +1028,8 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
     match name:
         case "tree":
             return cmd_tree(s)
+        case "raw":
+            return cmd_raw(s)
         case "go":
             return cmd_go(s, args[0])
         case "graft":
@@ -1106,6 +1156,12 @@ def canvas(cont: ContinueOpt = False, resume: ResumeOpt = None) -> None:
 @app.command()
 def tree() -> None:
     say(cmd_tree(_session(mutate=False)))
+
+
+@app.command()
+def raw() -> None:
+    """print the exact context the next turn would send, grafts included."""
+    say(cmd_raw(_session(mutate=False)))
 
 
 @app.command()

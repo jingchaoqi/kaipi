@@ -556,3 +556,83 @@ def test_the_tree_shows_grafts_and_staged_grafts(repo: Path) -> None:
     tree = "\n".join(cli.cmd_tree(s))
     assert "⟵N2" in tree and "⟵嫁接" in tree
     assert s.log.state.nodes[nid].grafts, "the graft is a prefix of this node, not a node"
+
+
+def test_raw_shows_what_the_next_turn_would_send(repo: Path) -> None:
+    """The point of /raw is that it is not a second rendering of the context: it calls the
+    same `context.build` the agent does, so what it prints is what would go out."""
+    from kaipi import context as ctx_mod
+    from kaipi import graph
+
+    s = cli.Session(repo, new=True)
+    s._provider = s._cheap = Echo()
+    root, _ = cli.run_input(s, "one", hook=lambda k, t: None)
+    side, _ = cli.run_input(s, "aside", hook=lambda k, t: None)
+    s.leaf = root
+    s.pending = [ReferenceEdge(src_id=side, dst_id="", depth="leaf")]
+    s.ansi = False
+    out = "\n".join(cli.cmd_raw(s))
+    assert "=== system prompt ===" in out and "Run tests with pytest." in out  # AGENTS.md
+    assert "<kaipi:graft" in out and "echo:aside" in out, "the staged graft is in it"
+    assert cli.PLACEHOLDER in out and "缓存断点" in out
+    # it neither sends nor stages anything: the cursor is exactly where it was
+    assert [e.src_id for e in s.pending] == [side] and s.leaf == root
+    assert len(s.log.state.nodes) == 2
+
+    # every block the agent would send is in it, and nothing else is
+    built = ctx_mod.build(
+        s.log.state,
+        s.leaf,
+        s.pending,
+        cli.PLACEHOLDER,
+        guard=graph.is_exploration(s.log.state, s.leaf),
+    )
+    printed = [ln for ln in cli.cmd_raw(s) if not ln.startswith(("===", "---", "  ["))]
+    sent = [s.log.state.system_prompt]
+    for m in built.messages:
+        for b in m["content"]:
+            sent.append(b.get("text", ""))
+    assert printed == sent, "same blocks, same order, nothing extra"
+
+
+def test_raw_counts_the_tool_output_a_real_turn_is_mostly_made_of(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`text_of` drops tool blocks, so counting with it reported a turn that dumped a test
+    log as ~0 tokens - the one number the command exists to produce."""
+    log = "x" * 4000
+
+    class Tools(Echo):
+        def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+            if not any(b.get("type") == "tool_result" for b in messages[-1]["content"]):
+                return Reply(
+                    content=[
+                        {
+                            "type": "tool_use",
+                            "id": "t1",
+                            "name": "bash",
+                            "input": {"command": "pytest -q"},
+                        }
+                    ],
+                    stop_reason="tool_use",
+                    usage=Usage(input_uncached=10, output=5),
+                )
+            return Reply(
+                content=[{"type": "text", "text": "测试跑完了"}],
+                stop_reason="end_turn",
+                usage=Usage(input_uncached=20, output=5),
+            )
+
+    s = cli.Session(repo, new=True)
+    s._provider = s._cheap = Tools()
+    from kaipi import agent
+
+    monkeypatch.setattr(agent, "run_bash", lambda cmd, cwd, timeout=300, stop=None: log)
+    cli.run_input(s, "run the tests", hook=lambda k, t: None)
+    s.ansi = False
+    out = "\n".join(cli.cmd_raw(s))
+    assert "$ pytest -q" in out and log in out, "the command and its output are shown"
+    found = re.search(r"约 ([\d.]+)k token", out)
+    assert found is not None and float(found.group(1)) >= 1.0, (
+        f"tool output not counted: {out[-200:]}"
+    )
