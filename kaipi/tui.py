@@ -20,7 +20,7 @@ from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.layout import HSplit, Layout
@@ -312,7 +312,9 @@ class Terminal:
                 used += size
         rows.append(row + " " * (width - used))
         panel = "\n".join([" " * width, *rows, " " * width])
-        print_formatted_text([("", "\n"), ("bg:#30343b fg:#f3f4f6", panel), ("", "\n")])
+        print_formatted_text(
+            FormattedText([("", "\n"), ("bg:#30343b fg:#f3f4f6", panel), ("", "\n")])
+        )
 
     def prompt(self) -> str:
         with patch_stdout(raw=True):
