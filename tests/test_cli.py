@@ -488,7 +488,8 @@ def test_enter_submits_slash_candidate(
 
 
 @pytest.mark.parametrize(
-    ("outcome", "expected"), [("ok", "已完成"), ("stop", "已停止"), ("fail", "未完成")]
+    ("outcome", "expected"),
+    [("ok", "已完成"), ("queued", "已完成"), ("stop", "已停止"), ("fail", "未完成")],
 )
 def test_turn_animates_while_waiting_without_polling_at_rest(
     repo: Path, monkeypatch: pytest.MonkeyPatch, outcome: str, expected: str
@@ -516,23 +517,52 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         terminal = tui.Terminal(cli.Session(repo))
         frames: set[str] = set()
+        draft_sent = False
+        accepted = False
+        idle_drafts: list[tuple[bool, str]] = []
+        fade_frames: list[tuple[float, tuple[str, ...]]] = []
 
         def rendered(app: Application[str]) -> None:
+            nonlocal draft_sent, accepted
             if terminal.phase == "等待模型" and not terminal.done.is_set():
                 frames.add(str(terminal.toolbar()))
+                if outcome in {"ok", "queued"} and not draft_sent:
+                    pipe.send_text("draft\r" if outcome == "queued" else "draft")
+                    draft_sent = True
+            if outcome == "ok" and terminal.phase == expected and not terminal.running:
+                idle_drafts.append((app.is_running, app.current_buffer.text))
+                colors = tuple(
+                    style
+                    for style, text, *_ in to_formatted_text(terminal.toolbar())
+                    if text == "•"
+                )
+                fade_frames.append((time.monotonic(), colors))
+                if not accepted and not terminal.fading():
+                    accepted = True
+                    pipe.send_text("\r")
 
         terminal.session.app.after_render += rendered
         assert not terminal.session.refresh_interval
-        assert terminal.turn("hello") == []
+        initial = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
+        assert initial.count("\n") == 2, "reserve the activity row before the first turn"
+        assert terminal.turn("hello") == (["draft"] if outcome in {"ok", "queued"} else [])
         assert len(frames) >= 3, "animation must continue while the provider is blocked"
         assert not terminal.running and not terminal.session.refresh_interval
         if outcome == "ok":
+            assert idle_drafts and all(running and text == "draft" for running, text in idle_drafts)
+            assert len({colors for _, colors in fade_frames}) >= 3
+            assert set(fade_frames[-1][1]) == {"#707a82"}
+            fade_started = terminal._fade_started_at
+            assert fade_started is not None
+            assert fade_frames[-1][0] - fade_started >= 0.5
+        if outcome in {"ok", "queued"}:
             assert terminal.s.leaf is not None, "the same turn still completes and is recorded"
         else:
             assert terminal.s.leaf is None
             assert any(n.status == "aborted" for n in terminal.s.log.state.nodes.values())
         idle = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
         assert expected in idle and "等待输入" in idle and "Esc 停止" not in idle
+        assert idle.count("\n") == initial.count("\n"), "completion must not change toolbar height"
         finished = terminal.finished_at
         assert finished is not None
         with monkeypatch.context() as clock:
