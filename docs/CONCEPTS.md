@@ -228,6 +228,10 @@ model. `/provider` asks for the first (vendor, endpoint - editable, since severa
 run a separate Chinese endpoint with separate keys - key, and the model ids that vendor
 offers you); `/model` picks the second, from every model listed across every configured
 provider, as one list. A first run walks both in order.
+The model-id prompt defaults to every model listed
+for that provider in the pricing table: Enter accepts all, while a comma-separated
+input selects a subset or supplies custom ids. The pricing table takes precedence
+over a saved subset; if it has no models for the provider, the saved list is used.
 
 Credentials go to `~/.config/kaipi/auth.toml`, mode 600, never into a project: a key in a
 repository is a key in someone's clone. The environment still wins over the file, so a

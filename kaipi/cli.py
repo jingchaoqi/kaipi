@@ -594,9 +594,12 @@ def cmd_provider() -> None:
     known = [m for m, pr in ledger.Pricing.load().models.items() if pr.provider == name]
     if known:
         typer.echo(f"{DIM}价格表里这个提供商的模型：{', '.join(known)}{RESET}")
+    defaults = known or saved.get("models", [])
     listed = typer.prompt(
-        "你要用的 model id（逗号分隔，可以多个）",
-        default=", ".join(saved.get("models", [])) or ", ".join(known[:2]),
+        "你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔）"
+        if defaults
+        else "你要用的 model id（请手动输入，逗号分隔）",
+        default=", ".join(defaults),
     )
     picked = parse_models(listed)
 
