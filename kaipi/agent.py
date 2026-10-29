@@ -33,7 +33,7 @@ MAX_STEPS = 30
 # seconds. Wait and retry rather than losing the turn.
 RATE_LIMIT_TRIES = 6
 RATE_LIMIT_MAX_WAIT = 60.0
-Hook = Callable[[str, str], None]  # (kind, text): "text" | "cmd" | "out" | "guard" | "stop"
+Hook = Callable[[str, str], None]  # (kind, text); "phase" is transient UI progress only
 
 
 class Failed(Exception):
@@ -116,6 +116,7 @@ def _complete(
     difference between "slow" and "hung") and interruptible: Esc during it still stops."""
     for attempt in range(RATE_LIMIT_TRIES):
         try:
+            hook("phase", "等待模型")
             return provider.complete(ctx.system, messages, ctx.cache_points)
         except RateLimited as limit:
             if attempt == RATE_LIMIT_TRIES - 1:

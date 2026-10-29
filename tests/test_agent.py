@@ -261,6 +261,7 @@ def test_a_rate_limit_is_waited_out_not_lost(log: Log, tmp_path: Path) -> None:
     assert p.calls == 3, "it retried rather than giving up"
     assert log.state.nodes[nid].completed, "and the turn finished normally"
     assert said.count("wait") == 2, "each wait is announced, or it looks like a hang"
+    assert said.count("phase") == 3, "each retry must leave the waiting-to-retry phase"
 
 
 def test_a_rate_limit_wait_is_interruptible(log: Log, tmp_path: Path) -> None:

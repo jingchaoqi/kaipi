@@ -159,6 +159,65 @@ def test_rewind_slash_prompt(repo: Path) -> None:
     assert out.exit_code != 0 and "no snapshot" in out.output
 
 
+@pytest.mark.parametrize(
+    ("keys", "target"),
+    [
+        ("\r", "N3"),
+        ("\x1b[A\r", "N2"),
+        ("\x1b[A\x1b[A\x1b[B\r", "N2"),
+        ("\x1b", None),
+        ("\x03", None),
+    ],
+)
+def test_rewind_picker_uses_tree_order_and_cancels_without_changes(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, keys: str, target: str | None
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/go N1\nside\n/quit\n")
+    s = cli.Session(repo)
+    before = s.log.path.read_text()
+    leaf = s.leaf
+    monkeypatch.setenv("TERM", "xterm-256color")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        pipe.send_text(keys)
+        picked = tui.pick_rewind(s)
+    assert (s.name(picked) if picked else None) == target
+    assert s.leaf == leaf and s.log.path.read_text() == before
+    assert [line for _, line in cli.tree_rows(s)] == cli.cmd_tree(s)[:-1]
+
+
+def test_rewind_without_id_selects_then_rewinds(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/quit\n")
+    s = cli.Session(repo)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("KAIPI_PLAIN", raising=False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(typer, "prompt", lambda *args, **kwargs: "conversation")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        pipe.send_text("\x1b[A\r")
+        assert cli.slash(s, ["rewind"])
+    assert s.name(s.leaf) == "N1"
+
+
+def test_rewind_without_id_in_plain_terminal(repo: Path) -> None:
+    out = CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/rewind\nN1\nconversation\n/quit\n")
+    assert out.exit_code == 0, out.output
+    s = cli.Session(repo)
+    assert s.name(s.leaf) == "N1"
+
+
 def test_stale_pin_still_protects_the_trunk(repo: Path) -> None:
     from kaipi import graph
 
@@ -363,12 +422,103 @@ def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
         ]
 
     assert offers("hello") == []
-    names = [d.split()[0] for d, _ in offers("/")]
-    assert names == [f"/{n}" for n, _, _ in cli.COMMANDS]
+    assert offers("/") == []
+    names = [d.split()[0] for d, _ in offers("/r")]
+    assert names == [f"/{n}" for n, _, _ in cli.COMMANDS if n.startswith("r")]
     assert offers("/gr")[0][0].startswith("/graft <节点id>")
     ids = offers("/go ")
     assert ids and ids[0][0] == s.name(s.leaf) == "N1" and "first question" in ids[0][1]
     assert offers("/tree ") == [], "tree takes no node"
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [
+        ("/tr\r", "/tree"),
+        ("/tr\t\t\r", "/trunk"),
+        ("/tr\x1b[B\r", "/trunk"),
+        ("/tr\x1b[B\x1b[B\r", "/trunk"),
+        ("/tr\t\x1b[B\r", "/trunk"),
+        ("/r\x1b[B\x1b[B\r", "/rewind"),
+        ("/r\x1b[B\x1b[B\x1b[B\r", "/resume"),
+        ("/r\x1b[B\x1b[A\r", "/raw"),
+        ("/trx\x7f\r", "/tree"),
+        ("/trx\x7f\x1b[B\r", "/trunk"),
+        ("/re\x7f\x1b[B\r", "/restore"),
+        ("/trx\x7f\x7f\x7f\r", "/"),
+        ("/go\r", "/go"),
+        ("/go N\r", "/go N"),
+        ("/gr\r", "/graft"),
+        ("/exit\r", "/exit"),
+        ("/\r", "/"),
+        ("/nope\r", "/nope"),
+        ("hello\r", "hello"),
+    ],
+)
+def test_enter_submits_slash_candidate(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, keys: str, expected: str
+) -> None:
+    import asyncio
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+
+        async def submit() -> str:
+            async def type_keys() -> None:
+                # Let the asynchronous completion menu appear between keystrokes.
+                for key in re.findall(r"\x1b\[[AB]|.", keys):
+                    pipe.send_text(key)
+                    await asyncio.sleep(0.02)
+                    if terminal.session.default_buffer.text == "/":
+                        assert terminal.session.default_buffer.complete_state is None
+
+            typing = asyncio.create_task(type_keys())
+            result = await terminal.session.prompt_async()
+            await typing
+            return result.strip()
+
+        assert asyncio.run(submit()) == expected
+
+
+def test_turn_animates_while_waiting_without_polling_at_rest(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from prompt_toolkit.application import Application, create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    class SlowEcho(Echo):
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            time.sleep(0.25)
+            return super().complete(system, messages, points)
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr(cli.Session, "_build", lambda self, model: SlowEcho())
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+        frames: set[str] = set()
+
+        def rendered(app: Application[str]) -> None:
+            if terminal.phase == "等待模型" and not terminal.done.is_set():
+                frames.add(str(terminal.toolbar()))
+
+        terminal.session.app.after_render += rendered
+        assert not terminal.session.refresh_interval
+        assert terminal.turn("hello") == []
+        assert len(frames) >= 3, "animation must continue while the provider is blocked"
+        assert not terminal.running and not terminal.session.refresh_interval
+        assert terminal.s.leaf is not None, "the same turn still completes and is recorded"
 
 
 def test_every_kaipi_is_a_fresh_conversation_unless_resumed(repo: Path) -> None:

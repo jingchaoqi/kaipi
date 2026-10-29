@@ -189,6 +189,30 @@ in the terminal opens the canvas and closes the prompt; `/cli` on the canvas clo
 canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
+In the terminal's completion menu, Enter submits the selected slash command, or the
+first matching command when none is selected (so `/tr` submits `/tree`). An exact
+command is kept as typed; arguments are never filled implicitly. Tab still completes
+without submitting, and the arrow keys let the user choose another candidate.
+The first match is highlighted by default; Down selects the second, then the third,
+and Up moves back. Arrow navigation keeps the typed prefix unchanged. Completion is
+recomputed after every edit, including Backspace and deletion. A bare `/` offers
+nothing and submits no command; matching starts with the first letter after it.
+
+During a terminal turn, a comet and a text shimmer animate at a target 60 FPS in a
+dedicated activity row. Its phase follows transient hooks (waiting for the model,
+executing a command, waiting to retry) and the stop flag; these are UI state, never
+session events. The ledger row refreshes separately, and the animation timer is off
+at rest. Questions are echoed as full-width background panels with a blank row of
+padding above and below; slash commands keep their compact echo. Wrapped questions
+use terminal cell widths, including CJK characters.
+
+`/rewind` with no node opens a keyboard picker using the same tree rows as `/tree`.
+It starts on the current node; Up/Down moves the selection, Enter picks the target,
+and Esc or Ctrl-C cancels without changing the session or files. Selection is followed
+by the existing file preview and rewind-mode prompt. Explicit node arguments still
+work. Plain terminals print the tree and ask for a node instead. An empty session has
+no rewind target.
+
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
 same directory while a surface is open.
 
