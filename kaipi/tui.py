@@ -33,6 +33,7 @@ from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import Label, RadioList
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.padding import Padding
 
 from kaipi import agent, cli, context
 from kaipi.store import kaipi_dir
@@ -42,14 +43,20 @@ FADE_SECONDS = 0.5
 IDLE_COLOR = (112, 122, 130)
 
 
-def markdown(text: str, width: int, *, color: bool = True) -> str:
+def markdown(text: str, width: int, *, color: bool = True, indent: int = 0) -> str:
     stream = StringIO()
     Console(
         file=stream,
         width=max(1, width),
         force_terminal=color,
         color_system="truecolor" if color else None,
-    ).print(Markdown(text, code_theme="ansi_dark"), end="")
+    ).print(
+        Padding(
+            Markdown(text, code_theme="monokai", inline_code_theme="ansi_dark"),
+            (0, 0, 0, indent),
+        ),
+        end="",
+    )
     return stream.getvalue()
 
 
@@ -311,7 +318,7 @@ class Terminal:
         return f"{self.s.name(self.s.leaf)}> "
 
     def message(self) -> ANSI:
-        return ANSI(f"{self.rule()}\n{self.label():<8}")
+        return ANSI(f"{self.rule()}\n{self.label()}")
 
     def toolbar(self) -> ANSI:
         now, width = time.monotonic(), self.columns()
@@ -365,7 +372,7 @@ class Terminal:
             for i, char in enumerate(phase)
         )
         hint = "Esc 停止" if self.running else "等待输入"
-        tail = paint(f" · {elapsed:.0f}s · {hint}", (220, 229, 231))
+        tail = paint(f" · {elapsed:.3f}s · {hint}", (220, 229, 231))
         activity = f"{track}  {shimmer}{tail}"
         return ANSI(f"{self.rule()}\n{activity}\n{self._bar}")
 
@@ -403,7 +410,8 @@ class Terminal:
                 if self._text:
                     self._intent = markdown("\n\n".join(self._text), 120, color=False)
                     self._text.clear()
-                row_width = max(1, self.columns() - 1)
+                indent = min(2, max(0, self.columns() - 2))
+                row_width = max(1, self.columns() - indent - 1)
                 width = min(120, row_width)
                 intent = self._intent or command_summary(text)
                 for style, content in [
@@ -412,7 +420,9 @@ class Terminal:
                 ]:
                     line = short_line(content, width)
                     padding = " " * (row_width - get_cwidth(line))
-                    self.write(f"\033[48;2;59;66;64m{style}{line}{padding}{cli.RESET}")
+                    self.write(
+                        " " * indent + f"\033[48;2;59;66;64m{style}{line}{padding}{cli.RESET}"
+                    )
             elif kind == "out":
                 pass  # kept in the node; /canvas can expand the complete output
             else:
@@ -450,7 +460,10 @@ class Terminal:
             if self._tool_section:
                 self.write("")
                 self._tool_section = False
-            self.write(markdown(text, self.columns()), end="")
+            self.write(
+                markdown(text, self.columns() - 1, indent=min(2, max(0, self.columns() - 2))),
+                end="",
+            )
 
     def echo(self, line: str) -> None:
         if line.startswith("/") and line.split()[0] != "/explore":

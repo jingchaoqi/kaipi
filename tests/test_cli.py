@@ -562,6 +562,7 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
             assert any(n.status == "aborted" for n in terminal.s.log.state.nodes.values())
         idle = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
         assert expected in idle and "等待输入" in idle and "Esc 停止" not in idle
+        assert re.search(r" · \d+\.\d{3}s · ", idle)
         assert idle.count("\n") == initial.count("\n"), "completion must not change toolbar height"
         finished = terminal.finished_at
         assert finished is not None
@@ -620,8 +621,8 @@ def test_terminal_tool_steps_are_two_bounded_lines(
         lines = capsys.readouterr().out.splitlines()
         plain = [re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line) for line in lines]
         assert len(plain) == 2
-        assert plain[0].startswith("· 检查项目结构和代码") and "**" not in plain[0]
-        assert plain[1].startswith("$ sed")
+        assert plain[0].startswith("  · 检查项目结构和代码") and "**" not in plain[0]
+        assert plain[1].startswith("  $ sed")
         assert all(get_cwidth(line) <= 79 and line.rstrip().endswith("…") for line in plain)
         terminal.hook("phase", "等待模型")
         terminal.hook("cmd", "rg TODO kaipi")
@@ -629,13 +630,16 @@ def test_terminal_tool_steps_are_two_bounded_lines(
         assert len(fallback) == 2 and "查看项目文件与代码" in fallback[0]
 
 
-def test_terminal_answer_renders_markdown(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_terminal_answer_renders_markdown(
+    repo: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
     from kaipi import tui
 
+    monkeypatch.delenv("NO_COLOR", raising=False)
     answer = (
         "### 检查结果\n\n**通过**，查看 `app.py`。\n\n- 第一项\n\n"
         "```python\nprint('ok')\n```\n\n| 项目 | 状态 |\n|---|---|\n| 检查 | 通过 |"
@@ -648,6 +652,11 @@ def test_terminal_answer_renders_markdown(repo: Path, capsys: pytest.CaptureFixt
         plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", rendered)
         assert "检查结果" in plain and "通过，查看 app.py" in plain and "第一项" in plain
         assert "print" in plain and "ok" in plain and "项目" in plain and "状态" in plain
+        assert all(line.startswith("  ") for line in plain.splitlines() if line.strip())
+        assert "48;2;39;40;34" in rendered, "code must have an opaque background"
+        from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
+
+        assert fragment_list_to_text(to_formatted_text(terminal.message())).endswith("\nroot> ")
         assert "**" not in plain and "###" not in plain and "`" not in plain
         assert "\x1b[1m" in rendered, "bold must be rendered as an actual terminal style"
         terminal.flush_answer()

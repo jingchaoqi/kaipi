@@ -232,6 +232,10 @@ Text preceding a command is held for its explanation; text left when a turn ends
 rendered as Markdown through Rich, including emphasis, headings, lists, tables and
 code blocks. Rendering changes neither payloads nor requests. The plain surface
 keeps its text output for pipes and scripts.
+Terminal code blocks use an opaque dark syntax background. Tool rows and answer
+blocks share the question panel’s two-cell left inset. The live input follows its
+node label with a single space; elapsed seconds render with three decimal places
+at the existing 60 FPS animation cadence and freeze at completion.
 One blank line separates the tool-call section from the final answer body.
 The intent and command rows share a subtle background extending to the terminal
 width minus one; styling resets before the answer, and content still truncates at 120 cells.
