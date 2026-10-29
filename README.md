@@ -142,7 +142,7 @@ kaipi
 序号: 8
 API 地址（不同地区可能不同，回车接受） [https://api.moonshot.cn/v1]:
 MOONSHOT_CN_API_KEY 的 key: ********
-你要用的 model id（逗号分隔，可以多个）: kimi-k2.7-code, kimi-k2.6
+你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔） [kimi-k2.7-code, kimi-k2.6]:
 
 第 2 步 / 共 2 步：挑一个模型启用。
    1. kimi-k2.7-code    kimi-cn   in 0.95/out 4.0 每百万
