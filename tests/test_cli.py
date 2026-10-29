@@ -487,12 +487,16 @@ def test_enter_submits_slash_candidate(
         assert asyncio.run(submit()) == expected
 
 
+@pytest.mark.parametrize(
+    ("outcome", "expected"), [("ok", "已完成"), ("stop", "已停止"), ("fail", "未完成")]
+)
 def test_turn_animates_while_waiting_without_polling_at_rest(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    repo: Path, monkeypatch: pytest.MonkeyPatch, outcome: str, expected: str
 ) -> None:
     import time
 
     from prompt_toolkit.application import Application, create_app_session
+    from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
@@ -501,6 +505,10 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
     class SlowEcho(Echo):
         def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
             time.sleep(0.25)
+            if outcome == "stop":
+                raise KeyboardInterrupt
+            if outcome == "fail":
+                raise RuntimeError("test provider failure")
             return super().complete(system, messages, points)
 
     monkeypatch.setenv("TERM", "xterm-256color")
@@ -518,7 +526,18 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
         assert terminal.turn("hello") == []
         assert len(frames) >= 3, "animation must continue while the provider is blocked"
         assert not terminal.running and not terminal.session.refresh_interval
-        assert terminal.s.leaf is not None, "the same turn still completes and is recorded"
+        if outcome == "ok":
+            assert terminal.s.leaf is not None, "the same turn still completes and is recorded"
+        else:
+            assert terminal.s.leaf is None
+            assert any(n.status == "aborted" for n in terminal.s.log.state.nodes.values())
+        idle = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
+        assert expected in idle and "等待输入" in idle and "Esc 停止" not in idle
+        finished = terminal.finished_at
+        assert finished is not None
+        with monkeypatch.context() as clock:
+            clock.setattr(time, "monotonic", lambda: finished + 100)
+            assert fragment_list_to_text(to_formatted_text(terminal.toolbar())) == idle
 
 
 def test_question_panel_renders_background_instead_of_fragment_repr(repo: Path) -> None:
