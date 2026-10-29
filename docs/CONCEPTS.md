@@ -206,9 +206,22 @@ at rest. Questions are echoed as full-width background panels with a blank row o
 padding above and below; slash commands keep their compact echo. Wrapped questions
 use terminal cell widths, including CJK characters.
 After a turn, the activity row stays visible with its final elapsed time and outcome
-(completed, stopped, or failed) and a waiting-for-input hint. Its comet and text shimmer
-freeze, and the refresh timer stays off until the next turn. Completion does not
+(completed, stopped, or failed) and a waiting-for-input hint. The comet, status text,
+elapsed time and hint settle into a uniform dim style, with no frozen highlight.
+The colors ease from the last rendered frame into gray over 0.5 seconds at a target
+60 FPS; the comet's position and elapsed time stop immediately. Refreshing then stops
+until the next turn. Completion does not
 collapse the toolbar by removing this row.
+Normal completion also keeps the current input application alive, including any
+unsent draft. Output is batched and drained on the UI loop before the idle state is
+drawn, rather than exiting, erasing, and recreating the prompt as the answer arrives.
+The animation task ends after the fade; the idle prompt needs no polling. Queued
+submitted inputs and turns requiring an error or worktree confirmation return control
+to the terminal loop as before.
+The activity row is reserved from the first prompt, and the input prefix has a fixed
+minimum width so changing `root` to a node label does not shift a draft's cursor.
+Batched output uses synchronized terminal updates where supported, grouping the
+output and prompt redraw into one visible update.
 
 The tty transcript shows each command in two bounded lines: the model's preceding
 explanation (or an action label based on the command when no explanation was given),
