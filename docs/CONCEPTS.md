@@ -205,6 +205,10 @@ session events. The ledger row refreshes separately, and the animation timer is 
 at rest. Questions are echoed as full-width background panels with a blank row of
 padding above and below; slash commands keep their compact echo. Wrapped questions
 use terminal cell widths, including CJK characters.
+After a turn, the activity row stays visible with its final elapsed time and outcome
+(completed, stopped, or failed) and a waiting-for-input hint. Its comet and text shimmer
+freeze, and the refresh timer stays off until the next turn. Completion does not
+collapse the toolbar by removing this row.
 
 The tty transcript shows each command in two bounded lines: the model's preceding
 explanation (or an action label based on the command when no explanation was given),
