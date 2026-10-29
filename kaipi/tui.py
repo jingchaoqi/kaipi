@@ -8,23 +8,25 @@ command that takes a node id, over the session's nodes. Without a tty (a pipe, t
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Iterable
 from io import StringIO
+from queue import Empty, SimpleQueue
 from typing import Any
 
 import typer
 from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.application import Application, get_app
+from prompt_toolkit.application import Application, get_app, run_in_terminal
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
-from prompt_toolkit.filters import Condition
+from prompt_toolkit.filters import Always, Condition
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
-from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.layout import FloatContainer, HSplit, Layout, Window
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
@@ -36,6 +38,8 @@ from kaipi import agent, cli, context
 from kaipi.store import kaipi_dir
 
 FPS = 60
+FADE_SECONDS = 0.5
+IDLE_COLOR = (112, 122, 130)
 
 
 def markdown(text: str, width: int, *, color: bool = True) -> str:
@@ -180,14 +184,18 @@ class Terminal:
     def __init__(self, s: cli.Session) -> None:
         self.s = s
         self.running = False
-        self.phase = "准备中"
+        self.phase = "就绪"
         self.started_at = 0.0
         self.finished_at: float | None = None
+        self._fade_started_at: float | None = None
+        self._track_colors = [(45, 65, 75)] * 12
+        self._text_colors = [(125, 145, 155)]
         self._bar = ""
         self._bar_at = 0.0
         self._bar_width = 0
         self._text: list[str] = []
         self._intent = ""
+        self._output: SimpleQueue[str] | None = None
         self.stop = threading.Event()
         self.done = threading.Event()
         self.completer = SlashCompleter(s)
@@ -263,6 +271,16 @@ class Terminal:
             # so the scrollback reads input / output / input rather than stale prompts
             erase_when_done=True,
         )
+        # PromptSession normally gives the input window all remaining height. Keep
+        # it compact and put spare space above it, so output cannot move the input.
+        self.session.layout.current_window.dont_extend_height = Always()
+        prompt_layout = self.session.layout.container
+        floats = []
+        for container in self.session.layout.walk():
+            if isinstance(container, FloatContainer):
+                floats.extend(container.floats)
+                container.floats = []
+        self.session.layout.container = FloatContainer(HSplit([Window(), prompt_layout]), floats)
         self.session.default_buffer.on_text_changed += self.refresh_completions
         self.session.default_buffer.on_cursor_position_changed += self.refresh_completions
 
@@ -292,42 +310,76 @@ class Terminal:
         return f"{self.s.name(self.s.leaf)}> "
 
     def message(self) -> ANSI:
-        return ANSI(f"{self.rule()}\n{self.label()}")
+        return ANSI(f"{self.rule()}\n{self.label():<8}")
 
     def toolbar(self) -> ANSI:
-        if self.running and self.done.is_set():
-            # the turn finished while the busy prompt was up: hand control back
-            get_app().exit(result="")
         now, width = time.monotonic(), self.columns()
         # The ledger folds are much slower than drawing a frame. Keep their refresh
         # separate from the animation, and always refresh after a turn or resize.
-        if not self.running or now - self._bar_at >= 0.5 or width != self._bar_width:
+        if not self._bar or now - self._bar_at >= 0.5 or width != self._bar_width:
             self._bar = self.s.status(width)
             self._bar_at, self._bar_width = now, width
-        if not self.running and not self.started_at:
-            return ANSI(f"{self.rule()}\n{self._bar}")
-        elapsed = max(
-            0.0, (self.finished_at if self.finished_at is not None else now) - self.started_at
+        elapsed = (
+            max(0.0, (self.finished_at if self.finished_at is not None else now) - self.started_at)
+            if self.started_at
+            else 0.0
         )
-        head = (elapsed * 8) % 12
-        track = ""
-        for i in range(12):
-            distance = (head - i) % 12
-            if distance > 6:
-                distance -= 12
-            glow = max(0.0, 1 - distance / 4 if distance >= 0 else 1 + distance)
-            r, g, b = int(45 + 100 * glow), int(65 + 180 * glow), int(75 + 180 * glow)
-            track += f"\033[38;2;{r};{g};{b}m•{cli.RESET}"
         phase = "正在停止" if self.running and self.stop.is_set() else self.phase
-        sweep = (elapsed * 7) % (len(phase) + 6) - 3
-        shimmer = ""
-        for i, char in enumerate(phase):
-            glow = max(0.0, 1 - abs(i - sweep) / 3)
-            r, g, b = int(125 + 110 * glow), int(145 + 110 * glow), int(155 + 100 * glow)
-            shimmer += f"\033[38;2;{r};{g};{b}m{char}{cli.RESET}"
+        if self.running:
+            head = (elapsed * 8) % 12
+            self._track_colors = []
+            for i in range(12):
+                distance = (head - i) % 12
+                if distance > 6:
+                    distance -= 12
+                glow = max(0.0, 1 - distance / 4 if distance >= 0 else 1 + distance)
+                self._track_colors.append(
+                    (int(45 + 100 * glow), int(65 + 180 * glow), int(75 + 180 * glow))
+                )
+            sweep = (elapsed * 7) % (len(phase) + 6) - 3
+            self._text_colors = []
+            for i in range(len(phase)):
+                glow = max(0.0, 1 - abs(i - sweep) / 3)
+                self._text_colors.append(
+                    (int(125 + 110 * glow), int(145 + 110 * glow), int(155 + 100 * glow))
+                )
+        fade = (
+            0.0
+            if self.running
+            else (
+                min(1.0, max(0.0, (now - self._fade_started_at) / FADE_SECONDS))
+                if self._fade_started_at is not None
+                else 1.0
+            )
+        )
+        fade = fade * fade * (3 - 2 * fade)  # smooth start and stop, with no sudden color change
+
+        def paint(text: str, source: tuple[int, int, int]) -> str:
+            r, g, b = (round(a + (z - a) * fade) for a, z in zip(source, IDLE_COLOR, strict=True))
+            return f"\033[38;2;{r};{g};{b}m{text}{cli.RESET}"
+
+        track = "".join(paint("•", color) for color in self._track_colors)
+        shimmer = "".join(
+            paint(char, self._text_colors[min(i, len(self._text_colors) - 1)])
+            for i, char in enumerate(phase)
+        )
         hint = "Esc 停止" if self.running else "等待输入"
-        activity = f"{track}  {shimmer} · {elapsed:.0f}s · {hint}"
+        tail = paint(f" · {elapsed:.0f}s · {hint}", (220, 229, 231))
+        activity = f"{track}  {shimmer}{tail}"
         return ANSI(f"{self.rule()}\n{activity}\n{self._bar}")
+
+    def fading(self) -> bool:
+        return (
+            not self.running
+            and self._fade_started_at is not None
+            and time.monotonic() - self._fade_started_at < FADE_SECONDS
+        )
+
+    async def fade_out(self, app: Application[str]) -> None:
+        while self.fading():
+            app.invalidate()
+            await asyncio.sleep(1 / FPS)
+        app.invalidate()
 
     def hook(self, kind: str, text: str) -> None:
         if kind == "phase":
@@ -351,25 +403,43 @@ class Terminal:
                     self._text.clear()
                 width = max(1, min(120, self.columns() - 1))
                 intent = self._intent or command_summary(text)
-                print(short_line(f"· {intent}", width))
-                print(f"{cli.DIM}{short_line('$ ' + text, width)}{cli.RESET}")
+                self.write(short_line(f"· {intent}", width))
+                self.write(f"{cli.DIM}{short_line('$ ' + text, width)}{cli.RESET}")
             elif kind == "out":
                 pass  # kept in the node; /canvas can expand the complete output
             else:
                 if kind == "ledger":
                     self.flush_answer()
-                    print()
-                cli.print_hook(kind, text)
+                    self.write("")
+                cli.print_hook(kind, text, emit=self.write)
                 if kind == "ledger":
-                    print()
+                    self.write("")
+
+    def write(self, text: str, end: str = "\n") -> None:
+        if self._output is None:
+            print(text, end=end)
+        else:
+            self._output.put(text + end)
+
+    def drain_output(self) -> None:
+        chunks: list[str] = []
+        if self._output is not None:
+            while True:
+                try:
+                    chunks.append(self._output.get_nowait())
+                except Empty:
+                    break
+        if chunks:
+            output = self.session.output
+            output.enable_autowrap()
+            output.write_raw("".join(chunks).replace("\n", "\r\n"))
+            output.flush()
 
     def flush_answer(self) -> None:
         if self._text:
             text = "\n\n".join(self._text)
             self._text.clear()
-            # stdout is patched during the turn, so one rendered write stays above
-            # prompt_toolkit's fixed area even when called by the worker thread.
-            print(markdown(text, self.columns()), end="")
+            self.write(markdown(text, self.columns()), end="")
 
     def echo(self, line: str) -> None:
         if line.startswith("/") and line.split()[0] != "/explore":
@@ -393,15 +463,20 @@ class Terminal:
         )
 
     def prompt(self) -> str:
+        def start_fade() -> None:
+            if self.fading():
+                get_app().create_background_task(self.fade_out(get_app()))
+
         with patch_stdout(raw=True):
-            line = self.session.prompt().strip()
+            line = self.session.prompt(pre_run=start_fade).strip()
         if line:
             self.echo(line)
         return line
 
     def turn(self, text: str, *, explore: bool = False) -> list[str]:
         """Run one turn in a worker thread, keeping the bottom area alive meanwhile.
-        Returns the lines the user typed while it ran, in order."""
+        On normal completion the prompt stays alive until the next submission.
+        Returns queued inputs, or that next submitted input, in order."""
         outcome: dict[str, Any] = {}
         queued: list[str] = []
 
@@ -426,27 +501,16 @@ class Terminal:
         self._intent = ""
         self.started_at = time.monotonic()
         self.finished_at = None
+        self._fade_started_at = None
         self._bar_at = 0.0
-        self.session.refresh_interval = 1 / FPS
+        self._output = SimpleQueue()
         started = False
 
-        def start() -> None:
-            nonlocal started
-            if not started:
-                started = True
-                threading.Thread(target=work, daemon=True).start()
-
-        try:
-            with patch_stdout(raw=True):
-                while not self.done.is_set():
-                    line = self.session.prompt(pre_run=start).strip()
-                    if line:
-                        queued.append(line)
-                        print(f"{cli.DIM}已排队，这一轮结束后执行：{line}{cli.RESET}")
-        finally:
+        def finish() -> None:
             self.running = False
-            self.session.refresh_interval = 0
             self.finished_at = time.monotonic()
+            self._fade_started_at = self.finished_at
+            self._bar_at = 0.0
             err = outcome.get("err")
             self.phase = (
                 "已完成"
@@ -455,6 +519,58 @@ class Terminal:
                 if isinstance(err, agent.Interrupted) or self.stop.is_set()
                 else "未完成"
             )
+
+        async def redraw(app: Application[str]) -> None:
+            while self.running or self.fading():
+                await asyncio.sleep(1 / FPS)
+                finished = self.running and self.done.is_set()
+                if finished:
+                    finish()
+                if self._output is not None and not self._output.empty():
+                    # Drain model output on the UI loop before switching to idle.
+                    # One batch avoids separate hide/redraw cycles for each line.
+                    output = self.session.output
+                    output.write_raw("\033[?2026h")
+                    output.flush()
+                    try:
+                        await run_in_terminal(self.drain_output)
+                        # run_in_terminal redraws once before the terminal answers
+                        # its cursor-position query. Keep that provisional layout
+                        # hidden until the final available height is known.
+                        if output.responds_to_cpr:
+                            await app.renderer.wait_for_cpr_responses()
+                        if finished:
+                            self._fade_started_at = time.monotonic()
+                        app._redraw()
+                    finally:
+                        output.write_raw("\033[?2026l")
+                        output.flush()
+                app.invalidate()
+                if finished and (queued or "err" in outcome or outcome["ok"][1]):
+                    app.exit(result="")
+
+        def start() -> None:
+            nonlocal started
+            get_app().create_background_task(redraw(get_app()))
+            if not started:
+                started = True
+                threading.Thread(target=work, daemon=True).start()
+
+        try:
+            with patch_stdout(raw=True):
+                while True:
+                    line = self.session.prompt(pre_run=start).strip()
+                    if line:
+                        queued.append(line)
+                    if self.done.is_set():
+                        break
+                    if line:
+                        self.write(f"{cli.DIM}已排队，这一轮结束后执行：{line}{cli.RESET}")
+        finally:
+            if self.finished_at is None:
+                finish()
+            self.drain_output()
+            self._output = None
         if "err" in outcome:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
@@ -495,6 +611,8 @@ def loop(s: cli.Session) -> str:
                     return "quit"
             else:
                 pending = t.turn(line) + pending
+        except (EOFError, KeyboardInterrupt):
+            return "quit"
         except (typer.BadParameter, ValueError) as e:
             print(f"{cli.RED}{e}{cli.RESET}")
         s.save()

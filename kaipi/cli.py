@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -756,21 +757,21 @@ def preview(out: str, lines: int = OUT_LINES) -> str:
     return f"{DIM}" + "\n".join(head) + RESET
 
 
-def print_hook(kind: str, t: str) -> None:
+def print_hook(kind: str, t: str, *, emit: Callable[[str], None] = typer.echo) -> None:
     if kind == "text":
-        typer.echo(t)
+        emit(t)
     elif kind == "cmd":
-        typer.echo(f"{DIM}$ {t}{RESET}")
+        emit(f"{DIM}$ {t}{RESET}")
     elif kind == "out":
-        typer.echo(preview(t))
+        emit(preview(t))
     elif kind == "guard":
-        typer.echo(f"{RED}exploration branch dirtied the working tree{RESET}")
+        emit(f"{RED}exploration branch dirtied the working tree{RESET}")
     elif kind == "stop":
-        typer.echo(f"{RED}stopped: {t}{RESET}")
+        emit(f"{RED}stopped: {t}{RESET}")
     elif kind == "wait":
-        typer.echo(f"{DIM}⏳ {t}{RESET}")
+        emit(f"{DIM}⏳ {t}{RESET}")
     elif kind == "ledger":
-        typer.echo(f"{DIM}{t}{RESET}")
+        emit(f"{DIM}{t}{RESET}")
 
 
 def run_input(
