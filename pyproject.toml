@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.11",
     "prompt-toolkit>=3.0",
     "python-ulid>=3",
+    "rich>=13",
     "typer>=0.15",
 ]
 

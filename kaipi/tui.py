@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterable
+from io import StringIO
 from typing import Any
 
 import typer
@@ -28,11 +29,51 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import Label, RadioList
+from rich.console import Console
+from rich.markdown import Markdown
 
 from kaipi import agent, cli, context
 from kaipi.store import kaipi_dir
 
 FPS = 60
+
+
+def markdown(text: str, width: int, *, color: bool = True) -> str:
+    stream = StringIO()
+    Console(
+        file=stream,
+        width=max(1, width),
+        force_terminal=color,
+        color_system="truecolor" if color else None,
+    ).print(Markdown(text, code_theme="ansi_dark"), end="")
+    return stream.getvalue()
+
+
+def short_line(text: str, width: int) -> str:
+    text = " ".join(text.split())
+    text = "".join(c for c in text if c.isprintable())
+    if get_cwidth(text) <= width:
+        return text
+    out, used = "", 0
+    for char in text:
+        size = get_cwidth(char)
+        if used + size > width - 1:
+            break
+        out += char
+        used += size
+    return out + "…"
+
+
+def command_summary(command: str) -> str:
+    """An action label when the model supplied no explanation, not invented reasoning."""
+    program = command.strip().split(maxsplit=1)[0] if command.strip() else ""
+    if program in {"cat", "sed", "head", "tail", "rg", "grep", "find", "ls", "pwd", "wc"}:
+        return "查看项目文件与代码"
+    if program in {"pytest", "ruff", "mypy", "uv", "python", "python3", "npm", "pnpm", "make"}:
+        return "运行项目命令与检查"
+    if program == "git":
+        return "执行 Git 操作"
+    return "执行命令"
 
 
 def pick_rewind(s: cli.Session) -> str | None:
@@ -144,6 +185,8 @@ class Terminal:
         self._bar = ""
         self._bar_at = 0.0
         self._bar_width = 0
+        self._text: list[str] = []
+        self._intent = ""
         self.stop = threading.Event()
         self.done = threading.Event()
         self.completer = SlashCompleter(s)
@@ -285,6 +328,7 @@ class Terminal:
     def hook(self, kind: str, text: str) -> None:
         if kind == "phase":
             self.phase = text
+            self._intent = ""
         else:
             self.phase = {
                 "cmd": "执行命令",
@@ -293,7 +337,35 @@ class Terminal:
                 "text": "整理回答",
                 "ledger": "整理结果",
             }.get(kind, self.phase)
-            cli.print_hook(kind, text)
+            if kind == "text":
+                # Text before a tool call is its explanation; text at the end of the
+                # turn is the answer. Hold it until we know which one it is.
+                self._text.append(text)
+            elif kind == "cmd":
+                if self._text:
+                    self._intent = markdown("\n\n".join(self._text), 120, color=False)
+                    self._text.clear()
+                width = max(1, min(120, self.columns() - 1))
+                intent = self._intent or command_summary(text)
+                print(short_line(f"· {intent}", width))
+                print(f"{cli.DIM}{short_line('$ ' + text, width)}{cli.RESET}")
+            elif kind == "out":
+                pass  # kept in the node; /canvas can expand the complete output
+            else:
+                if kind == "ledger":
+                    self.flush_answer()
+                    print()
+                cli.print_hook(kind, text)
+                if kind == "ledger":
+                    print()
+
+    def flush_answer(self) -> None:
+        if self._text:
+            text = "\n\n".join(self._text)
+            self._text.clear()
+            # stdout is patched during the turn, so one rendered write stays above
+            # prompt_toolkit's fixed area even when called by the worker thread.
+            print(markdown(text, self.columns()), end="")
 
     def echo(self, line: str) -> None:
         if line.startswith("/") and line.split()[0] != "/explore":
@@ -337,12 +409,17 @@ class Terminal:
             except BaseException as e:  # noqa: BLE001 - re-raised on the main thread
                 outcome["err"] = e
             finally:
-                self.done.set()
+                try:
+                    self.flush_answer()
+                finally:
+                    self.done.set()
 
         self.stop.clear()
         self.done.clear()
         self.running = True
         self.phase = "准备中"
+        self._text.clear()
+        self._intent = ""
         self.started_at = time.monotonic()
         self._bar_at = 0.0
         self.session.refresh_interval = 1 / FPS
