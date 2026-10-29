@@ -1033,6 +1033,9 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
     name, args = argv[0], argv[1:]
     if name in NODE_ARG and not args:
         usage = next(a for n, a, _ in COMMANDS if n == name)
+        # Interactive /rewind handles its picker before calling this shared verb.
+        # Other surfaces still need an explicit node.
+        usage = usage.replace("[节点id]", "<节点id>", 1)
         raise typer.BadParameter(f"用法：/{name} {usage}")
     match name:
         case "tree":
