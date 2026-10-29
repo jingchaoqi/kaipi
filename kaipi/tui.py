@@ -195,6 +195,7 @@ class Terminal:
         self._bar_width = 0
         self._text: list[str] = []
         self._intent = ""
+        self._tool_section = False
         self._output: SimpleQueue[str] | None = None
         self.stop = threading.Event()
         self.done = threading.Event()
@@ -398,13 +399,20 @@ class Terminal:
                 # turn is the answer. Hold it until we know which one it is.
                 self._text.append(text)
             elif kind == "cmd":
+                self._tool_section = True
                 if self._text:
                     self._intent = markdown("\n\n".join(self._text), 120, color=False)
                     self._text.clear()
-                width = max(1, min(120, self.columns() - 1))
+                row_width = max(1, self.columns() - 1)
+                width = min(120, row_width)
                 intent = self._intent or command_summary(text)
-                self.write(short_line(f"· {intent}", width))
-                self.write(f"{cli.DIM}{short_line('$ ' + text, width)}{cli.RESET}")
+                for style, content in [
+                    ("\033[38;2;177;188;186m", f"· {intent}"),
+                    ("\033[38;2;147;159;158m", "$ " + text),
+                ]:
+                    line = short_line(content, width)
+                    padding = " " * (row_width - get_cwidth(line))
+                    self.write(f"\033[48;2;59;66;64m{style}{line}{padding}{cli.RESET}")
             elif kind == "out":
                 pass  # kept in the node; /canvas can expand the complete output
             else:
@@ -439,6 +447,9 @@ class Terminal:
         if self._text:
             text = "\n\n".join(self._text)
             self._text.clear()
+            if self._tool_section:
+                self.write("")
+                self._tool_section = False
             self.write(markdown(text, self.columns()), end="")
 
     def echo(self, line: str) -> None:
@@ -500,6 +511,7 @@ class Terminal:
         self._text.clear()
         self._intent = ""
         self.started_at = time.monotonic()
+        self._tool_section = False
         self.finished_at = None
         self._fade_started_at = None
         self._bar_at = 0.0

@@ -622,7 +622,7 @@ def test_terminal_tool_steps_are_two_bounded_lines(
         assert len(plain) == 2
         assert plain[0].startswith("· 检查项目结构和代码") and "**" not in plain[0]
         assert plain[1].startswith("$ sed")
-        assert all(get_cwidth(line) <= 79 and line.endswith("…") for line in plain)
+        assert all(get_cwidth(line) <= 79 and line.rstrip().endswith("…") for line in plain)
         terminal.hook("phase", "等待模型")
         terminal.hook("cmd", "rg TODO kaipi")
         fallback = capsys.readouterr().out.splitlines()

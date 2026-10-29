@@ -232,6 +232,9 @@ Text preceding a command is held for its explanation; text left when a turn ends
 rendered as Markdown through Rich, including emphasis, headings, lists, tables and
 code blocks. Rendering changes neither payloads nor requests. The plain surface
 keeps its text output for pipes and scripts.
+One blank line separates the tool-call section from the final answer body.
+The intent and command rows share a subtle background extending to the terminal
+width minus one; styling resets before the answer, and content still truncates at 120 cells.
 The per-turn usage summary has one blank line above and below it, separating the
 answer from the summary and the next input area's rule.
 
