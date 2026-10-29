@@ -1,0 +1,28 @@
+name: Publish v0.1.0
+on:
+  push:
+    branches: [release/v0.1.0]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: kaipi-b8d4c0
+          run-id: 40926726906
+          github-token: ${{ github.token }}
+          path: release-dist
+      - name: Publish verified build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse v0.1.0^{commit})" = b8d4c0d8dd471c1e8f36b22a713f99ebadf7e98f
+          cd release-dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          gh release create v0.1.0 *.whl *.tar.gz SHA256SUMS --verify-tag --title "kaipi v0.1.0" --notes-file ../.github/release-v0.1.0.md --latest
