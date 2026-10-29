@@ -521,6 +521,38 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
         assert terminal.s.leaf is not None, "the same turn still completes and is recorded"
 
 
+def test_question_panel_renders_background_instead_of_fragment_repr(repo: Path) -> None:
+    from io import StringIO
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import ColorDepth
+    from prompt_toolkit.output.vt100 import Vt100_Output
+    from prompt_toolkit.utils import get_cwidth
+
+    from kaipi import tui
+
+    stream = StringIO()
+    output = Vt100_Output(
+        stream,
+        lambda: Size(rows=24, columns=32),
+        default_color_depth=ColorDepth.DEPTH_24_BIT,
+    )
+    question = "介绍一下你自己，再看看中文换行和 emoji 👋"
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        terminal = tui.Terminal(cli.Session(repo))
+        terminal.echo(question)
+    rendered = stream.getvalue()
+    assert "48;2;48;52;59" in rendered, "the question needs an actual background escape"
+    assert "bg:#30343b" not in rendered and "[(''" not in rendered and r"\n" not in rendered
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", rendered).replace("\r", "")
+    lines = plain.splitlines()
+    assert "root> " + question in "".join(line.rstrip() for line in lines).strip()
+    assert all(get_cwidth(line) <= 31 for line in lines)
+    assert lines[0] == "" and lines[1] == " " * 31 and lines[-2] == " " * 31
+
+
 def test_every_kaipi_is_a_fresh_conversation_unless_resumed(repo: Path) -> None:
     from kaipi.store import Log, list_sessions
 
