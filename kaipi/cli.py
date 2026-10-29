@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from prompt_toolkit.utils import get_cwidth
 from pydantic import BaseModel, Field
 
 from kaipi import agent, context, graph, guard, ledger, providers, summarize
@@ -333,12 +334,13 @@ class Session:
 # that have to ask something (a picker, a y/n) live with the terminal, not here.
 
 
-def cmd_tree(s: Session) -> list[str]:
+def tree_rows(s: Session) -> list[tuple[str, str]]:
+    """Node ids and their tree lines, shared by /tree and the rewind picker."""
     st = s.log.state
     _, RED, DIM, _, RESET = s.palette()
     t = graph.trunk(st)
     trunk_ids = {n.id for n in graph.lineage(st, t)} if t else set()
-    out: list[str] = []
+    out: list[tuple[str, str]] = []
 
     def walk(parent: str | None, indent: str) -> None:
         for n in graph.children(st, parent, live_only=False):
@@ -361,10 +363,16 @@ def cmd_tree(s: Session) -> list[str]:
                 f"{here}{mark} {indent}{s.name(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
                 f"{label}{graft}{status}"
             )
-            out.append(line if n.status == "live" else f"{DIM}{line}{RESET}")
+            out.append((n.id, line if n.status == "live" else f"{DIM}{line}{RESET}"))
             walk(n.id, indent + "  ")
 
     walk(None, "")
+    return out
+
+
+def cmd_tree(s: Session) -> list[str]:
+    _, _, DIM, _, RESET = s.palette()
+    out = [line for _, line in tree_rows(s)]
     if s.pending:  # staged but not used yet: no node carries them until the next input
         staged = "  ".join(f"{s.name(e.src_id)}({e.depth})" for e in s.pending)
         out.append(f"{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}")
@@ -931,7 +939,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("archive", "<节点id>", "把节点连同整棵子树收起来，退出上下文"),
     ("restore", "<节点id>", "撤销归档"),
     ("trunk", "[pin <节点id>]", "显示主干，或把主干钉到某个节点"),
-    ("rewind", "<节点id> [both|code|conversation]", "回退：只挪光标、只还原代码，或两个都做"),
+    ("rewind", "[节点id] [both|code|conversation]", "回退：上下键选节点，再选回退方式"),
     ("ledger", "", "总账：花费、各项 token、探索/嫁接/打断各省了多少"),
     ("canvas", "", "把会话搬到浏览器（画布里敲 /cli 搬回来）"),
     ("provider", "", "配置 API 提供商：地址、key、模型 id"),
@@ -948,10 +956,11 @@ HELP = "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。"
 
 def cmd_help(s: Session) -> list[str]:
     _, _, DIM, BOLD, RESET = s.palette()
-    width = max(len(f"/{n} {a}".strip()) for n, a, _ in COMMANDS)
+    rows = [(f"/{name} {args}".strip(), what) for name, args, what in COMMANDS]
+    width = max(get_cwidth(label) for label, _ in rows)
     out = [
-        f"  {BOLD}{f'/{n} {a}'.strip():<{width}}{RESET}  {DIM}{what}{RESET}"
-        for n, a, what in COMMANDS
+        f"  {BOLD}{label}{' ' * (width - get_cwidth(label))}{RESET}  {DIM}{what}{RESET}"
+        for label, what in rows
     ]
     return [*out, f"  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}"]
 
@@ -1064,6 +1073,8 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
 
 def slash(s: Session, argv: list[str]) -> bool:
     """A slash command in the terminal. False means quit."""
+    if not argv:
+        return True
     name, args = argv[0], argv[1:]
     match name:
         case "quit" | "exit":
@@ -1078,11 +1089,25 @@ def slash(s: Session, argv: list[str]) -> bool:
             picked = pick_session(s)
             if picked:
                 say(cmd_resume(s, picked))
-        case "rewind" if len(args) == 1:
-            typer.echo(rewind_preview(s, args[0]))
+        case "rewind" if len(args) <= 1:
+            if args:
+                ref = args[0]
+            elif not s.log.state.nodes:
+                typer.echo("还没有可回退的节点")
+                return True
+            elif sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("KAIPI_PLAIN"):
+                from kaipi.tui import pick_rewind
+
+                ref = pick_rewind(s) or ""
+            else:
+                say(cmd_tree(s))
+                ref = typer.prompt("目标节点（回车取消）", default="", show_default=False)
+            if not ref:
+                return True
+            typer.echo(rewind_preview(s, ref))
             mode = typer.prompt("rewind [both|code|conversation|cancel]", default="both")
             if mode != "cancel":
-                say(cmd_rewind(s, args[0], mode))
+                say(cmd_rewind(s, ref, mode))
         case _:
             out = verb(s, argv)
             say(out if out is not None else [f"{RED}unknown command /{name}{RESET}"])
