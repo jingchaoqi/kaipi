@@ -182,6 +182,7 @@ class Terminal:
         self.running = False
         self.phase = "准备中"
         self.started_at = 0.0
+        self.finished_at: float | None = None
         self._bar = ""
         self._bar_at = 0.0
         self._bar_width = 0
@@ -303,9 +304,11 @@ class Terminal:
         if not self.running or now - self._bar_at >= 0.5 or width != self._bar_width:
             self._bar = self.s.status(width)
             self._bar_at, self._bar_width = now, width
-        if not self.running:
+        if not self.running and not self.started_at:
             return ANSI(f"{self.rule()}\n{self._bar}")
-        elapsed = max(0.0, now - self.started_at)
+        elapsed = max(
+            0.0, (self.finished_at if self.finished_at is not None else now) - self.started_at
+        )
         head = (elapsed * 8) % 12
         track = ""
         for i in range(12):
@@ -315,14 +318,15 @@ class Terminal:
             glow = max(0.0, 1 - distance / 4 if distance >= 0 else 1 + distance)
             r, g, b = int(45 + 100 * glow), int(65 + 180 * glow), int(75 + 180 * glow)
             track += f"\033[38;2;{r};{g};{b}m•{cli.RESET}"
-        phase = "正在停止" if self.stop.is_set() else self.phase
+        phase = "正在停止" if self.running and self.stop.is_set() else self.phase
         sweep = (elapsed * 7) % (len(phase) + 6) - 3
         shimmer = ""
         for i, char in enumerate(phase):
             glow = max(0.0, 1 - abs(i - sweep) / 3)
             r, g, b = int(125 + 110 * glow), int(145 + 110 * glow), int(155 + 100 * glow)
             shimmer += f"\033[38;2;{r};{g};{b}m{char}{cli.RESET}"
-        activity = f"{track}  {shimmer} · {elapsed:.0f}s · Esc 停止"
+        hint = "Esc 停止" if self.running else "等待输入"
+        activity = f"{track}  {shimmer} · {elapsed:.0f}s · {hint}"
         return ANSI(f"{self.rule()}\n{activity}\n{self._bar}")
 
     def hook(self, kind: str, text: str) -> None:
@@ -421,6 +425,7 @@ class Terminal:
         self._text.clear()
         self._intent = ""
         self.started_at = time.monotonic()
+        self.finished_at = None
         self._bar_at = 0.0
         self.session.refresh_interval = 1 / FPS
         started = False
@@ -441,6 +446,15 @@ class Terminal:
         finally:
             self.running = False
             self.session.refresh_interval = 0
+            self.finished_at = time.monotonic()
+            err = outcome.get("err")
+            self.phase = (
+                "已完成"
+                if "ok" in outcome
+                else "已停止"
+                if isinstance(err, agent.Interrupted) or self.stop.is_set()
+                else "未完成"
+            )
         if "err" in outcome:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
