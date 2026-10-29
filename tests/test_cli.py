@@ -226,13 +226,13 @@ def test_stale_pin_still_protects_the_trunk(repo: Path) -> None:
     s = cli.Session(repo)
     root = [n for n in s.log.state.nodes.values() if n.parent_id is None][0].id
     two = s.leaf or ""
-    r.invoke(cli.app, ["trunk", "pin", two[-6:]])
+    r.invoke(cli.app, ["trunk", "pin", two])
     r.invoke(cli.app, ["-c"], input="three\n/quit\n")  # extends the pinned leaf: pin follows
     three = cli.Session(repo).leaf or ""
-    r.invoke(cli.app, ["archive", three[-6:]])  # pin now points at an archived node
+    r.invoke(cli.app, ["archive", three])  # pin now points at an archived node
     st = cli.Session(repo).log.state
     assert st.trunk_pin == three and graph.trunk(st) == two  # stale pin, heuristic trunk
-    r.invoke(cli.app, ["go", root[-6:]])  # leaving the heuristic trunk leaf must re-pin it
+    r.invoke(cli.app, ["go", root])  # leaving the heuristic trunk leaf must re-pin it
     st = cli.Session(repo).log.state
     assert st.trunk_pin == graph.trunk(st) == two
 
@@ -551,6 +551,101 @@ def test_question_panel_renders_background_instead_of_fragment_repr(repo: Path) 
     assert "root> " + question in "".join(line.rstrip() for line in lines).strip()
     assert all(get_cwidth(line) <= 31 for line in lines)
     assert lines[0] == "" and lines[1] == " " * 31 and lines[-2] == " " * 31
+
+
+def test_terminal_tool_steps_are_two_bounded_lines(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+    from prompt_toolkit.utils import get_cwidth
+
+    from kaipi import tui
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+        terminal.hook("text", "**检查项目结构和代码**，" + "了解实现细节" * 40)
+        terminal.hook("cmd", "sed -n '1,240p' kaipi/cli.py\n" + "long/path/" * 60)
+        terminal.hook("out", "hidden tool output\n" * 400)
+        lines = capsys.readouterr().out.splitlines()
+        plain = [re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line) for line in lines]
+        assert len(plain) == 2
+        assert plain[0].startswith("· 检查项目结构和代码") and "**" not in plain[0]
+        assert plain[1].startswith("$ sed")
+        assert all(get_cwidth(line) <= 79 and line.endswith("…") for line in plain)
+        terminal.hook("phase", "等待模型")
+        terminal.hook("cmd", "rg TODO kaipi")
+        fallback = capsys.readouterr().out.splitlines()
+        assert len(fallback) == 2 and "查看项目文件与代码" in fallback[0]
+
+
+def test_terminal_answer_renders_markdown(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    answer = (
+        "### 检查结果\n\n**通过**，查看 `app.py`。\n\n- 第一项\n\n"
+        "```python\nprint('ok')\n```\n\n| 项目 | 状态 |\n|---|---|\n| 检查 | 通过 |"
+    )
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+        terminal.hook("text", answer)
+        terminal.flush_answer()
+        rendered = capsys.readouterr().out
+        plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", rendered)
+        assert "检查结果" in plain and "通过，查看 app.py" in plain and "第一项" in plain
+        assert "print" in plain and "ok" in plain and "项目" in plain and "状态" in plain
+        assert "**" not in plain and "###" not in plain and "`" not in plain
+        assert "\x1b[1m" in rendered, "bold must be rendered as an actual terminal style"
+        terminal.flush_answer()
+        assert capsys.readouterr().out == "", "the answer is printed only once"
+
+
+def test_compact_turn_preserves_full_tool_payload(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from kaipi import agent, tui
+
+    command = "cat README.md\n" + "long/path/" * 50
+    tool_output = "full tool output\n" * 440
+
+    class Inspect(Echo):
+        calls = 0
+
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            self.calls += 1
+            blocks: list[dict[str, object]] = (
+                [
+                    {"type": "text", "text": "先检查项目文件"},
+                    {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": command}},
+                ]
+                if self.calls == 1
+                else [{"type": "text", "text": "**检查完成**"}]
+            )
+            return Reply(
+                content=blocks,
+                stop_reason="tool_use" if self.calls == 1 else "end_turn",
+                usage=Usage(output=1),
+            )
+
+    monkeypatch.setattr(cli.Session, "_build", lambda self, model: Inspect())
+    monkeypatch.setattr(agent, "run_bash", lambda *args, **kwargs: tool_output)
+    terminal = tui.Terminal(cli.Session(repo))
+    nid, _ = cli.run_input(terminal.s, "检查项目", hook=terminal.hook)
+    shown = capsys.readouterr().out
+    assert "先检查项目文件" in shown and "检查完成" in shown
+    assert "full tool output" not in shown and "**" not in shown
+    lines = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", shown).splitlines()
+    ledger_line = next(i for i, line in enumerate(lines) if "cache read" in line)
+    assert not lines[ledger_line - 1].strip() and not lines[ledger_line + 1].strip()
+    payload = str(terminal.s.log.state.nodes[nid].payload)
+    assert command in terminal.s.log.state.nodes[nid].payload[1]["content"][1]["input"]["command"]
+    assert tool_output in terminal.s.log.state.nodes[nid].payload[2]["content"][0]["content"]
+    assert "tool_use" in payload
 
 
 def test_every_kaipi_is_a_fresh_conversation_unless_resumed(repo: Path) -> None:

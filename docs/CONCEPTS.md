@@ -206,6 +206,18 @@ at rest. Questions are echoed as full-width background panels with a blank row o
 padding above and below; slash commands keep their compact echo. Wrapped questions
 use terminal cell widths, including CJK characters.
 
+The tty transcript shows each command in two bounded lines: the model's preceding
+explanation (or an action label based on the command when no explanation was given),
+then the command. Both lines collapse newlines and truncate to at most 120 terminal
+cells, or the current width minus one if narrower. Tool stdout/stderr stays in the
+node payload and can be expanded on the canvas, rather than scrolling in the tty.
+Text preceding a command is held for its explanation; text left when a turn ends is
+rendered as Markdown through Rich, including emphasis, headings, lists, tables and
+code blocks. Rendering changes neither payloads nor requests. The plain surface
+keeps its text output for pipes and scripts.
+The per-turn usage summary has one blank line above and below it, separating the
+answer from the summary and the next input area's rule.
+
 `/rewind` with no node opens a keyboard picker using the same tree rows as `/tree`.
 It starts on the current node; Up/Down moves the selection, Enter picks the target,
 and Esc or Ctrl-C cancels without changing the session or files. Selection is followed
