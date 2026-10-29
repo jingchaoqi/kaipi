@@ -9,24 +9,81 @@ command that takes a node id, over the session's nodes. Without a tty (a pipe, t
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Iterable
 from typing import Any
 
 import typer
-from prompt_toolkit import PromptSession
-from prompt_toolkit.application import get_app
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.application import Application, get_app
+from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
+from prompt_toolkit.widgets import Label, RadioList
 
 from kaipi import agent, cli, context
 from kaipi.store import kaipi_dir
 
-BUSY = "\033[33m⏳ 运行中 · Esc 停止\033[0m"
+FPS = 60
+
+
+def pick_rewind(s: cli.Session) -> str | None:
+    rows = cli.tree_rows(s)
+    if not rows:
+        return None
+    nodes = RadioList(
+        values=[(nid, ANSI(line)) for nid, line in rows],
+        default=s.leaf,
+        select_on_focus=True,
+        show_cursor=False,
+    )
+    # RadioList's default checks a value but leaves the keyboard cursor on row 0.
+    nodes._selected_index = next((i for i, (nid, _) in enumerate(rows) if nid == s.leaf), 0)
+    kb = KeyBindings()
+
+    @kb.add("enter", eager=True)
+    def _accept(event: Any) -> None:
+        event.app.exit(result=rows[nodes._selected_index][0])
+
+    @kb.add("escape", eager=True)
+    @kb.add("c-c")
+    @kb.add("c-d")
+    def _cancel(event: Any) -> None:
+        event.app.exit(result=None)
+
+    # Widget bindings take precedence over Application bindings. Attach these last
+    # on the focused control so Enter submits instead of merely checking a radio.
+    nodes.control.key_bindings = merge_key_bindings(
+        [nodes.control.key_bindings or KeyBindings(), kb]
+    )
+    app: Application[str | None] = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    Label("回退到哪个节点？  ↑/↓ 切换 · Enter 选择 · Esc 取消"),
+                    nodes,
+                    Label("* 主干  > 当前节点；选择后预览文件，再确认回退方式"),
+                ]
+            ),
+            focused_element=nodes,
+        ),
+        key_bindings=kb,
+        style=Style.from_dict({"radio-selected": "bg:#30343b bold"}),
+        full_screen=False,
+        erase_when_done=True,
+    )
+    try:
+        return app.run()
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 class SlashCompleter(Completer):
@@ -41,7 +98,7 @@ class SlashCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         text = document.text_before_cursor
-        if not text.startswith("/"):
+        if not text.startswith("/") or len(text) < 2 or not text[1].isalpha():
             return
         head, _, rest = text[1:].partition(" ")
         if not _:  # still typing the command itself
@@ -82,9 +139,58 @@ class Terminal:
     def __init__(self, s: cli.Session) -> None:
         self.s = s
         self.running = False
+        self.phase = "准备中"
+        self.started_at = 0.0
+        self._bar = ""
+        self._bar_at = 0.0
+        self._bar_width = 0
         self.stop = threading.Event()
         self.done = threading.Event()
+        self.completer = SlashCompleter(s)
+        self._selecting = False
         kb = KeyBindings()
+
+        @kb.add("enter")
+        def _enter(event: Any) -> None:
+            buffer = event.current_buffer
+            state = buffer.complete_state
+            if state and state.current_completion:
+                # Selecting a command submits it; arguments still require an explicit
+                # Tab. Arrow navigation itself leaves the user's prefix untouched.
+                if not any(c.isspace() for c in state.original_document.text):
+                    self._selecting = True
+                    try:
+                        buffer.apply_completion(state.current_completion)
+                    finally:
+                        self._selecting = False
+            buffer.validate_and_handle()
+
+        has_candidates = Condition(lambda: self.session.default_buffer.complete_state is not None)
+
+        @kb.add("up", filter=has_candidates)
+        @kb.add("down", filter=has_candidates)
+        def _choose(event: Any) -> None:
+            buffer = event.current_buffer
+            state = buffer.complete_state
+            if state:
+                step = -1 if event.key_sequence[-1].key == "up" else 1
+                index = (state.complete_index or 0) + step
+                state.go_to_index(max(0, min(len(state.completions) - 1, index)))
+                buffer.on_completions_changed.fire()
+
+        @kb.add("tab", filter=has_candidates)
+        def _tab(event: Any) -> None:
+            buffer = event.current_buffer
+            state = buffer.complete_state
+            if state:
+                index = state.complete_index or 0
+                if buffer.document != state.original_document:
+                    index = (index + 1) % len(state.completions)
+                self._selecting = True
+                try:
+                    buffer.go_to_completion(index)
+                finally:
+                    self._selecting = False
 
         @kb.add("escape", eager=True)
         def _esc(event: Any) -> None:
@@ -102,28 +208,41 @@ class Terminal:
             message=self.message,
             history=FileHistory(str(kaipi_dir(s.cwd) / "history")),
             bottom_toolbar=self.toolbar,
-            completer=SlashCompleter(s),
-            complete_while_typing=True,
+            completer=self.completer,
+            complete_while_typing=False,
             reserve_space_for_menu=0,  # one line at rest; the menu makes room when it opens
             key_bindings=kb,
             # the bar carries its own colours; the default reverse video would fight them
             style=Style.from_dict({"bottom-toolbar": "noreverse"}),
-            refresh_interval=0.5,
+            refresh_interval=0,  # a timer is needed only while a turn runs
             # the prompt erases itself on Enter and kaipi echoes the line once, cleanly,
             # so the scrollback reads input / output / input rather than stale prompts
             erase_when_done=True,
         )
+        self.session.default_buffer.on_text_changed += self.refresh_completions
+        self.session.default_buffer.on_cursor_position_changed += self.refresh_completions
 
-    @staticmethod
-    def columns() -> int:
+    def refresh_completions(self, buffer: Buffer) -> None:
+        if self._selecting:
+            return
+        candidates = (
+            list(self.completer.get_completions(buffer.document, CompleteEvent()))
+            if buffer.cursor_position == len(buffer.text)
+            else []
+        )
+        buffer.complete_state = (
+            CompletionState(buffer.document, candidates, complete_index=0) if candidates else None
+        )
+        buffer.on_completions_changed.fire()
+
+    def columns(self) -> int:
         try:
-            return int(get_app().output.get_size().columns)
+            return int(self.session.output.get_size().columns)
         except Exception:  # noqa: BLE001 - no running app: a sane default
             return 80
 
-    @classmethod
-    def rule(cls) -> str:
-        return f"{cli.DIM}{'─' * cls.columns()}{cli.RESET}"
+    def rule(self) -> str:
+        return f"{cli.DIM}{'─' * self.columns()}{cli.RESET}"
 
     def label(self) -> str:
         return f"{self.s.name(self.s.leaf)}> "
@@ -135,11 +254,65 @@ class Terminal:
         if self.running and self.done.is_set():
             # the turn finished while the busy prompt was up: hand control back
             get_app().exit(result="")
-        head = f"{BUSY}  " if self.running else ""
-        return ANSI(f"{self.rule()}\n{head}{self.s.status(self.columns())}")
+        now, width = time.monotonic(), self.columns()
+        # The ledger folds are much slower than drawing a frame. Keep their refresh
+        # separate from the animation, and always refresh after a turn or resize.
+        if not self.running or now - self._bar_at >= 0.5 or width != self._bar_width:
+            self._bar = self.s.status(width)
+            self._bar_at, self._bar_width = now, width
+        if not self.running:
+            return ANSI(f"{self.rule()}\n{self._bar}")
+        elapsed = max(0.0, now - self.started_at)
+        head = (elapsed * 8) % 12
+        track = ""
+        for i in range(12):
+            distance = (head - i) % 12
+            if distance > 6:
+                distance -= 12
+            glow = max(0.0, 1 - distance / 4 if distance >= 0 else 1 + distance)
+            r, g, b = int(45 + 100 * glow), int(65 + 180 * glow), int(75 + 180 * glow)
+            track += f"\033[38;2;{r};{g};{b}m•{cli.RESET}"
+        phase = "正在停止" if self.stop.is_set() else self.phase
+        sweep = (elapsed * 7) % (len(phase) + 6) - 3
+        shimmer = ""
+        for i, char in enumerate(phase):
+            glow = max(0.0, 1 - abs(i - sweep) / 3)
+            r, g, b = int(125 + 110 * glow), int(145 + 110 * glow), int(155 + 100 * glow)
+            shimmer += f"\033[38;2;{r};{g};{b}m{char}{cli.RESET}"
+        activity = f"{track}  {shimmer} · {elapsed:.0f}s · Esc 停止"
+        return ANSI(f"{self.rule()}\n{activity}\n{self._bar}")
+
+    def hook(self, kind: str, text: str) -> None:
+        if kind == "phase":
+            self.phase = text
+        else:
+            self.phase = {
+                "cmd": "执行命令",
+                "out": "处理命令结果",
+                "wait": "等待重试",
+                "text": "整理回答",
+                "ledger": "整理结果",
+            }.get(kind, self.phase)
+            cli.print_hook(kind, text)
 
     def echo(self, line: str) -> None:
-        print(f"{cli.BOLD}{self.label()}{cli.RESET}{line}")
+        if line.startswith("/") and line.split()[0] != "/explore":
+            print(f"{cli.BOLD}{self.label()}{cli.RESET}{line}")
+            return
+        width = max(1, self.columns() - 1)
+        rows: list[str] = []
+        row, used = "", 0
+        for char in (f"  {self.label()}{line}  ").expandtabs(4):
+            size = get_cwidth(char)
+            if char == "\n" or used + size > width:
+                rows.append(row + " " * (width - used))
+                row, used = "", 0
+            if char != "\n" and size <= width:
+                row += char
+                used += size
+        rows.append(row + " " * (width - used))
+        panel = "\n".join([" " * width, *rows, " " * width])
+        print_formatted_text([("", "\n"), ("bg:#30343b fg:#f3f4f6", panel), ("", "\n")])
 
     def prompt(self) -> str:
         with patch_stdout(raw=True):
@@ -156,7 +329,9 @@ class Terminal:
 
         def work() -> None:
             try:
-                outcome["ok"] = cli.run_input(self.s, text, explore=explore, stop=self.stop)
+                outcome["ok"] = cli.run_input(
+                    self.s, text, hook=self.hook, explore=explore, stop=self.stop
+                )
             except BaseException as e:  # noqa: BLE001 - re-raised on the main thread
                 outcome["err"] = e
             finally:
@@ -165,6 +340,10 @@ class Terminal:
         self.stop.clear()
         self.done.clear()
         self.running = True
+        self.phase = "准备中"
+        self.started_at = time.monotonic()
+        self._bar_at = 0.0
+        self.session.refresh_interval = 1 / FPS
         started = False
 
         def start() -> None:
@@ -182,6 +361,7 @@ class Terminal:
                         print(f"{cli.DIM}已排队，这一轮结束后执行：{line}{cli.RESET}")
         finally:
             self.running = False
+            self.session.refresh_interval = 0
         if "err" in outcome:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
