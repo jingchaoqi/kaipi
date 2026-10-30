@@ -335,37 +335,36 @@ class Session:
 # that have to ask something (a picker, a y/n) live with the terminal, not here.
 
 
-def tree_rows(s: Session) -> list[tuple[str, str]]:
-    """Node ids and their tree lines, shared by /tree and the rewind picker."""
+def tree_rows(
+    s: Session, *, compact: bool = False, live_only: bool = False
+) -> list[tuple[str, str]]:
+    """Tree order and connectors shared by static output and interactive navigation."""
     st = s.log.state
     _, RED, DIM, _, RESET = s.palette()
-    t = graph.trunk(st)
-    trunk_ids = {n.id for n in graph.lineage(st, t)} if t else set()
+    trunk = graph.trunk(st)
+    trunk_ids = {n.id for n in graph.lineage(st, trunk)} if trunk else set()
     out: list[tuple[str, str]] = []
 
-    def walk(parent: str | None, indent: str) -> None:
-        for n in graph.children(st, parent, live_only=False):
-            mark = "*" if n.id in trunk_ids else " "
-            here = ">" if n.id == s.leaf else " "
+    def walk(parent: str | None, prefix: str) -> None:
+        children = graph.children(st, parent, live_only=live_only)
+        for i, n in enumerate(children):
+            last = i == len(children) - 1
+            branch = "└─ " if last else "├─ "
             status = {
                 "archived": " [已归档]",
                 "tombstone": " [tombstone]",
                 "aborted": f" {RED}[已废弃 · 不进上下文]{RESET}",
             }.get(n.status, "")
-            own = ledger.fmt(ledger.own_tokens(st, n.id))
-            cost = s.pricing.price(n.model).cost(n.usage)
-            label = context.user_input(n)[:44]
-            # A graft leaves no node of its own: it is a prefix of the node it was staged
-            # for, so the tree says which conclusions that node carries.
-            graft = (
-                f" {DIM}⟵{','.join(s.name(g.src_id) for g in n.grafts)}{RESET}" if n.grafts else ""
-            )
-            line = (
-                f"{here}{mark} {indent}{s.name(n.id)} {DIM}{own:>7} ${cost:<7.4f}{RESET} "
-                f"{label}{graft}{status}"
-            )
+            tags = (" · 当前" if n.id == s.leaf else "") + (" · 主线" if n.id in trunk_ids else "")
+            label = " ".join(context.user_input(n).split())[:64]
+            line = f"{prefix}{branch}{s.name(n.id)}{tags}  {label}{status}"
+            if not compact:
+                own = ledger.fmt(ledger.own_tokens(st, n.id))
+                cost = s.pricing.price(n.model).cost(n.usage)
+                graft = f"  ⟵{','.join(s.name(g.src_id) for g in n.grafts)}" if n.grafts else ""
+                line += f" {DIM}{own} tokens ${cost:.4f}{graft}{RESET}"
             out.append((n.id, line if n.status == "live" else f"{DIM}{line}{RESET}"))
-            walk(n.id, indent + "  ")
+            walk(n.id, prefix + ("   " if last else "│  "))
 
     walk(None, "")
     return out
@@ -377,7 +376,7 @@ def cmd_tree(s: Session) -> list[str]:
     if s.pending:  # staged but not used yet: no node carries them until the next input
         staged = "  ".join(f"{s.name(e.src_id)}({e.depth})" for e in s.pending)
         out.append(f"{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}")
-    out.append(f"{DIM}* trunk  > current  ⟵嫁接  |  {s.burden_line()}{RESET}")
+    out.append(f"{DIM}主线 · 当前  ⟵嫁接  |  {s.burden_line()}{RESET}")
     return out
 
 
@@ -931,10 +930,10 @@ def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
 # (name, arguments, what it does): the one list behind /help, the start-up line and the
 # slash completion in the terminal. Order is the order they are shown in.
 COMMANDS: list[tuple[str, str, str]] = [
-    ("tree", "", "会话树：主干、光标、每个节点的 token 和花费"),
+    ("tree", "", "会话树导航：方向键选择节点，回车从此继续"),
     ("raw", "", "原样打印下一轮要发给模型的全部内容，含嫁接块；不发送、不花钱"),
     ("explore", "<你的问题>", "从当前位置岔出去问一句，主干钉在原地不动"),
-    ("go", "<节点id>", "把光标移到某个节点，下一句从那里长出分支"),
+    ("go", "[节点id]", "跳转到节点；不带参数打开会话树导航"),
     (
         "graft",
         "<节点id> [--depth leaf|leaf+summary|branch] [--with-tool <id>...]",
@@ -1037,7 +1036,7 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
     name, args = argv[0], argv[1:]
     if name in NODE_ARG and not args:
         usage = next(a for n, a, _ in COMMANDS if n == name)
-        # Interactive /rewind handles its picker before calling this shared verb.
+        # Interactive commands handle their picker before this shared verb.
         # Other surfaces still need an explicit node.
         usage = usage.replace("[节点id]", "<节点id>", 1)
         raise typer.BadParameter(f"用法：/{name} {usage}")
@@ -1096,6 +1095,19 @@ def slash(s: Session, argv: list[str]) -> bool:
             picked = pick_session(s)
             if picked:
                 say(cmd_resume(s, picked))
+        case "tree" | "go" if not args:
+            if sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("KAIPI_PLAIN"):
+                from kaipi.tui import pick_node
+
+                ref = pick_node(s)
+                if ref:
+                    say(cmd_go(s, ref))
+            else:
+                say(cmd_tree(s))
+                if name == "go" and s.log.state.nodes:
+                    ref = typer.prompt("目标节点（回车取消）", default="", show_default=False)
+                    if ref:
+                        say(cmd_go(s, ref))
         case "rewind" if len(args) <= 1:
             if args:
                 ref = args[0]

@@ -21,21 +21,24 @@ from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.application import Application, get_app, run_in_terminal
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Always, Condition
-from prompt_toolkit.formatted_text import ANSI, FormattedText
+from prompt_toolkit.formatted_text import ANSI, FormattedText, to_formatted_text
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import FloatContainer, HSplit, Layout, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from prompt_toolkit.widgets import Label, RadioList
+from prompt_toolkit.widgets import Label
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, cli, context
+from kaipi import agent, cli, context, graph, ledger
 from kaipi.store import kaipi_dir
 
 FPS = 60
@@ -60,8 +63,9 @@ def markdown(text: str, width: int, *, color: bool = True, indent: int = 0) -> s
     return stream.getvalue()
 
 
-def short_line(text: str, width: int) -> str:
-    text = " ".join(text.split())
+def short_line(text: str, width: int, *, collapse: bool = True) -> str:
+    if collapse:
+        text = " ".join(text.split())
     text = "".join(c for c in text if c.isprintable())
     if get_cwidth(text) <= width:
         return text
@@ -87,48 +91,118 @@ def command_summary(command: str) -> str:
     return "执行命令"
 
 
-def pick_rewind(s: cli.Session) -> str | None:
-    rows = cli.tree_rows(s)
+def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
+    """Browse the same tree for /tree, /go and /rewind; only Enter commits a choice."""
+    rows = cli.tree_rows(s, compact=True, live_only=not rewind)
     if not rows:
+        print("还没有可选择的节点")
         return None
-    nodes = RadioList(
-        values=[(nid, ANSI(line)) for nid, line in rows],
-        default=s.leaf,
-        select_on_focus=True,
-        show_cursor=False,
-    )
-    # RadioList's default checks a value but leaves the keyboard cursor on row 0.
-    nodes._selected_index = next((i for i, (nid, _) in enumerate(rows) if nid == s.leaf), 0)
+    st = s.log.state
+    ids = [nid for nid, _ in rows]
+    index = ids.index(s.leaf) if s.leaf in ids else len(ids) - 1
+    trunk = graph.trunk(st)
+    trunk_ids = {n.id for n in graph.lineage(st, trunk)} if trunk else set()
+    remembered: dict[str, str] = {}
     kb = KeyBindings()
 
+    def select(nid: str) -> None:
+        nonlocal index
+        if nid in ids:
+            index = ids.index(nid)
+
+    @kb.add("up")
+    @kb.add("down")
+    def vertical(event: Any) -> None:
+        nonlocal index
+        step = -1 if event.key_sequence[-1].key == "up" else 1
+        index = max(0, min(len(rows) - 1, index + step))
+
+    @kb.add("left")
+    def parent(event: Any) -> None:
+        nid = ids[index]
+        pid = st.nodes[nid].parent_id
+        if pid in ids:
+            remembered[pid] = nid
+            select(pid)
+
+    @kb.add("right")
+    def child(event: Any) -> None:
+        nid = ids[index]
+        children = [n for n in graph.children(st, nid, live_only=False) if n.id in ids]
+        if children:
+            target = remembered.get(nid) or next(
+                (n.id for n in children if n.id in trunk_ids), children[-1].id
+            )
+            select(target)
+
     @kb.add("enter", eager=True)
-    def _accept(event: Any) -> None:
-        event.app.exit(result=rows[nodes._selected_index][0])
+    def accept(event: Any) -> None:
+        event.app.exit(result=ids[index])
 
     @kb.add("escape", eager=True)
     @kb.add("c-c")
     @kb.add("c-d")
-    def _cancel(event: Any) -> None:
+    def cancel(event: Any) -> None:
         event.app.exit(result=None)
 
-    # Widget bindings take precedence over Application bindings. Attach these last
-    # on the focused control so Enter submits instead of merely checking a radio.
-    nodes.control.key_bindings = merge_key_bindings(
-        [nodes.control.key_bindings or KeyBindings(), kb]
+    def content() -> FormattedText:
+        width = max(1, get_app().output.get_size().columns - 1)
+        fragments = []
+        for i, (_, line) in enumerate(rows):
+            text = short_line(
+                "".join(t for _, t, *_ in to_formatted_text(ANSI(line))),
+                max(1, width - 2),
+                collapse=False,
+            )
+            fragments.append(("", ("▸ " if i == index else "  ") + text))
+            if i < len(rows) - 1:
+                fragments.append(("", "\n"))
+        return FormattedText(fragments)
+
+    def details() -> str:
+        n = st.nodes[ids[index]]
+        width = max(1, get_app().output.get_size().columns - 1)
+        own = ledger.fmt(ledger.own_tokens(st, n.id))
+        cost = s.pricing.price(n.model).cost(n.usage)
+        grafts = ", ".join(s.name(g.src_id) for g in n.grafts) or "无"
+        role = "主线" if n.id == trunk else "探索分支：下一句从此分叉"
+        action = "选择后预览文件并确认回退方式" if rewind else role
+        return "\n".join(
+            short_line(line, width)
+            for line in [
+                f"{s.name(n.id)} · {context.user_input(n)}",
+                f"{own} tokens · ${cost:.4f} · 嫁接：{grafts}",
+                action,
+            ]
+        )
+
+    control = FormattedTextControl(
+        content,
+        focusable=True,
+        key_bindings=kb,
+        get_cursor_position=lambda: Point(x=0, y=index),
+        show_cursor=False,
     )
     app: Application[str | None] = Application(
         layout=Layout(
             HSplit(
                 [
-                    Label("回退到哪个节点？  ↑/↓ 切换 · Enter 选择 · Esc 取消"),
-                    nodes,
-                    Label("* 主干  > 当前节点；选择后预览文件，再确认回退方式"),
+                    Label("回退到节点" if rewind else "会话树 · 选择继续的位置"),
+                    Window(
+                        control, height=Dimension(max=10), dont_extend_height=True, cursorline=True
+                    ),
+                    Window(height=1),
+                    Label(details),
+                    Label(
+                        "↑↓ 浏览 · ←父节点 →子节点 · Enter "
+                        + ("选择" if rewind else "从此继续")
+                        + " · Esc 取消"
+                    ),
                 ]
             ),
-            focused_element=nodes,
+            focused_element=control,
         ),
-        key_bindings=kb,
-        style=Style.from_dict({"radio-selected": "bg:#30343b bold"}),
+        style=Style.from_dict({"cursor-line": "bg:#30343b fg:#f3f4f6"}),
         full_screen=False,
         erase_when_done=True,
     )
@@ -136,6 +210,10 @@ def pick_rewind(s: cli.Session) -> str | None:
         return app.run()
     except (EOFError, KeyboardInterrupt):
         return None
+
+
+def pick_rewind(s: cli.Session) -> str | None:
+    return pick_node(s, rewind=True)
 
 
 class SlashCompleter(Completer):
@@ -150,11 +228,16 @@ class SlashCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         text = document.text_before_cursor
-        if not text.startswith("/") or len(text) < 2 or not text[1].isalpha():
+        if not text.startswith("/") or (len(text) > 1 and not text[1].isalpha()):
             return
         head, _, rest = text[1:].partition(" ")
         if not _:  # still typing the command itself
-            for name, args, what in cli.COMMANDS:
+            commands = (
+                sorted(cli.COMMANDS, key=lambda command: command[0] != "help")
+                if text == "/"
+                else cli.COMMANDS
+            )
+            for name, args, what in commands:
                 if name.startswith(head):
                     yield Completion(
                         f"/{name} " if args else f"/{name}",
@@ -215,14 +298,13 @@ class Terminal:
             buffer = event.current_buffer
             state = buffer.complete_state
             if state and state.current_completion:
-                # Selecting a command submits it; arguments still require an explicit
-                # Tab. Arrow navigation itself leaves the user's prefix untouched.
-                if not any(c.isspace() for c in state.original_document.text):
-                    self._selecting = True
-                    try:
-                        buffer.apply_completion(state.current_completion)
-                    finally:
-                        self._selecting = False
+                # Enter accepts the highlighted command or argument before submitting.
+                # Arrow navigation itself leaves the user's prefix untouched.
+                self._selecting = True
+                try:
+                    buffer.apply_completion(state.current_completion)
+                finally:
+                    self._selecting = False
             buffer.validate_and_handle()
 
         has_candidates = Condition(lambda: self.session.default_buffer.complete_state is not None)

@@ -191,12 +191,17 @@ gestures for them — drag a node onto the input to graft, onto the tray to arch
 
 In the terminal's completion menu, Enter submits the selected slash command, or the
 first matching command when none is selected (so `/tr` submits `/tree`). An exact
-command is kept as typed; arguments are never filled implicitly. Tab still completes
+command is kept as typed. After a node-taking command and a space, Enter accepts
+the highlighted node argument and submits the complete command; Up/Down selects
+another node without requiring Tab. Session arguments use the same behavior. Tab still completes
 without submitting, and the arrow keys let the user choose another candidate.
 The first match is highlighted by default; Down selects the second, then the third,
 and Up moves back. Arrow navigation keeps the typed prefix unchanged. Completion is
 recomputed after every edit, including Backspace and deletion. A bare `/` offers
-nothing and submits no command; matching starts with the first letter after it.
+all slash commands with Help first and highlighted. Enter submits `/help`; Up/Down
+selects another command before Enter submits it. Once a prefix is entered, the
+existing command order and prefix matching apply. Deleting back to `/` restores
+the full menu with Help selected.
 
 During a terminal turn, a comet and a text shimmer animate at a target 60 FPS in a
 dedicated activity row. Its phase follows transient hooks (waiting for the model,
@@ -242,12 +247,24 @@ width minus one; styling resets before the answer, and content still truncates a
 The per-turn usage summary has one blank line above and below it, separating the
 answer from the summary and the next input area's rule.
 
-`/rewind` with no node opens a keyboard picker using the same tree rows as `/tree`.
-It starts on the current node; Up/Down moves the selection, Enter picks the target,
-and Esc or Ctrl-C cancels without changing the session or files. Selection is followed
-by the existing file preview and rewind-mode prompt. Explicit node arguments still
-work. Plain terminals print the tree and ask for a node instead. An empty session has
-no rewind target.
+On a TTY, `/tree` and `/go` without arguments open one shared node navigator.
+Tree connectors, node numbers, questions, current position and trunk labels are the
+primary rows. Token counts, cost, graft references and a question preview are shown
+for the highlighted node below the tree. Only live nodes are offered for jumping;
+archived and aborted nodes remain visible in static `kaipi tree` output.
+Up/Down follows tree row order; Left selects the parent; Right selects the remembered
+child, otherwise a trunk child, otherwise the newest child. Navigation clamps at
+boundaries and changes no session state. Enter applies the existing `go` operation,
+Esc/Ctrl-C cancels. The initial selection is the current node, kept visible in a
+scrolling viewport of at most ten rows. Historical destinations are labelled as
+explorations; choosing one moves the conversation cursor, leaving files as they are.
+`kaipi tree` and the Canvas tree API remain static. In plain terminal mode `/tree`
+prints the tree and `/go` without arguments prints it and asks for a target.
+
+`/rewind` uses the same navigator, including non-live nodes for code-only rewinds.
+Enter selects a target followed by the existing file preview and rewind-mode prompt;
+it does not jump immediately. Explicit arguments still work. Plain terminals print
+the tree and ask for a node instead. An empty session has no selectable target.
 
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
 same directory while a surface is open.

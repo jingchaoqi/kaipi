@@ -10,7 +10,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from kaipi import cli, ledger
+from kaipi import cli, graph, ledger
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 
@@ -150,9 +150,11 @@ def test_rewind_slash_prompt(repo: Path) -> None:
     out = r.invoke(cli.app, ["-c"], input=f"/rewind {root[-6:]}\nconversation\n/quit\n")
     assert out.exit_code == 0, out.output
     assert "files a code rewind to N1 would restore: (none)" in out.output
-    out = r.invoke(cli.app, ["-c"], input="/go\n/tree\n/quit\n")  # a missing id is a usage hint
+    out = r.invoke(
+        cli.app, ["-c"], input="/go\n\n/tree\n/quit\n"
+    )  # cancel the plain-mode node prompt
     assert (
-        out.exit_code == 0 and "用法：/go <节点id>" in out.output and "trunk burden" in out.output
+        out.exit_code == 0 and "目标节点（回车取消）" in out.output and "trunk burden" in out.output
     )
     assert cli.Session(repo).leaf == root
     out = r.invoke(cli.app, ["rewind", root[-6:], "--mode", "code"])
@@ -189,6 +191,106 @@ def test_rewind_picker_uses_tree_order_and_cancels_without_changes(
     assert (s.name(picked) if picked else None) == target
     assert s.leaf == leaf and s.log.path.read_text() == before
     assert [line for _, line in cli.tree_rows(s)] == cli.cmd_tree(s)[:-1]
+
+
+@pytest.mark.parametrize(
+    ("keys", "target"),
+    [
+        ("\r", "N3"),
+        ("\x1b[A\r", "N2"),
+        ("\x1b[D\r", "N1"),
+        ("\x1b[D\x1b[C\r", "N3"),  # return to the child just left
+        ("\x1b[A\x1b[A\x1b[C\r", "N2"),  # prefer the trunk child
+        ("\x1b[B\x1b[C\r", "N3"),  # end/leaf boundaries do not wrap
+        ("\x1b[A\x1b[A\x1b[A\x1b[D\r", "N1"),
+        ("\x1b[D\x1b", None),
+    ],
+)
+def test_tree_navigator_directions_and_cancel(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, keys: str, target: str | None
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/go N1\nside\n/quit\n")
+    s = cli.Session(repo)
+    before = s.log.path.read_text()
+    leaf = s.leaf
+    monkeypatch.setenv("TERM", "xterm-256color")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        pipe.send_text(keys)
+        picked = tui.pick_node(s)
+    assert (s.name(picked) if picked else None) == target
+    assert s.leaf == leaf and s.log.path.read_text() == before
+    compact = "\n".join(line for _, line in cli.tree_rows(s, compact=True))
+    assert "├─" in compact and "└─" in compact
+    assert "当前" in compact and "主线" in compact
+    assert "$" not in compact and "tokens" not in compact
+
+
+@pytest.mark.parametrize("command", ["tree", "go"])
+def test_tree_and_go_share_navigator(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/quit\n")
+    s = cli.Session(repo)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("KAIPI_PLAIN", raising=False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        pipe.send_text("\x1b[D\r")
+        assert cli.slash(s, [command])
+    assert s.name(s.leaf) == "N1"
+    assert s.name(graph.trunk(s.log.state)) == "N2", "jumping preserves the trunk"
+
+
+def test_tree_navigator_scrolls_to_current_node(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from prompt_toolkit.application import Application, create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    CliRunner().invoke(cli.app, ["-c"], input="question\n" * 18 + "/quit\n")
+    session = cli.Session(repo)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    original_run = Application.run
+    visible: list[list[int]] = []
+
+    def run(app: Application[str | None]) -> str | None:
+        def rendered(app: Application[str | None]) -> None:
+            info = app.layout.current_window.render_info
+            if info:
+                visible.append(info.displayed_lines)
+
+        app.after_render += rendered
+        return original_run(app)
+
+    monkeypatch.setattr(Application, "run", run)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        pipe.send_text("\r")
+        assert tui.pick_node(session) == session.leaf
+    assert visible and 17 in visible[0]
+    assert all(len(lines) <= 10 for lines in visible)
+
+
+def test_navigator_filters_archived_nodes_but_static_tree_keeps_them(repo: Path) -> None:
+    CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/go N1\nside\n/quit\n")
+    s = cli.Session(repo)
+    cli.cmd_archive(s, "N2")
+    live = [s.name(nid) for nid, _ in cli.tree_rows(s, compact=True, live_only=True)]
+    assert live == ["N1", "N3"]
+    assert "N2" in "\n".join(cli.cmd_tree(s))
 
 
 def test_rewind_without_id_selects_then_rewinds(
@@ -422,7 +524,9 @@ def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
         ]
 
     assert offers("hello") == []
-    assert offers("/") == []
+    all_names = [d.split()[0] for d, _ in offers("/")]
+    assert all_names == ["/help"] + [f"/{n}" for n, _, _ in cli.COMMANDS if n != "help"]
+    assert offers("//") == [] and offers("/ ") == []
     names = [d.split()[0] for d, _ in offers("/r")]
     assert names == [f"/{n}" for n, _, _ in cli.COMMANDS if n.startswith("r")]
     assert offers("/gr")[0][0].startswith("/graft <节点id>")
@@ -445,12 +549,17 @@ def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
         ("/trx\x7f\r", "/tree"),
         ("/trx\x7f\x1b[B\r", "/trunk"),
         ("/re\x7f\x1b[B\r", "/restore"),
-        ("/trx\x7f\x7f\x7f\r", "/"),
+        ("/trx\x7f\x7f\x7f\r", "/help"),
         ("/go\r", "/go"),
         ("/go N\r", "/go N"),
         ("/gr\r", "/graft"),
         ("/exit\r", "/exit"),
-        ("/\r", "/"),
+        ("/\r", "/help"),
+        ("/\x1b[B\r", "/tree"),
+        ("/\x1b[B\x1b[B\r", "/raw"),
+        ("/\x1b[B\x1b[A\r", "/help"),
+        ("/\t\r", "/help"),
+        ("/trx\x7f\x7f\x7f\x1b[B\r", "/tree"),
         ("/nope\r", "/nope"),
         ("hello\r", "hello"),
     ],
@@ -477,7 +586,10 @@ def test_enter_submits_slash_candidate(
                     pipe.send_text(key)
                     await asyncio.sleep(0.02)
                     if terminal.session.default_buffer.text == "/":
-                        assert terminal.session.default_buffer.complete_state is None
+                        state = terminal.session.default_buffer.complete_state
+                        assert state and state.current_completion
+                        if key in ("/", "\x7f"):
+                            assert state.current_completion.text == "/help"
 
             typing = asyncio.create_task(type_keys())
             result = await terminal.session.prompt_async()
@@ -485,6 +597,53 @@ def test_enter_submits_slash_candidate(
             return result.strip()
 
         assert asyncio.run(submit()) == expected
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [
+        ("/go \r", "/go N2"),
+        ("/go \x1b[B\r", "/go N1"),
+        ("/go \x1b[B\x1b[A\r", "/go N2"),
+        ("/go N\x1b[B\r", "/go N1"),
+        ("/go N1\r", "/go N1"),
+        ("/go \t\x1b[B\r", "/go N1"),
+        ("/go Nx\x7f\r", "/go N2"),
+    ],
+)
+def test_enter_accepts_node_candidate_and_goes_to_selected_node(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, keys: str, expected: str
+) -> None:
+    import asyncio
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    CliRunner().invoke(cli.app, ["-c"], input="first question\nsecond question\n/quit\n")
+    session = cli.Session(repo)
+    assert len(session.log.state.nodes) == 2
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(session)
+
+        async def submit() -> str:
+            async def type_keys() -> None:
+                for key in re.findall(r"\x1b\[[AB]|.", keys):
+                    pipe.send_text(key)
+                    await asyncio.sleep(0.02)
+
+            typing = asyncio.create_task(type_keys())
+            result = await terminal.session.prompt_async()
+            await typing
+            return result.strip()
+
+        command = asyncio.run(submit())
+        assert command == expected
+        assert cli.slash(session, command[1:].split())
+        assert session.name(session.leaf) == expected.split()[1]
 
 
 @pytest.mark.parametrize(
