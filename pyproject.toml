@@ -1,6 +1,6 @@
 [project]
 name = "kaipi"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tiny, token-frugal coding agent that organises exploration as a DAG."
 requires-python = ">=3.11"
 license = "MIT"
