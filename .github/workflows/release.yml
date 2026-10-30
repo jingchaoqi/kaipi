@@ -1,0 +1,44 @@
+name: 发布 Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PYCODE'
+          import os, tomllib
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          assert os.environ["RELEASE_TAG"] == f"v{version}"
+          PYCODE
+      - run: uv build
+      - name: Verify clean install
+        run: |
+          uv venv /tmp/release-clean
+          VIRTUAL_ENV=/tmp/release-clean uv pip install dist/*.whl
+          /tmp/release-clean/bin/kaipi --help
+          /tmp/release-clean/bin/python - <<'PYCODE'
+          from importlib.metadata import version
+          from importlib.resources import files
+          import os
+          assert "v" + version("kaipi") == os.environ["GITHUB_REF_NAME"]
+          for name in ("canvas.html", "pricing.toml"):
+              assert (files("kaipi") / name).is_file(), name
+          PYCODE
+      - name: Publish packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          gh release create "$RELEASE_TAG" *.whl *.tar.gz SHA256SUMS --verify-tag --title "kaipi $RELEASE_TAG" --notes-file ../.github/RELEASE_NOTES.md --latest
