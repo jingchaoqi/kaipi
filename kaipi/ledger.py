@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from kaipi import context, graph
 from kaipi.model import Depth, ReferenceEdge, Usage
+from kaipi.providers import BUILTIN
 from kaipi.store import State
 
 PACKAGED_PRICING = Path(__file__).resolve().parent / "pricing.toml"
@@ -82,10 +83,16 @@ class Pricing(BaseModel):
     def find(self, spec: str) -> Price | None:
         """A spec is a model id listed here, or `<provider>/<model id>`. Prices belong to the
         model, not to the endpoint: `kimi-anthropic/kimi-k2.6` costs what `kimi-k2.6` costs,
-        but is routed to the provider the user named, never to the one the price row names."""
+        but is routed to the provider the user named, never to the one the price row names.
+        Explicit catalog-scoped prices win over bare model rows (e.g. subscription plans)."""
         if spec in self.models:
             return self.models[spec]
         name, _, model = spec.partition("/")
+        preset = BUILTIN.get(name)
+        if model and preset and preset.model_catalog:
+            shared = self.models.get(f"{preset.model_catalog}/{model}")
+            if shared is not None:
+                return shared.model_copy(update={"provider": name})
         if model and model in self.models:
             return self.models[model].model_copy(update={"provider": name})
         return None

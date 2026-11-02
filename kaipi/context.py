@@ -5,6 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from kaipi import graph
+from kaipi.attachments import TAG as ATTACHMENT_TAG
+from kaipi.attachments import Input
 from kaipi.model import GraftBlock, Message, Node, ReferenceEdge, blocks, text_of, texts
 from kaipi.store import State
 
@@ -38,10 +40,12 @@ class Context(BaseModel):
 
 
 def classify(text: str) -> str:
-    """What a user-role text block is: the human's input, a graft block, or the guard note.
+    """Classify user text as input, graft, guard notice, or an attachment snapshot.
     The tags are the only thing that distinguishes them, so only this function reads them."""
     if text.startswith(GRAFT_TAG):
         return "graft"
+    if text.startswith(ATTACHMENT_TAG):
+        return "attachment"
     return "guard" if text.startswith(GUARD_TAG) else "user"
 
 
@@ -49,10 +53,20 @@ def user_input(node: Node) -> str:
     for m in node.payload:
         if m["role"] != "user":
             continue
-        said = [t for t in texts(m["content"]) if classify(t) != "guard"]
+        said = [t for t in texts(m["content"]) if classify(t) not in ("guard", "attachment")]
         if said and classify(said[0]) == "user":
             return "\n".join(said)
     return ""
+
+
+def has_attachments(node: Node) -> bool:
+    return any(
+        block.get("type") in ("image", "document")
+        or (block.get("type") == "text" and classify(block["text"]) == "attachment")
+        for message in node.payload
+        if message["role"] == "user"
+        for block in blocks(message["content"])
+    )
 
 
 def final_answer(node: Node) -> str:
@@ -122,10 +136,12 @@ def graft_message(grafts: list[GraftBlock]) -> Message:
 
 
 def input_message(text: str, *, notice: str = "") -> Message:
-    blocks: list[dict[str, str]] = []
+    blocks: list[dict[str, object]] = []
     if notice:
         blocks.append({"type": "text", "text": notice})
-    blocks.append({"type": "text", "text": text})
+    blocks.append({"type": "text", "text": str(text)})
+    if isinstance(text, Input):
+        blocks.extend(text.blocks())
     return {"role": "user", "content": blocks}
 
 

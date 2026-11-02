@@ -591,7 +591,11 @@ def cmd_provider() -> None:
         default="" if saved_key else None,
         show_default=False,
     ).strip()
-    known = [m for m, pr in ledger.Pricing.load().models.items() if pr.provider == name]
+    known = [
+        m.removeprefix(f"{pr.provider}/")
+        for m, pr in ledger.Pricing.load().models.items()
+        if pr.provider in {name, cfg.model_catalog}
+    ]
     if known:
         typer.echo(f"{DIM}价格表里这个提供商的模型：{', '.join(known)}{RESET}")
     defaults = known or saved.get("models", [])
@@ -624,7 +628,7 @@ def cmd_model() -> None:
     typer.echo(f"{BOLD}选择模型{RESET}")
     for i, (who, m) in enumerate(pairs, 1):
         spec = f"{who}/{m}"
-        price = pricing.models.get(m)
+        price = pricing.find(spec)
         cost = f"in {price.input}/out {price.output} 每百万" if price else "不在价格表，账本按 0 记"
         typer.echo(
             f"  {i:>2}. {m:<26} {DIM}{who:<12} {cost}{RESET}"

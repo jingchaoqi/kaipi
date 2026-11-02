@@ -186,7 +186,9 @@
     <div id="composer">
       <div id="drop"><span class="hint">把画布上的节点拖到这里，嫁接到下一条输入</span></div>
       <div id="delta"></div>
-      <div id="row"><textarea id="input" placeholder="输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）"></textarea><button id="send" class="primary">发送</button></div>
+      <div id="attachments"></div>
+      <input id="file-input" type="file" multiple hidden>
+      <div id="row"><button id="add-file" title="添加图片、PDF 或文本文件">附件</button><textarea id="input" placeholder="输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）"></textarea><button id="send" class="primary">发送</button></div>
       <div id="where"><span>下一条输入将挂在 <b id="wherenode" class="mono">root</b> 之下</span><span id="whereex"></span><label id="explab" title="不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）"><input type="checkbox" id="explore"> 作为探索</label><span class="help" title="点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移">操作提示 ?</span></div>
     </div>
   </aside>
@@ -479,7 +481,7 @@ function renderTranscript() {
     const d = document.createElement('div'); d.className = 'turn' + (opened.has(n.id) ? ' open' : ''); d.dataset.id = n.id;
     d.innerHTML = `<div class="who"><span>${short(n.id)}</span>${T.has(n.id) ? '' : '<span class="exp">探索</span>'}<span>+${fmt(n.own)}</span>${n.grafts.length ? `<span style="color:var(--graft)">嫁接 ${n.grafts.map(short).join(' ')}</span>` : ''}${n.dropped ? `<span style="color:var(--red)">丢弃 thinking ×${n.dropped}</span>` : ''}</div>
       <div class="q">${esc(n.input)}</div><div class="a">${esc(n.answer)}</div>
-      ${n.tools.length || n.grafts.length ? `<div class="more">${n.tools.length ? `展开 ${n.tools.length} 条命令与完整记录` : '展开完整记录（含嫁接块）'}</div><div class="full"></div>` : ''}`;
+      ${n.tools.length || n.grafts.length || n.attachments ? `<div class="more">${n.tools.length ? `展开 ${n.tools.length} 条命令与完整记录` : (n.attachments ? '展开附件与完整记录' : '展开完整记录（含嫁接块）')}</div><div class="full"></div>` : ''}`;
     const more = d.querySelector('.more');
     if (more) more.onclick = async () => {
       opened.add(n.id); d.classList.add('open');
@@ -498,6 +500,9 @@ function renderTranscript() {
 const LINE_CLASS = { user: 'q', assistant: 'a', text: 'a' };
 const OUT_HEAD = 4;   // lines of a command's output shown before it is clicked
 function line(e) {
+  if (e.kind === 'image') return /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(e.text)
+    ? `<div class="ln"><img alt="图片附件" style="max-width:100%;max-height:280px" src="${esc(e.text)}"></div>` : '';
+  if (e.kind === 'attachment') return `<details class="ln"><summary>文件附件</summary><pre style="white-space:pre-wrap">${esc(e.text)}</pre></details>`;
   if (e.kind !== 'out') return `<div class="ln ${LINE_CLASS[e.kind] || e.kind}">${esc(e.text)}</div>`;
   const all = e.text.slice(0, 20000).replace(/\n+$/, '').split('\n');
   if (all.length <= OUT_HEAD) return `<div class="ln out open">${esc(all.join('\n'))}</div>`;
@@ -517,6 +522,58 @@ $('#transcript').addEventListener('click', e => {
 
 // ---------- composer & streaming ----------
 const input = $('#input');
+let attached = [], readingFiles = 0, sending = false;
+let attachmentSeq = {image: 0, file: 0};
+let attachmentReads = Promise.resolve();
+function renderAttachments() {
+  const box = $('#attachments'); box.replaceChildren();
+  attached.forEach((a, i) => {
+    const chip = document.createElement('span'); chip.className = 'chip';
+    const label = document.createElement('span'); label.className = 'lab'; label.textContent = a.marker; label.title = `${a.name} · ${a.summary}`;
+    const remove = document.createElement('button'); remove.textContent = '×'; remove.title = '移除附件';
+    remove.onclick = () => { attached.splice(i, 1); renderAttachments(); };
+    chip.append(label, remove); box.append(chip);
+  });
+}
+function addFiles(files) {
+  readingFiles++;
+  attachmentReads = attachmentReads.then(async () => {
+    try {
+      if (attached.length + files.length > 8) throw new Error('每条消息最多添加 8 个附件');
+      if (files.some(f => f.size > 20 * 1024 * 1024)) throw new Error('原文件单个最多 20 MiB');
+      const batch = await Promise.all(files.map(file => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('文件读取失败：' + file.name));
+        reader.onload = () => resolve({name: file.name, data: String(reader.result).split(',')[1]});
+        reader.readAsDataURL(file);
+      })));
+      if (attached.length + batch.length > 8 || [...attached, ...batch].reduce((n, a) => n + a.data.length * .75, 0) > 40 * 1024 * 1024)
+        throw new Error('每条消息最多 8 个附件、原文件总计 40 MiB');
+      const checked = await api.post('/api/attachments', {attachments: batch});
+      if (attached.length + batch.length > 8) throw new Error('每条消息最多 8 个附件');
+      batch.forEach((a, i) => {
+        a.summary = checked.attachments[i].summary;
+        const kind = checked.attachments[i].kind;
+        a.marker = `[${kind}${++attachmentSeq[kind]}]`;
+      });
+      attached.push(...batch); renderAttachments();
+    } catch (e) { toast(e.message); }
+    finally { readingFiles--; }
+  });
+  return attachmentReads;
+}
+input.addEventListener('paste', e => {
+  const files = Array.from(e.clipboardData?.files || []);
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+$('#composer').addEventListener('dragover', e => { if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); });
+$('#composer').addEventListener('drop', e => {
+  const files = Array.from(e.dataTransfer.files);
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+$('#add-file').onclick = () => $('#file-input').click();
+$('#file-input').onchange = e => { addFiles(Array.from(e.target.files)); e.target.value = ''; };
+
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (e.altKey) $('#explore').checked = true; send(); } });
 input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(200, input.scrollHeight) + 'px'; });
 $('#send').onclick = send;
@@ -524,12 +581,22 @@ $('#handoff').onclick = handoff;
 $('#revert').onclick = () => act('/api/reset', {}, '工作树已回滚');
 $('#pinhere').onclick = () => pin(S.leaf);
 async function send() {
-  const text = input.value.trim(); if (!text || S.busy) return;
-  input.value = ''; input.style.height = 'auto';
-  if (text.startsWith('/')) return command(text);
-  const explore = $('#explore').checked && !isExploration(); $('#explore').checked = false;
-  liveBlock(text, explore);
-  try { await api.post('/api/turn', { text, explore }); } catch (e) { toast(e.message); $('#transcript .live')?.remove(); }
+  if (readingFiles) return toast('附件正在读取，请稍候');
+  let text = input.value.trim(); if ((!text && !attached.length) || S.busy || sending) return;
+  if (text.startsWith('/') && attached.length) return toast('请将附件随普通问题发送，或勾选“作为探索”');
+  if (text.startsWith('/')) { input.value = ''; return command(text); }
+  const batch = attached.slice();
+  if (batch.length) text += (text ? '\n' : '请查看附件：') + batch.map(a => a.marker).join(' ');
+  const draft = input.value;
+  const explore = $('#explore').checked && !isExploration();
+  liveBlock(text, explore); sending = true;
+  try {
+    await api.post('/api/turn', { text, explore, attachments: batch.map(a => ({name: a.name, data: a.data})) });
+    if (input.value === draft) { input.value = ''; input.style.height = 'auto'; }
+    attached = attached.filter(a => !batch.includes(a)); renderAttachments(); $('#explore').checked = false;
+    if (!attached.length) attachmentSeq = {image: 0, file: 0};
+  } catch (e) { toast(e.message); $('#transcript .live')?.remove(); }
+  finally { sending = false; }
 }
 async function command(text) {
   const verb = text.split(/\s+/)[0];

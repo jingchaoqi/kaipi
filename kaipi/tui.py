@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from io import StringIO
 from queue import Empty, SimpleQueue
 from typing import Any
@@ -27,6 +27,7 @@ from prompt_toolkit.filters import Always, Condition
 from prompt_toolkit.formatted_text import ANSI, FormattedText, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import FloatContainer, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -38,7 +39,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, cli, context, graph, ledger
+from kaipi import agent, attachments, cli, context, graph, ledger
 from kaipi.store import kaipi_dir
 
 FPS = 60
@@ -291,11 +292,114 @@ class Terminal:
         self.done = threading.Event()
         self.completer = SlashCompleter(s)
         self._selecting = False
+        self.attachments: dict[str, attachments.Attachment] = {}
+        self._attachment_seq = {"image": 0, "file": 0}
+        self.notice = ""
+        self._pasting = False
+        self._submit_after_paste = False
+        paste_jobs: list[
+            tuple[Callable[[], tuple[list[attachments.Attachment], str]], str | None]
+        ] = []
         kb = KeyBindings()
+
+        def start_paste(
+            event: Any,
+            load: Callable[[], tuple[list[attachments.Attachment], str]],
+            replace: str | None = None,
+        ) -> None:
+            paste_jobs.append((load, replace))
+            if self._pasting:
+                return
+            self._pasting = True
+            self._cancel_paste = False
+            self.notice = "正在读取附件…"
+
+            async def read() -> None:
+                ok = True
+                failure = ""
+                try:
+                    while paste_jobs:
+                        job, original = paste_jobs.pop(0)
+                        try:
+                            items, text = await asyncio.to_thread(job)
+                            if self._cancel_paste:
+                                paste_jobs.clear()
+                                self.notice = "已取消添加附件"
+                                break
+                            if items:
+                                buffer = self.session.default_buffer
+                                if original is not None and buffer.text == original:
+                                    buffer.text = ""
+                                self.add_attachments(items)
+                            elif text:
+                                self.paste_text(text)
+                                if self.notice and not self.notice.endswith(
+                                    " · 回车发送 · 退格移除"
+                                ):
+                                    failure = self.notice
+                                    ok = False
+                            else:
+                                failure = "剪贴板为空"
+                                ok = False
+                        except (ValueError, OSError) as e:
+                            failure = str(e)
+                            ok = False
+                finally:
+                    if failure:
+                        self.notice = failure
+                    self._pasting = False
+                    submit, self._submit_after_paste = self._submit_after_paste, False
+                    event.app.invalidate()
+                if submit and ok:
+                    _enter(event)
+
+            event.app.create_background_task(read())
+
+        @kb.add(Keys.BracketedPaste)
+        def _paste(event: Any) -> None:
+            paths = attachments.pasted_paths(event.data)
+            if paths:
+                start_paste(event, lambda: ([attachments.Attachment.read(p) for p in paths], ""))
+            else:
+                self.paste_text(event.data)
+
+        @kb.add("c-v", eager=True)
+        def _clipboard(event: Any) -> None:
+            start_paste(event, attachments.clipboard)
+
+        @kb.add("backspace")
+        def _backspace(event: Any) -> None:
+            if self._pasting:
+                self._cancel_paste = True
+                return
+            buffer = event.current_buffer
+            marker = next(
+                (m for m in self.attachments if buffer.document.text_before_cursor.endswith(m)), ""
+            )
+            if marker:
+                buffer.delete_before_cursor(len(marker))
+                self.attachments.pop(marker)
+            else:
+                buffer.delete_before_cursor()
 
         @kb.add("enter")
         def _enter(event: Any) -> None:
+            if self._pasting:
+                self._submit_after_paste = True
+                return
             buffer = event.current_buffer
+            # Some terminal emulators insert dragged file paths without bracketed paste.
+            # An entire file selection still counts as an explicit attachment gesture.
+            if not any(marker in buffer.text for marker in self.attachments):
+                paths = attachments.pasted_paths(buffer.text)
+                if paths:
+                    start_paste(
+                        event,
+                        lambda: ([attachments.Attachment.read(p) for p in paths], ""),
+                        replace=buffer.text,
+                    )
+                    self._submit_after_paste = True
+                    return
             state = buffer.complete_state
             if state and state.current_completion:
                 # Enter accepts the highlighted command or argument before submitting.
@@ -305,6 +409,13 @@ class Terminal:
                     buffer.apply_completion(state.current_completion)
                 finally:
                     self._selecting = False
+            if (
+                any(marker in buffer.text for marker in self.attachments)
+                and buffer.text.startswith("/")
+                and not buffer.text.startswith("/explore ")
+            ):
+                self.notice = "附件请随问题发送；也可使用 /explore 问题"
+                return
             buffer.validate_and_handle()
 
         has_candidates = Condition(lambda: self.session.default_buffer.complete_state is not None)
@@ -373,6 +484,43 @@ class Terminal:
         self.session.layout.container = FloatContainer(HSplit([Window(), prompt_layout]), floats)
         self.session.default_buffer.on_text_changed += self.refresh_completions
         self.session.default_buffer.on_cursor_position_changed += self.refresh_completions
+
+    def add_attachments(self, items: list[attachments.Attachment]) -> None:
+        # Read/validate the whole batch first, so a bad file cannot leave a half-paste.
+        buffer = self.session.default_buffer
+        active = {m: a for m, a in self.attachments.items() if m in buffer.text}
+        attachments.validate([*active.values(), *items])
+        self.attachments = active
+        for item in items:
+            kind = item.kind
+            self._attachment_seq[kind] += 1
+            chip = f"[{kind}{self._attachment_seq[kind]}]"
+            self.attachments[chip] = item
+            buffer.insert_text(chip)
+        self.notice = items[-1].name + " · " + items[-1].summary + " · 回车发送 · 退格移除"
+
+    def paste_text(self, text: str) -> None:
+        self.notice = ""
+        try:
+            paths = attachments.pasted_paths(text)
+            if paths:
+                self.add_attachments([attachments.Attachment.read(path) for path in paths])
+            else:
+                self.session.default_buffer.insert_text(
+                    text.replace("\r\n", "\n").replace("\r", "\n")
+                )
+        except (ValueError, OSError) as e:
+            self.notice = str(e)
+
+    def collect_input(self, text: str) -> str:
+        markers = sorted((m for m in self.attachments if m in text), key=text.index)
+        items = [self.attachments[m] for m in markers]
+        if not text:
+            return text  # a turn may finish while the next draft is still being edited
+        self.attachments.clear()
+        self._attachment_seq = {"image": 0, "file": 0}
+        self.notice = ""
+        return attachments.Input(text, items) if items else text
 
     def refresh_completions(self, buffer: Buffer) -> None:
         if self._selecting:
@@ -453,7 +601,9 @@ class Terminal:
             paint(char, self._text_colors[min(i, len(self._text_colors) - 1)])
             for i, char in enumerate(phase)
         )
-        hint = "Esc 停止" if self.running else "等待输入"
+        hint = self.notice or ("Esc 停止" if self.running else "等待输入")
+        reserved = 14 + get_cwidth(phase + f" · {elapsed:.3f}s · ")
+        hint = short_line(hint, max(1, width - reserved - 1))
         tail = paint(f" · {elapsed:.3f}s · {hint}", (220, 229, 231))
         activity = f"{track}  {shimmer}{tail}"
         return ANSI(f"{self.rule()}\n{activity}\n{self._bar}")
@@ -574,7 +724,7 @@ class Terminal:
                 get_app().create_background_task(self.fade_out(get_app()))
 
         with patch_stdout(raw=True):
-            line = self.session.prompt(pre_run=start_fade).strip()
+            line = self.collect_input(self.session.prompt(pre_run=start_fade).strip())
         if line:
             self.echo(line)
         return line
@@ -666,7 +816,7 @@ class Terminal:
         try:
             with patch_stdout(raw=True):
                 while True:
-                    line = self.session.prompt(pre_run=start).strip()
+                    line = self.collect_input(self.session.prompt(pre_run=start).strip())
                     if line:
                         queued.append(line)
                     if self.done.is_set():
@@ -713,7 +863,10 @@ def loop(s: cli.Session) -> str:
                     s.save()
                     return "canvas"
                 if line.split()[0] == "/explore":
-                    pending = t.turn(line[len("/explore") :].strip(), explore=True) + pending
+                    question = line[len("/explore") :].strip()
+                    if isinstance(line, attachments.Input):
+                        question = attachments.Input(question, line.attachments)
+                    pending = t.turn(question, explore=True) + pending
                 elif not cli.slash(s, line[1:].split()):
                     return "quit"
             else:

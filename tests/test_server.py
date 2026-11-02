@@ -305,3 +305,49 @@ def test_smoke_script_plumbing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     )
     assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-2000:]
     assert "0 failed" in r.stdout
+
+
+def test_canvas_accepts_attachment_snapshots_and_rejects_invalid_data(srv, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import base64
+
+    from tests.test_attachments import PNG
+
+    canvas, call, _, _ = srv
+    seen: list[Message] = []
+
+    class Inspect(Echo):
+        def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+            seen.extend(messages)
+            return Reply(
+                content=[{"type": "text", "text": "seen image"}],
+                stop_reason="end_turn",
+                usage=Usage(),
+            )
+
+    monkeypatch.setattr(cli.Session, "_build", lambda self, model: Inspect())
+    before = canvas.s.log.path.read_bytes()
+    metadata = call(
+        "/api/attachments",
+        {"attachments": [{"name": "image.png", "data": base64.b64encode(PNG).decode()}]},
+    )["attachments"][0]
+    assert metadata["kind"] == "image" and metadata["name"] == "image.png"
+    assert set(metadata) == {"name", "summary", "kind"}, "draft markers need no thumbnail payload"
+    assert canvas.s.log.path.read_bytes() == before
+    call(
+        "/api/turn",
+        {
+            "text": "解释这张图",
+            "attachments": [{"name": "image.png", "data": base64.b64encode(PNG).decode()}],
+        },
+    )
+    _wait(canvas)
+    assert seen[0]["content"][1]["type"] == "image"
+    assert seen[0]["content"][1]["source"]["data"] == base64.b64encode(PNG).decode()
+    leaf = canvas.s.leaf
+    assert leaf is not None
+    replay = call("/api/node/" + leaf)
+    assert any(row["kind"] == "image" for row in replay)
+    before = canvas.s.log.path.read_bytes()
+    response = call("/api/turn", {"text": "bad", "attachments": [{"name": "bad", "data": "!!!"}]})
+    assert "error" in response and not canvas.busy
+    assert canvas.s.log.path.read_bytes() == before

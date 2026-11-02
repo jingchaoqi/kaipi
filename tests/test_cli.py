@@ -1130,3 +1130,60 @@ def test_raw_counts_the_tool_output_a_real_turn_is_mostly_made_of(
     assert found is not None and float(found.group(1)) >= 1.0, (
         f"tool output not counted: {out[-200:]}"
     )
+
+
+@pytest.mark.parametrize(
+    ("who", "expected"),
+    [
+        ("deepseek", "deepseek-flash"),
+        ("deepseek-anthropic", "deepseek-flash"),
+        ("kimi-anthropic", "kimi-k2.6"),
+        ("opencode-go-anthropic", "deepseek-v4-pro"),
+    ],
+)
+def test_provider_setup_shares_model_catalog_without_changing_route(
+    repo: Path, who: str, expected: str
+) -> None:
+    from kaipi import providers
+
+    providers.save_auth(who, models=[expected])  # a saved subset must not hide other models
+    pick = list(providers.BUILTIN).index(who) + 1
+    result = CliRunner().invoke(cli.app, ["provider"], input=f"{pick}\n\nsk-test\n\n")
+    assert result.exit_code == 0, result.output
+    saved = providers.auth()["providers"][who]
+    catalog = providers.BUILTIN[who].model_catalog or who
+    expected_ids = [
+        m.removeprefix(f"{p.provider}/")
+        for m, p in ledger.Pricing.load().models.items()
+        if p.provider == catalog
+    ]
+    assert saved["models"] == expected_ids and expected in expected_ids
+    assert len(saved["models"]) > 1
+    assert "回车全部接受" in result.output and "价格表里这个提供商的模型" in result.output
+    assert saved["base_url"] == providers.BUILTIN[who].base_url
+    assert all(not m.startswith(f"{catalog}/") for m in saved["models"])
+    model_pick = expected_ids.index(expected) + 1
+    result = CliRunner().invoke(cli.app, ["model"], input=f"{model_pick}\n")
+    assert result.exit_code == 0, result.output
+    assert "不在价格表" not in result.output
+    assert providers.active_model() == f"{who}/{expected}"
+
+
+def test_manually_entered_deepseek_flash_has_price_and_uses_anthropic_endpoint(repo: Path) -> None:
+    from kaipi import providers
+    from kaipi.providers.anthropic import AnthropicProvider
+
+    who = "deepseek-anthropic"
+    pick = list(providers.BUILTIN).index(who) + 1
+    result = CliRunner().invoke(cli.app, ["provider"], input=f"{pick}\n\nsk-test\ndeepseek-flash\n")
+    assert result.exit_code == 0, result.output
+    result = CliRunner().invoke(cli.app, ["model"], input="1\n")
+    assert result.exit_code == 0 and "不在价格表" not in result.output
+    spec = providers.active_model()
+    price = ledger.Pricing.load().find(spec)
+    assert price is not None and price.input > 0 and price.provider == who
+    provider = providers.build(spec, {})
+    assert isinstance(provider, AnthropicProvider)
+    assert provider.model == "deepseek-flash" and provider.compat
+    assert str(provider.client.base_url).startswith("https://api.deepseek.com/anthropic")
+    provider.client.close()

@@ -190,3 +190,25 @@ def test_savings_are_counted_per_kind(log: Log, b: Builder, tree: dict[str, str]
     saved = ledger.saved_by_kind(st, pricing)
     assert saved["interrupt"][0] > 90, "the discarded turn is measured, not ignored"
     assert st.nodes[dead].id not in {n.id for n in graph.live_leaves(st)}
+
+
+def test_deepseek_prices_cover_current_ids_and_accepted_legacy_names() -> None:
+    pricing = ledger.Pricing.load()
+    flash = pricing.price("deepseek/deepseek-flash")
+    assert (flash.input, flash.cache_read, flash.output) == (0.3, 0.006, 1.2)
+    for model in ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]:
+        alias = pricing.find(f"deepseek-anthropic/{model}")
+        assert alias is not None and alias.provider == "deepseek-anthropic"
+        assert alias.cost(Usage(input_uncached=100, cache_read=200, output=50)) == flash.cost(
+            Usage(input_uncached=100, cache_read=200, output=50)
+        )
+    assert pricing.find("deepseek-anthropic/deepseek-v4-pro") is not None
+    assert pricing.find("deepseek-anthropic/unknown-model") is None
+
+
+def test_shared_subscription_catalog_wins_over_paid_model_price() -> None:
+    pricing = ledger.Pricing.load()
+    price = pricing.find("opencode-go-anthropic/deepseek-v4-pro")
+    assert price is not None and price.provider == "opencode-go-anthropic"
+    assert price.cost(Usage(input_uncached=1000, output=100)) == 0
+    assert pricing.price("deepseek-anthropic/deepseek-v4-pro").output > 0

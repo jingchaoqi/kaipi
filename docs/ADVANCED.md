@@ -146,3 +146,58 @@ prefixes are stable and shared; it cannot tell you whether the live API accepts 
 what its cache really does. Only a key answers that.
 
 `scripts/canvas_e2e.py` drives the canvas in a real Chromium against the same mock.
+
+## Attachments
+
+Terminal attachment gestures are explicit: paste an entire file selection (paths may be
+quoted, shell-escaped, or file:// URLs) or press Ctrl-V to read the clipboard. Terminal
+Cmd-V / Ctrl-Shift-V is handled by the terminal emulator and may transmit text only;
+use Ctrl-V for raw clipboard images. A remote SSH process reads its own machine's
+clipboard, not the local desktop. macOS uses its native pasteboard; Linux uses
+`wl-paste` (wl-clipboard) or `xclip`. If neither is available, paste file paths or use
+Canvas. Attachments appear as editable markers; Backspace at the end removes a marker.
+Deleting its marker excludes the attachment from submission. Only a whole pasted file
+selection is recognized: mentioning a path within normal prose does not read that file.
+
+Canvas supports ordinary clipboard image/file paste, a file chooser and external file
+drop. These files share the question's next node, and attach separately from node graft
+chips. Expanded records show images and document/text attachment entries.
+
+The same backend detects file contents for both surfaces. Pillow and pillow-heif decode
+raster images including HEIC/HEIF, AVIF, TIFF and BMP, even with no extension or an
+incorrect filename. Valid, already-compatible PNG/JPEG/WebP are preserved when they
+need no transformations. Other images are normalized to PNG, with JPEG fallback for
+large opaque images. EXIF orientation is corrected; supported ICC profiles become sRGB;
+alpha is retained. Images may be downscaled to fit pixel and encoded-payload limits.
+Conversions are described in the draft and frozen into the message, with the original
+filename. Multi-image files are expanded in order, preserving all frames and available
+frame durations; they are rejected explicitly when limits would require dropping frames.
+Drafts show compact `[image1]` / `[file1]` markers; expanded history shows images.
+
+PDFs remain native documents so layout and diagrams are available to a capable model.
+UTF-8 code/text stays verbatim. Other local documents use MarkItDown converters (Word,
+legacy Excel, PowerPoint, EPUB and related text formats); OOXML workbooks use a dedicated
+reader to retain formula source as well as sheet names, values and dates. Container
+contents identify OOXML files regardless of extension. Raw ZIP recursion, cloud clients,
+URL converters and third-party converter discovery are disabled. No macros, formulas or
+external document links are executed. Unsupported/corrupt/encrypted content reports a
+conversion failure and keeps the draft. Document extraction does not promise original
+page layout or embedded charts/images; export to PDF when those are important.
+
+Limits: eight original files per message, 20 MiB per original and 40 MiB original total.
+Normalized image/PDF payloads allow 5 MiB per block and 10 MiB total; PDFs above 5 MiB
+must be reduced before attaching. A file can contain at most eight image frames and a
+message at most sixteen images. Decoding permits 64 million pixels per frame and a
+4096-pixel long edge in normalized output. Extracted text permits 128 KiB per file;
+document archives permit 20 MiB uncompressed content. OOXML Excel is limited to 50,000
+cells overall and 10,000 rows per sheet. The local JSON request cap is 56 MiB to allow
+base64 overhead. Conversion is local and runs off the input loop; only the normalized
+snapshot is sent to the selected model and stored in the session log. History never
+re-reads original files or repeats conversion after an upgrade.
+
+The implementation is isolated in `kaipi/attachments/`. Its only parsing boundary is
+`parse(name, raw_bytes) -> (content_blocks, summary)`; a host can replace
+`kaipi.attachments.parse` at startup with a function of the same signature, raising
+`ValueError` for unsupported input. The default implementation loads image/document
+libraries only when needed. Both UIs prepare snapshots before the agent receives them;
+changing the parser never changes existing drafts or logged payloads.

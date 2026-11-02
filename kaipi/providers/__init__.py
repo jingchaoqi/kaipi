@@ -81,14 +81,15 @@ class ProviderConfig(BaseModel):
     # not the preserved-thinking beta, so the capability is a table column, not a name test.
     native_anthropic: bool = False
     needs_key: bool = True  # a self-hosted endpoint (ollama) authenticates nobody
+    model_catalog: str = ""  # another preset sharing the same model ids and pricing
 
 
 def _chat(url: str, env: str) -> ProviderConfig:
     return ProviderConfig(api="openai-chat", base_url=url, api_key_env=env)
 
 
-def _msgs(url: str, env: str) -> ProviderConfig:
-    return ProviderConfig(api="anthropic", base_url=url, api_key_env=env)
+def _msgs(url: str, env: str, catalog: str) -> ProviderConfig:
+    return ProviderConfig(api="anthropic", base_url=url, api_key_env=env, model_catalog=catalog)
 
 
 # Vendors that speak several protocols get one preset per protocol. The `-anthropic`
@@ -106,25 +107,29 @@ BUILTIN: dict[str, ProviderConfig] = {
         base_url="https://generativelanguage.googleapis.com/v1beta",
         api_key_env="GEMINI_API_KEY",
     ),
-    # DeepSeek: V4 Flash / Pro. Both protocols on the same key.
+    # DeepSeek: Flash / V4 Pro. Both protocols on the same key.
     "deepseek": _chat("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
-    "deepseek-anthropic": _msgs("https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY"),
+    "deepseek-anthropic": _msgs(
+        "https://api.deepseek.com/anthropic", "DEEPSEEK_API_KEY", "deepseek"
+    ),
     # Moonshot Kimi: K2.x / K3. `.ai` is the international platform, `.cn` the Chinese one;
     # they are separate accounts with separate keys, so the `-cn` presets take their own.
     "kimi": _chat("https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
-    "kimi-anthropic": _msgs("https://api.moonshot.ai/anthropic", "MOONSHOT_API_KEY"),
+    "kimi-anthropic": _msgs("https://api.moonshot.ai/anthropic", "MOONSHOT_API_KEY", "kimi"),
     "kimi-cn": _chat("https://api.moonshot.cn/v1", "MOONSHOT_CN_API_KEY"),
-    "kimi-anthropic-cn": _msgs("https://api.moonshot.cn/anthropic", "MOONSHOT_CN_API_KEY"),
+    "kimi-anthropic-cn": _msgs(
+        "https://api.moonshot.cn/anthropic", "MOONSHOT_CN_API_KEY", "kimi-cn"
+    ),
     # GLM 5.x: Z.ai internationally, 智谱 open.bigmodel.cn in China; same split, own keys.
     "glm": _chat("https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
-    "glm-anthropic": _msgs("https://api.z.ai/api/anthropic", "ZAI_API_KEY"),
+    "glm-anthropic": _msgs("https://api.z.ai/api/anthropic", "ZAI_API_KEY", "glm"),
     "glm-cn": _chat("https://open.bigmodel.cn/api/paas/v4", "ZHIPU_API_KEY"),
-    "glm-anthropic-cn": _msgs("https://open.bigmodel.cn/api/anthropic", "ZHIPU_API_KEY"),
+    "glm-anthropic-cn": _msgs("https://open.bigmodel.cn/api/anthropic", "ZHIPU_API_KEY", "glm-cn"),
     # OpenCode Zen (pay per token) and Go (subscription): one key, many vendors behind it.
     "opencode": _chat("https://opencode.ai/zen/v1", "OPENCODE_API_KEY"),
-    "opencode-anthropic": _msgs("https://opencode.ai/zen", "OPENCODE_API_KEY"),
+    "opencode-anthropic": _msgs("https://opencode.ai/zen", "OPENCODE_API_KEY", "opencode"),
     "opencode-go": _chat("https://opencode.ai/zen/go/v1", "OPENCODE_API_KEY"),
-    "opencode-go-anthropic": _msgs("https://opencode.ai/zen/go", "OPENCODE_API_KEY"),
+    "opencode-go-anthropic": _msgs("https://opencode.ai/zen/go", "OPENCODE_API_KEY", "opencode-go"),
     "qwen": _chat("https://dashscope.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
     "openrouter": _chat("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "groq": _chat("https://api.groq.com/openai/v1", "GROQ_API_KEY"),

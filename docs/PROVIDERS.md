@@ -90,10 +90,15 @@ quick retries are not enough on their own.
 
 ## Vendor notes
 
-- **DeepSeek**: `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-flash-vision-exp` (the
-  old `deepseek-chat` / `deepseek-reasoner` aliases were retired 2026-07). Cache hits are
-  reported as `prompt_cache_hit_tokens` on the chat endpoint and as Anthropic-shaped usage
-  on `/anthropic`; both feed the ledger. Off-peak pricing is not modelled.
+- **DeepSeek**: `deepseek-flash` and `deepseek-v4-pro` on both the OpenAI Chat and
+  Anthropic endpoints. The Anthropic preset shares the DeepSeek model catalog, while
+  retaining its own protocol, endpoint and credentials. The legacy Flash names
+  `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are still accepted by DeepSeek
+  and billed as `deepseek-flash`. Packaged prices follow the official USD peak rates
+  verified on 2026-11-02; off-peak is half price, so the fixed-rate ledger can overestimate
+  actual charges. See [official pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+  Cache hits are reported as `prompt_cache_hit_tokens` on Chat and Anthropic-shaped
+  usage on `/anthropic`; both feed the ledger.
 - **Kimi**: `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `kimi-k2.5` on the OpenAI-style
   endpoint. On the Anthropic-style endpoint the 1M-context id is `kimi-k3[1m]`:
   `KAIPI_MODEL=kimi-anthropic/kimi-k3[1m]`. The China platform is a separate endpoint with
@@ -185,3 +190,14 @@ What that run showed for each protocol, on the same scenario:
 
 Prices in `pricing.toml` for non-Anthropic vendors come from public price pages and
 carry the date they were taken; verify before relying on the totals.
+
+## Image and PDF inputs
+
+Attachment images/documents use Anthropic-shaped base64 blocks in the frozen payload.
+Adapters translate them into Chat Completions `image_url` / `file`, Responses
+`input_image` / `input_file`, or Gemini `inlineData`; Anthropic keeps the native blocks.
+Text and extracted Office documents use text blocks on every protocol. Unsupported
+media is not silently discarded: the selected model/gateway must support that media.
+See the [OpenAI file input guide](https://developers.openai.com/api/docs/guides/file-inputs),
+[Anthropic PDF guide](https://platform.claude.com/docs/en/build-with-claude/pdf-support),
+and [Gemini document guide](https://ai.google.dev/gemini-api/docs/document-processing).
