@@ -39,6 +39,9 @@ def to_contents(messages: list[Message]) -> list[dict[str, Any]]:
             part: dict[str, Any]
             if t == "text":
                 part = {"text": b["text"]}
+            elif t in ("image", "document"):
+                src = b["source"]
+                part = {"inlineData": {"mimeType": src["media_type"], "data": src["data"]}}
             elif t == "tool_use":
                 part = {"functionCall": {"name": b["name"], "args": b["input"]}}
             elif t == "tool_result":

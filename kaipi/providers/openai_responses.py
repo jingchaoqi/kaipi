@@ -45,6 +45,19 @@ def to_items(messages: list[Message]) -> list[dict[str, Any]]:
                             "content": [{"type": "output_text", "text": b["text"]}],
                         }
                     )
+            elif t in ("image", "document"):
+                src = b["source"]
+                url = f"data:{src['media_type']};base64,{src['data']}"
+                part = (
+                    {"type": "input_image", "image_url": url}
+                    if t == "image"
+                    else {
+                        "type": "input_file",
+                        "filename": b.get("title", "attachment.pdf"),
+                        "file_data": url,
+                    }
+                )
+                items.append({"role": "user", "content": [part]})
             elif t == "tool_use":
                 items.append(
                     {

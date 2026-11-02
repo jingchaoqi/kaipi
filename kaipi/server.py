@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 import typer
 
-from kaipi import agent, cli, context, graph, guard, ledger
+from kaipi import agent, attachments, cli, context, graph, guard, ledger
 from kaipi.model import Node, ReferenceEdge, blocks, text_of
 
 CANVAS_HTML = Path(__file__).with_name("canvas.html")
@@ -56,6 +56,13 @@ def transcript(n: Node) -> list[dict[str, str]]:
                 out.append({"kind": context.classify(b["text"]), "text": b["text"]})
             elif t == "text":
                 out.append({"kind": "assistant", "text": b["text"]})
+            elif t == "image":
+                src = b["source"]
+                out.append(
+                    {"kind": "image", "text": f"data:{src['media_type']};base64,{src['data']}"}
+                )
+            elif t == "document":
+                out.append({"kind": "attachment", "text": b.get("title", "PDF 附件")})
             elif t == "tool_use":
                 out.append(
                     {
@@ -107,6 +114,7 @@ class Canvas:
                     "seq": n.seq,
                     "input": context.user_input(n),
                     "answer": context.final_answer(n),
+                    "attachments": context.has_attachments(n),
                     "own": ledger.own_tokens(st, n.id),
                     "ctx": n.context_tokens,
                     "tools": [{"id": i, "cmd": c} for i, c in context.tool_calls(n)],
@@ -350,9 +358,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not a local, token-carrying JSON request"}, 403)
             return
         n = int(self.headers.get("Content-Length") or 0)
+        if not 0 <= n <= 56 * 1024 * 1024:
+            self.close_connection = True
+            self._json({"error": "请求过大；原始附件总大小最多 40 MiB"}, 413)
+            return
         body: dict[str, Any] = json.loads(self.rfile.read(n) or b"{}")
         path = urlparse(self.path).path
         try:
+            if path == "/api/attachments":
+                items = [
+                    attachments.Attachment.model_validate(item) for item in body["attachments"]
+                ]
+                attachments.validate(items)
+                self._json({"attachments": [item.describe() for item in items]})
+                return
             if path == "/api/handoff":
                 c.request_handoff()
                 self._json({"ok": True})
@@ -366,7 +385,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with c.lock:
                 if path == "/api/turn":
-                    c.turn(str(body["text"]), bool(body.get("explore")))
+                    items = [
+                        attachments.Attachment.model_validate(item)
+                        for item in body.get("attachments", [])
+                    ]
+                    text = (
+                        attachments.Input(str(body["text"]), items) if items else str(body["text"])
+                    )
+                    if not text.strip():
+                        raise ValueError("请输入问题或添加附件")
+                    c.turn(text, bool(body.get("explore")))
                 elif path == "/api/command":
                     self._json({"output": c.command(str(body["line"]))})
                     return

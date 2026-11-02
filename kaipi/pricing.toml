@@ -2,7 +2,7 @@
 # multiple (Fable 5.1 reads at 0.025x, 1h-TTL writes at 2x), so no multipliers here.
 # Anthropic prices as of 2026-06; others as of 2026-09 from public price pages - verify before
 # trusting the ledger. Unknown models cost 0 and the CLI warns.
-# Vendors that publish in CNY (kimi, glm, deepseek, qwen) are converted at ~6.85 CNY/USD, so
+# Vendors that publish in CNY (kimi, glm, qwen) are converted at ~6.85 CNY/USD, so
 # their rows drift with the exchange rate: kimi-k2.7-code is officially Y6.50 / Y1.30 / Y27.00.
 # Set your own rates in .kaipi/pricing.toml or ~/.config/kaipi/pricing.toml if that matters.
 #
@@ -103,23 +103,37 @@ output = 3.75
 
 # --- OpenAI-compatible vendors ---
 
-[models."deepseek-v4-flash"]
+# DeepSeek official USD peak rates, verified 2026-11-02:
+# https://api-docs.deepseek.com/quick_start/pricing/
+# Off-peak is half price; the ledger uses fixed peak rates (no time-of-day billing).
+[models."deepseek-flash"]
 provider = "deepseek"
-input = 0.14
-cache_read = 0.0028
-output = 0.28
+context = 1000000
+input = 0.3
+cache_read = 0.006
+output = 1.2
 
 [models."deepseek-v4-pro"]
 provider = "deepseek"
-input = 0.435
-cache_read = 0.003625
-output = 0.87
+context = 1000000
+input = 1.32
+cache_read = 0.044
+output = 3.96
+
+# Legacy Flash ids still accepted by DeepSeek, served and billed as deepseek-flash.
+[models."deepseek-v4-flash"]
+provider = "deepseek"
+context = 1000000
+input = 0.3
+cache_read = 0.006
+output = 1.2
 
 [models."deepseek-v4-flash-vision-exp"]
 provider = "deepseek"
-input = 0.14
-cache_read = 0.0028
-output = 0.28
+context = 1000000
+input = 0.3
+cache_read = 0.006
+output = 1.2
 
 # --- Moonshot Kimi (international billing via api.moonshot.ai, 2026-09) ---
 

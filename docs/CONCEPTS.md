@@ -23,6 +23,50 @@ for good, still billed), `tombstone` (permanent; one line remains).
 A node that was started and neither completed nor aborted - a crash, a kill -9 - folds to
 `tombstone`: there are no half-frozen payloads.
 
+### 1.0 User attachments
+
+Explicitly pasted/selected attachments are draft UI state until submitted. The input
+message then contains immutable content snapshots: base64 image/document blocks for
+normalized raster images and original PDF documents; tagged text blocks for UTF-8
+files and extracted document contents. Images are identified from bytes using Pillow
+and HEIF decoding, not extension checks; supported orientation/colour transformations,
+resizing and all bounded frames are handled before snapshots are frozen. Conversion
+metadata retains the original filename and describes any transformation. Local document
+converters handle other known content types; raw ZIP recursion and URL/cloud/plugin
+conversion are disabled. Workbooks retain formulas as source text. Text snapshots receive credential redaction.
+All format-specific logic lives in the `attachments` package, behind one replaceable
+callable: `parse(name, raw_bytes) -> (content_blocks, summary)`. The default implementation
+loads decoder libraries lazily. `Input` captures the validated blocks before entering
+the agent; context assembly only copies those snapshots and never invokes a parser.
+There is no converter registry, discovery mechanism, or plugin lifecycle in the agent.
+Replaying a node uses its payload, never the original file or clipboard. Question
+labels omit attachment bodies; the visible question retains numbered attachment markers. Grafts
+carry question/answer text and summaries as before, without copying binary attachments.
+
+The terminal recognizes complete pasted file selections (quoted/escaped paths or
+local file:// URLs), and Ctrl-V explicitly reads the local clipboard on macOS/Linux.
+Ordinary sentences mentioning paths are not implicitly read. Draft markers can be
+removed; queued submissions keep their own attachment snapshots. Enter during an
+in-flight clipboard read waits for it; successive pastes accumulate, including while a
+previous read is pending. Image and file markers use separate counters per submitted
+draft (`[image1]`, `[image2]`, `[file1]`); removing a marker does not renumber the others.
+A failed read keeps the draft. Command submissions
+with attachments are rejected except `/explore`, which keeps the same attachments.
+The Canvas supports clipboard files, file selection and file drop, with removable
+chips and expanded transcript previews. Invalid/unsupported files are rejected before
+a turn starts; failed requests retain the browser draft.
+
+The four protocol adapters translate image/PDF blocks without silently dropping them.
+Actual media support depends on the selected model/gateway. Plain text request shapes
+stay unchanged. Drafts allow eight originals, 20 MiB per original and 40 MiB total;
+normalized image/PDF payloads allow 5 MiB per block and 10 MiB total. PDFs remain
+bounded at 5 MiB; images allow eight frames per file, sixteen per message, 64 million
+pixels per decoded frame and a 4096-pixel long edge in output. Extracted text is limited
+to 128 KiB per file. The local JSON request cap is 56 MiB. Document archives are bounded
+before extraction; formulas and macros are never executed. A token-authenticated local
+`/api/attachments` endpoint validates/converts drafts and returns summaries and marker kinds
+without creating a node; submission validates again and freezes the same representation.
+
 ### 1.1 Interrupting a turn
 
 Esc in the terminal and the stop button on the canvas do the same thing. The turn ends at
@@ -285,6 +329,14 @@ The model-id prompt defaults to every model listed
 for that provider in the pricing table: Enter accepts all, while a comma-separated
 input selects a subset or supplies custom ids. The pricing table takes precedence
 over a saved subset; if it has no models for the provider, the saved list is used.
+
+Provider setup obtains default model ids from its configured pricing catalog. A preset
+may explicitly share another preset's catalog (for example `deepseek-anthropic` uses
+`deepseek`), without changing the selected protocol, endpoint or credentials. Qualified
+price keys are stripped to model ids in setup; the model selector resolves prices through
+the same `Pricing.find(provider/model)` lookup as requests and the ledger. Unrelated
+regions and subscription plans keep distinct catalogs. DeepSeek's packaged rates are
+fixed peak USD rates; time-of-day discounts are not modelled.
 
 Credentials go to `~/.config/kaipi/auth.toml`, mode 600, never into a project: a key in a
 repository is a key in someone's clone. The environment still wins over the file, so a

@@ -12,6 +12,9 @@ dependencies = [
     # that path, so a user without a proxy pays nothing but the download.
     "httpx[socks]>=0.28",
     "pydantic>=2.11",
+    "pillow>=11",
+    "pillow-heif>=1.0",
+    "markitdown[docx,xlsx,xls,pptx]>=0.1.9,<0.2",
     "prompt-toolkit>=3.0",
     "python-ulid>=3",
     "rich>=13",
@@ -22,7 +25,7 @@ dependencies = [
 kaipi = "kaipi.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.9", "mypy>=1.14"]
+dev = ["pytest>=8", "ruff>=0.9", "mypy>=1.14", "types-openpyxl>=3.1"]
 
 [build-system]
 requires = ["hatchling"]

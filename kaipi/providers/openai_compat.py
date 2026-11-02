@@ -49,14 +49,32 @@ def to_openai(system: str, messages: list[Message]) -> list[dict[str, Any]]:
             out.append(entry)
             continue
         texts: list[str] = []
+        parts: list[dict[str, Any]] = []
         for b in bs:
             if b.get("type") == "tool_result":
                 body = text_of(b.get("content", ""))
                 out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": body})
             elif b.get("type") == "text":
                 texts.append(b["text"])
-        if texts:
-            out.append({"role": "user", "content": "\n".join(texts)})
+                parts.append({"type": "text", "text": b["text"]})
+            elif b.get("type") in ("image", "document"):
+                src = b["source"]
+                url = f"data:{src['media_type']};base64,{src['data']}"
+                if b["type"] == "image":
+                    parts.append({"type": "image_url", "image_url": {"url": url}})
+                else:
+                    parts.append(
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": b.get("title", "attachment.pdf"),
+                                "file_data": url,
+                            },
+                        }
+                    )
+        if parts:
+            content = parts if any(p["type"] != "text" for p in parts) else "\n".join(texts)
+            out.append({"role": "user", "content": content})
     return out
 
 
