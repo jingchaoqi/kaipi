@@ -13,6 +13,8 @@ from typer.testing import CliRunner
 from kaipi import cli, graph, ledger
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
+from kaipi.store import list_sessions
+from tests.conftest import Builder
 
 
 class Echo:
@@ -492,6 +494,11 @@ def test_the_tty_surface_keeps_input_and_status_at_the_bottom(repo: Path) -> Non
         assert "root>" in first and "context" in first, "input above, status bar below"
         os.write(master, b"/trunk\r")
         assert "trunk" in read_until("spent", timeout=10)
+        previous = list_sessions(repo)
+        os.write(master, b"/new\r")
+        fresh = read_until("spent", timeout=10)
+        assert "\x1b[3J" in fresh and "已开始新对话" in fresh and "root>" in fresh
+        assert len(list_sessions(repo)) == 1 and list_sessions(repo) != previous
         os.write(master, b"/quit\r")
         read_until("\x00", timeout=5)  # drain until the child closes the pty
     finally:
@@ -505,6 +512,72 @@ def test_help_lists_every_command(repo: Path) -> None:
     assert out.exit_code == 0
     for name, _args, what in cli.COMMANDS:
         assert f"/{name}" in out.output and what in out.output
+
+
+def test_status_reports_cursor_context_and_selected_model_without_mutating_or_calling_api(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KAIPI_MODEL", "deepseek-anthropic/custom")
+    s = cli.Session(repo)
+    s.ansi = False
+    s.pricing.models["custom"] = ledger.Price(provider="deepseek", context=10_000)
+    s.pricing.models["fake"] = ledger.Price(input=1, output=2)
+    b = Builder(s.log)
+    main = b.node(None, "main", tokens=1200)
+    side = b.node(None, "side", tokens=300)
+    cli.cmd_trunk(s, main)
+    cli.cmd_go(s, side)
+    s.pending = [ReferenceEdge(src_id=main, dst_id="")]
+    s.save()
+    log, cursor = s.log.path.read_bytes(), s.cursor_path.read_bytes()
+
+    def no_api(*args: object) -> None:
+        pytest.fail("status must not construct a model client")
+
+    monkeypatch.setattr(cli.Session, "_build", no_api)
+    lines = cli.verb(s, ["status"]) or []
+    fields = dict(re.findall(r"^  (\S+) {2,}(.+)$", "\n".join(lines), re.MULTILINE))
+    assert fields["模型"] == "deepseek-anthropic/custom"
+    assert fields["提供商"] == "deepseek-anthropic"
+    assert fields["位置"] == "N2 · 探索（只读） · 主干 N1"
+    assert "300 tokens" in fields["上下文"] and "3.0%" in fields["上下文"]
+    assert "1,200" not in fields["上下文"] and "待嫁接内容未计入" in "\n".join(lines)
+    assert fields["待嫁接"] == "1 个节点"
+    assert "输入 1,500" in fields["累计用量"]
+    assert fields["会话费用"] == f"${ledger.total_cost(s.log.state, s.pricing):.4f}（价格表估算）"
+    assert s.log.path.read_bytes() == log and s.cursor_path.read_bytes() == cursor
+
+
+def test_status_handles_empty_sessions_and_unknown_limits(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KAIPI_MODEL", "unlisted")
+    s = cli.Session(repo)
+    text = "\n".join(cli.cmd_status(s))
+    assert "尚无请求记录" in text and "窗口 未知" in text and "主干续写" in text
+    assert "未指定" in text and "未命名" in text and s.log.state.session_id in text
+    assert "%" not in text
+    s.leaf = Builder(s.log).node(None, "unknown model", tokens=125)
+    text = "\n".join(cli.cmd_status(s))
+    assert "125 tokens" in text and "部分模型未计价" in text and "%" in text  # cache ratio
+
+
+def test_status_is_available_in_cli_slash_commands_and_completion(repo: Path) -> None:
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from kaipi import tui
+
+    cli.Session(repo).save()
+    runner = CliRunner()
+    out = runner.invoke(cli.app, ["status"])
+    assert out.exit_code == 0 and "会话费用" in out.output and "上下文" in out.output
+    out = runner.invoke(cli.app, ["-c"], input="/status\n/quit\n")
+    assert out.exit_code == 0 and "会话费用" in out.output
+    completions = tui.SlashCompleter(cli.Session(repo)).get_completions(
+        Document("/st"), CompleteEvent()
+    )
+    assert [c.text for c in completions] == ["/status"]
 
 
 def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
@@ -863,6 +936,82 @@ def test_compact_turn_preserves_full_tool_payload(
     assert command in terminal.s.log.state.nodes[nid].payload[1]["content"][1]["input"]["command"]
     assert tool_output in terminal.s.log.state.nodes[nid].payload[2]["content"][0]["content"]
     assert "tool_use" in payload
+
+
+def test_new_preserves_history_and_resets_cursor_usage_and_project_instructions(repo: Path) -> None:
+    from kaipi.store import Log, list_sessions
+
+    s = cli.Session(repo)
+    node = Builder(s.log).node(None, "old question", tokens=1234)
+    s.leaf = node
+    s.pending = [ReferenceEdge(src_id=node, dst_id="")]
+    cli.cmd_rename(s, "旧对话")
+    s.save()
+    previous, payload = s.log.path, s.log.path.read_bytes()
+    (repo / "AGENTS.md").write_text("New project instructions")
+    work = repo / "work.txt"
+    work.write_text("keep working tree changes")
+
+    cli.cmd_new(s)
+    assert s.log.path != previous and previous.read_bytes() == payload
+    assert not s.log.state.nodes and s.leaf is None and not s.pending
+    assert not s.log.state.name and ledger.total_cost(s.log.state, s.pricing) == 0
+    assert "New project instructions" in s.log.state.system_prompt
+    assert s.log.state.model == s.wanted_model()
+    assert s._cursor().session == s.log.path.name
+    assert work.read_text() == "keep working tree changes"
+    for _ in range(3):
+        cli.cmd_new(s)
+    assert set(list_sessions(repo)) == {previous, s.log.path}, "empty restarts do not pile up"
+    cli.cmd_resume(s, previous.stem)
+    assert s.log.state.name == "旧对话" and node in s.log.state.nodes
+    assert Log(previous).path.read_bytes() == payload
+
+
+def test_new_in_plain_cli_starts_an_independent_conversation(repo: Path) -> None:
+    from kaipi import context
+    from kaipi.store import Log, list_sessions
+
+    out = CliRunner().invoke(cli.app, [], input="old question\n/new\nnew question\n/quit\n")
+    assert out.exit_code == 0 and "已开始新对话" in out.output
+    before, after = [Log(path) for path in list_sessions(repo)]
+    assert len(before.state.nodes) == len(after.state.nodes) == 1
+    node = next(iter(after.state.nodes.values()))
+    assert node.parent_id is None and context.user_input(node) == "new question"
+    assert "old question" not in str(node.payload)
+
+
+def test_new_discards_queued_old_inputs_and_recreates_terminal(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kaipi import tui
+
+    s = cli.Session(repo)
+    prompts = iter(["old question", "new question", "/quit"])
+    terminals = []
+    asked = []
+
+    class Terminal:
+        def __init__(self, session: cli.Session) -> None:
+            assert session is s
+            terminals.append(self)
+            if len(terminals) > 1:
+                assert not s.log.state.nodes and s.leaf is None and not s.pending
+
+        def prompt(self) -> str:
+            return next(prompts)
+
+        def echo(self, line: str) -> None:
+            pass
+
+        def turn(self, text: str, *, explore: bool = False) -> list[str]:
+            asked.append(text)
+            cli.run_input(s, text, hook=lambda *_: None)
+            return ["/new", "stale queued question"] if text == "old question" else []
+
+    monkeypatch.setattr(tui, "Terminal", Terminal)
+    assert tui.loop(s) == "quit"
+    assert len(terminals) == 2 and asked == ["old question", "new question"]
 
 
 def test_every_kaipi_is_a_fresh_conversation_unless_resumed(repo: Path) -> None:

@@ -48,10 +48,12 @@ class AnthropicProvider:
         preserved-thinking beta or `thinking.block_binding`, so those are left out and the
         gateway's own thinking default applies."""
         self.model = model
-        # Gateways document either header; the SDK sends x-api-key for api_key and
-        # Authorization: Bearer for auth_token, so give them both when a key is supplied.
+        # SDK credentials are mutually exclusive. Keep gateway Bearer compatibility
+        # in an ordinary header, not a second SDK credential.
         self.client = anthropic.Anthropic(
-            base_url=base_url, api_key=api_key or None, auth_token=api_key or None
+            base_url=base_url,
+            api_key=api_key or None,
+            default_headers={"Authorization": f"Bearer {api_key}"} if compat and api_key else None,
         )
         self.compat = compat
         # Preserved thinking is first-party Anthropic only, and per-model (pricing.toml).

@@ -274,6 +274,55 @@ def test_gemini_finish_reasons() -> None:
     ) == ([{"type": "text", "text": "ok"}], "end_turn")
 
 
+@pytest.mark.parametrize("saved", [False, True])
+@pytest.mark.parametrize(
+    ("name", "env"),
+    [
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("deepseek-anthropic", "DEEPSEEK_API_KEY"),
+        ("kimi-anthropic", "MOONSHOT_API_KEY"),
+        ("glm-anthropic", "ZAI_API_KEY"),
+        ("opencode-go-anthropic", "OPENCODE_API_KEY"),
+    ],
+)
+def test_anthropic_uses_one_sdk_credential_and_ignores_unrelated_auth_settings(
+    monkeypatch: pytest.MonkeyPatch, name: str, env: str, saved: bool
+) -> None:
+    import anthropic
+
+    from kaipi.providers.anthropic import AnthropicProvider
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "unrelated-api-key")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "unrelated-token")
+    monkeypatch.setenv("ANTHROPIC_PROFILE", "unrelated-profile")
+    if saved:
+        monkeypatch.delenv(env, raising=False)
+        providers.save_auth(name, api_key="selected-key")
+    else:
+        monkeypatch.setenv(env, "selected-key")
+    sdk = anthropic.Anthropic
+
+    def exclusive(**kwargs: Any) -> anthropic.Anthropic:
+        # SDK 1.3 accepted two credentials; enforce the newer contract in locked tests too.
+        modes = ("api_key", "auth_token", "credentials", "config", "profile")
+        assert [k for k in modes if kwargs.get(k) is not None] == ["api_key"]
+        return sdk(**kwargs)
+
+    monkeypatch.setattr(anthropic, "Anthropic", exclusive)
+    p = providers.build(f"{name}/test-model", {})
+    assert isinstance(p, AnthropicProvider)
+    try:
+        assert p.client.api_key == "selected-key"
+        assert p.client.auth_token is None
+        bearer = p.client.default_headers.get("Authorization")
+        if name == "anthropic":
+            assert bearer in (None, "Bearer selected-key")  # SDKs differ in their native key header
+        else:
+            assert bearer == "Bearer selected-key"
+    finally:
+        p.client.close()
+
+
 def test_vendor_presets_in_both_protocols(monkeypatch: pytest.MonkeyPatch) -> None:
     from kaipi.providers.anthropic import AnthropicProvider
 
@@ -288,7 +337,7 @@ def test_vendor_presets_in_both_protocols(monkeypatch: pytest.MonkeyPatch) -> No
     k3 = providers.build("kimi-anthropic/kimi-k3[1m]", {})
     assert isinstance(k3, AnthropicProvider) and k3.compat and k3.model == "kimi-k3[1m]"
     assert str(k3.client.base_url).startswith("https://api.moonshot.ai/anthropic")
-    assert k3.client.api_key == "km" and k3.client.auth_token == "km"
+    assert k3.client.api_key == "km" and k3.client.auth_token is None
     glm = providers.build("glm-anthropic/glm-5.2[1m]", {})
     assert str(glm.client.base_url).startswith("https://api.z.ai/api/anthropic")  # type: ignore[attr-defined]
     ds = providers.build("deepseek-anthropic/deepseek-v4-pro", {})

@@ -228,7 +228,14 @@ function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.s
 
 // ---------- state ----------
 async function refresh() {
-  S = await api.get('/api/state');
+  const next = await api.get('/api/state');
+  if (S && S.session !== next.session) {
+    notes.length = 0; attached = []; attachmentSeq = {image: 0, file: 0}; renderAttachments();
+    opened.clear(); fullHtml.clear(); $('#transcript').replaceChildren();
+    input.value = ''; input.style.height = 'auto'; $('#explore').checked = false;
+    view = {x: 40, y: 40, k: 1}; fitted = false;
+  }
+  S = next;
   byId = Object.fromEntries(S.nodes.map(n => [n.id, n]));
   pending = S.pending;
   render();
@@ -486,7 +493,11 @@ function renderTranscript() {
     if (more) more.onclick = async () => {
       opened.add(n.id); d.classList.add('open');
       const full = d.querySelector('.full');
-      if (!fullHtml.has(n.id)) fullHtml.set(n.id, (await api.get('/api/node/' + n.id)).map(line).join(''));
+      if (!fullHtml.has(n.id)) {
+        const session = S.session, entries = await api.get('/api/node/' + n.id);
+        if (S.session !== session || !Array.isArray(entries)) return;
+        fullHtml.set(n.id, entries.map(line).join(''));
+      }
       full.innerHTML = fullHtml.get(n.id);   // payloads are frozen, so one fetch per node
     };
     if (opened.has(n.id)) more?.click();
@@ -583,7 +594,7 @@ $('#pinhere').onclick = () => pin(S.leaf);
 async function send() {
   if (readingFiles) return toast('附件正在读取，请稍候');
   let text = input.value.trim(); if ((!text && !attached.length) || S.busy || sending) return;
-  if (text.startsWith('/') && attached.length) return toast('请将附件随普通问题发送，或勾选“作为探索”');
+  if (text.startsWith('/') && text !== '/new' && attached.length) return toast('请将附件随普通问题发送，或勾选“作为探索”');
   if (text.startsWith('/')) { input.value = ''; return command(text); }
   const batch = attached.slice();
   if (batch.length) text += (text ? '\n' : '请查看附件：') + batch.map(a => a.marker).join(' ');
@@ -603,7 +614,9 @@ async function command(text) {
   if (verb === '/cli' || verb === '/quit' || verb === '/exit') return handoff();
   try {
     const r = await api.post('/api/command', { line: text });
-    sysLine(`${text}\n${r.output || '(ok)'}`); await refresh();
+    await refresh();
+    if (verb === '/new') toast(r.output);
+    else sysLine(`${text}\n${r.output || '(ok)'}`);
   } catch (e) { toast(e.message); }
 }
 function sysLine(t) { notes.push(t); if (notes.length > 20) notes.shift(); renderTranscript(); }
