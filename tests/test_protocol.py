@@ -106,13 +106,31 @@ def test_a_long_tool_loop_does_not_break_the_next_turn_cache(endpoint) -> None: 
         ("opencode-anthropic/claude-opus-5", "OPENCODE_ANTHROPIC", ""),
     ],
 )
-def test_anthropic_compatible_gateways(endpoint, model: str, env: str, path: str) -> None:  # type: ignore[no-untyped-def]
+def test_anthropic_compatible_gateways(
+    endpoint: tuple[mockapi.MockServer, str],
+    model: str,
+    env: str,
+    path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The `*-anthropic` presets must send kaipi's cache breakpoints but omit the
     preserved-thinking parameters, which only Anthropic itself understands."""
     srv, url = endpoint
+    headers_seen: list[dict[str, str]] = []
+    original = srv.api.anthropic
+
+    def capture(body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        headers_seen.append(headers)
+        return original(body, headers)
+
+    monkeypatch.setattr(srv.api, "anthropic", capture)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "unrelated-token")
     s, tally, root = session_on(url, model, env, path)
     os.chdir(root)
     cli.run_input(s, "Inspect app.py and tell me the bug.", lambda k, t: None)
+    assert headers_seen[0]["authorization"] == "Bearer mock-key"
+    if "x-api-key" in headers_seen[0]:  # older SDKs emit this too
+        assert headers_seen[0]["x-api-key"] == "mock-key"
 
     body = srv.api.requests[0]["body"]
     assert "thinking" not in body, "a compat gateway must not be sent thinking.block_binding"

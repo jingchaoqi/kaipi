@@ -642,6 +642,49 @@ def cmd_model() -> None:
     typer.echo(f"{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}")
 
 
+def cmd_status(s: Session) -> list[str]:
+    """A local snapshot of this session; never build a provider or make an API call."""
+    from importlib.metadata import version
+
+    st, spec = s.log.state, s.wanted_model()
+    r = ledger.report(st, s.pricing)
+    price = s.pricing.find(spec)
+    node = st.nodes.get(s.leaf or "")
+    used = node.context_tokens if node and node.completed else None
+    window = f"{price.context:,} tokens" if price and price.context else "未知"
+    ctx = "尚无请求记录" if used is None else f"{used:,} tokens"
+    ctx += f" / 窗口 {window}"
+    if used is not None and price and price.context:
+        ctx += f" · {used / price.context:.1%}"
+    models = {n.model for n in st.nodes.values()} | {m for m, _ in st.summaries}
+    cost_note = "部分模型未计价" if any(s.pricing.find(m) is None for m in models) else "价格表估算"
+    mode = "探索（只读）" if graph.is_exploration(st, s.leaf) else "主干续写"
+    u = r.usage
+    rows = [
+        ("模型", spec),
+        ("提供商", s.vendor(spec) or "未指定"),
+        ("会话", f"{st.name or '未命名'} · {st.session_id}"),
+        ("目录", str(s.cwd)),
+        ("位置", f"{s.name(s.leaf)} · {mode} · 主干 {s.name(r.trunk)}"),
+        ("上下文", ctx),
+        ("待嫁接", f"{len(s.pending)} 个节点"),
+        ("累计用量", f"输入 {u.context:,} · 输出 {u.output:,} tokens"),
+        (
+            "缓存读取",
+            f"{u.cache_read:,} tokens"
+            + (f" · 命中 {u.cache_read / u.context:.1%}" if u.context else ""),
+        ),
+        ("会话费用", f"${r.total_cost:.4f}（{cost_note}）"),
+    ]
+    _, _, dim, bold, reset = s.palette()
+    width = max(get_cwidth(label) for label, _ in rows)
+    return [
+        f"\n{bold}kaipi {version('kaipi')} · 状态{reset}\n",
+        *(f"  {label}{' ' * (width - get_cwidth(label) + 2)}{value}" for label, value in rows),
+        f"\n  {dim}上下文为当前节点最近请求记录；待嫁接内容未计入。{reset}\n",
+    ]
+
+
 def cmd_ledger(s: Session) -> list[str]:
     GREEN, RED, DIM, BOLD, RESET = s.palette()
     r = ledger.report(s.log.state, s.pricing)
@@ -721,6 +764,15 @@ def pick_session(s: Session) -> str | None:
         typer.echo(f"  {i:>2}. {line}")
     pick = typer.prompt("序号（回车取消）", default=0, type=int, show_default=False)
     return rows[pick - 1][0].stem if 1 <= pick <= len(rows) else None
+
+
+def cmd_new(s: Session) -> list[str]:
+    """Save the old conversation and switch to an independent, freshly snapshotted log."""
+    previous = s.log
+    s.switch(s._start().path)
+    if not previous.state.nodes:
+        previous.path.unlink(missing_ok=True)
+    return ["已开始新对话。输入 /resume 可找回之前的对话。"]
 
 
 def cmd_resume(s: Session, ref: str) -> list[str]:
@@ -947,10 +999,12 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("restore", "<节点id>", "撤销归档"),
     ("trunk", "[pin <节点id>]", "显示主干，或把主干钉到某个节点"),
     ("rewind", "[节点id] [both|code|conversation]", "回退：上下键选节点，再选回退方式"),
+    ("status", "", "当前状态：模型、会话、上下文、用量与费用"),
     ("ledger", "", "总账：花费、各项 token、探索/嫁接/打断各省了多少"),
     ("canvas", "", "把会话搬到浏览器（画布里敲 /cli 搬回来）"),
     ("provider", "", "配置 API 提供商：地址、key、模型 id"),
     ("model", "", "换一个模型，下一句开始生效"),
+    ("new", "", "结束当前对话、清空显示，进入新对话；旧对话保留"),
     ("resume", "[对话id]", "接上这个目录里的旧对话；不带参数就列出来选"),
     ("rename", "<名字>", "给当前对话起个名字"),
     ("help", "", "显示这份清单"),
@@ -1070,6 +1124,12 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
             return cmd_trunk(s, args[1] if len(args) == 2 and args[0] == "pin" else None)
         case "ledger":
             return cmd_ledger(s)
+        case "status":
+            return cmd_status(s)
+        case "new":
+            if args:
+                raise typer.BadParameter("用法：/new（不带参数）")
+            return cmd_new(s)
         case "help":
             return cmd_help(s)
         case "resume" if args:
@@ -1089,6 +1149,11 @@ def slash(s: Session, argv: list[str]) -> bool:
     match name:
         case "quit" | "exit":
             return False
+        case "new":
+            out = verb(s, argv)
+            if sys.stdout.isatty():
+                typer.echo("\033[2J\033[3J\033[H", nl=False)
+            say(out or [])
         case "provider":
             cmd_provider()
         case "model":
@@ -1278,6 +1343,12 @@ def trunk_pin(node_id: str) -> None:
 @app.command("ledger")
 def ledger_cmd() -> None:
     say(cmd_ledger(_session(mutate=False)))
+
+
+@app.command("status")
+def status_cmd() -> None:
+    """show the current model, session, context usage and estimated cost."""
+    say(cmd_status(_session(mutate=False)))
 
 
 @app.command()

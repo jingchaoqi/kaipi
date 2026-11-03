@@ -233,6 +233,14 @@ in the terminal opens the canvas and closes the prompt; `/cli` on the canvas clo
 canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
+`/status` (also `kaipi status`) is a local, read-only overview shared by CLI and Canvas:
+version, selected next-turn model/provider, session, working directory, cursor and next-turn
+mode, pending graft count, cumulative tokens/cache reads and estimated session cost.
+Context usage is the current cursor node's last recorded request, compared with the
+selected model's window from pricing; it is not a next-request token estimate and excludes
+pending grafts. Empty sessions and unknown windows are labelled explicitly. Unpriced
+historical usage is marked in the cost line. It neither creates a turn nor calls a model.
+
 In the terminal's completion menu, Enter submits the selected slash command, or the
 first matching command when none is selected (so `/tr` submits `/tree`). An exact
 command is kept as typed. After a node-taking command and a space, Enter accepts
@@ -318,6 +326,15 @@ latest, `-r <id>` for a given one, `/resume` inside a session - never by acciden
 conversation can be named (`/rename`); the name is an event in its own log, so it folds
 like everything else and travels with the file.
 
+`/new` saves the current cursor, creates a fresh log with the selected model and a new
+snapshot of project instructions, and enters it in place. The old nonempty log remains
+available through `/resume`; an empty abandoned log is removed. No workspace files are
+changed. The new session starts at root with no nodes, grafts, name, usage or cost. The
+terminal clears its display/scrollback, queued inputs, attachment draft and activity state;
+Canvas clears its transcript, draft and view. Like other terminal commands, `/new` entered
+during a turn waits for that turn to finish before switching, then discards remaining
+queued inputs. Canvas rejects it while a turn is running.
+
 ### 7.1 Configuration is a conversation, not an export
 
 Two things have to be true before a turn can run: a provider with a key, and an active
@@ -342,6 +359,10 @@ Credentials go to `~/.config/kaipi/auth.toml`, mode 600, never into a project: a
 repository is a key in someone's clone. The environment still wins over the file, so a
 one-off export overrides a saved key without unsaving it. A missing key is refused with a
 sentence naming the command that fixes it, rather than by letting the vendor answer 401.
+Anthropic clients receive only the selected `api_key` SDK credential. Compatible
+gateways also receive a Bearer header through `default_headers`; it is not a second
+SDK auth mode. Unrelated Anthropic token/profile environment settings do not replace
+the explicitly selected provider key.
 
 The agent's bash is the one way a key could leave that file, so it is closed from both
 ends. Commands run without the variables a key can arrive in (every preset's

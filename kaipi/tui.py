@@ -869,6 +869,9 @@ def loop(s: cli.Session) -> str:
                     pending = t.turn(question, explore=True) + pending
                 elif not cli.slash(s, line[1:].split()):
                     return "quit"
+                elif line.split()[0] == "/new":
+                    pending.clear()
+                    t = Terminal(s)
             else:
                 pending = t.turn(line) + pending
         except (EOFError, KeyboardInterrupt):

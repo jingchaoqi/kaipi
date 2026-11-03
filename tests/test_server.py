@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from kaipi import cli, server
-from kaipi.model import Message, Usage
+from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 from tests.test_cli import Echo
 
@@ -125,6 +125,10 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
     out = call("/api/command", {"line": "/tree"})["output"]
     assert "trunk burden" in out and "\x1b" not in out
     assert "\x1b" not in call("/api/command", {"line": "/ledger"})["output"]
+    before = canvas.s.log.path.read_bytes()
+    status = call("/api/command", {"line": "/status"})["output"]
+    assert "会话费用" in status and "上下文" in status and "\x1b" not in status
+    assert canvas.s.log.path.read_bytes() == before
     # a verb that would ask on stdin must not wait there with the lock held
     assert "needs the terminal" in call("/api/command", {"line": "/provider"})["output"]
     assert "unknown command" in call("/api/command", {"line": "/nope"})["output"]
@@ -162,6 +166,33 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
     canvas.busy = True
     assert "error" in call("/api/turn", {"text": "x"})
     canvas.busy = False
+
+
+def test_new_on_canvas_preserves_history_and_rejects_switching_while_busy(srv) -> None:  # type: ignore[no-untyped-def]
+    canvas, call, _, _ = srv
+    call("/api/turn", {"text": "old question"})
+    _wait(canvas)
+    previous = canvas.s.log.path
+    payload = previous.read_bytes()
+    canvas.s.pending = [ReferenceEdge(src_id=canvas.s.leaf or "", dst_id="")]
+    canvas.busy = True
+    assert "error" in call("/api/command", {"line": "/new"})
+    canvas.busy = False
+    assert canvas.s.log.path == previous
+    assert call("/api/command", {"line": "/new nope"})["output"].startswith("error:")
+    assert canvas.s.log.path == previous
+
+    assert "已开始新对话" in call("/api/command", {"line": "/new"})["output"]
+    state = call("/api/state")
+    assert state["session"] != previous.stem and not state["nodes"]
+    assert state["leaf"] is None and not state["pending"] and state["cost"] == 0
+    assert previous.read_bytes() == payload
+    call("/api/turn", {"text": "new question"})
+    _wait(canvas)
+    node = next(iter(canvas.s.log.state.nodes.values()))
+    assert node.parent_id is None and "old question" not in str(node.payload)
+    call("/api/command", {"line": f"/resume {previous.stem}"})
+    assert call("/api/state")["session"] == previous.stem
 
 
 def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]

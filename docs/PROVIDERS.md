@@ -116,7 +116,10 @@ quick retries are not enough on their own.
   are priced 0 in `pricing.toml` and the ledger reports tokens only. Model ids come from
   `https://opencode.ai/zen/go/v1/models` (kimi-k3, deepseek-v4-pro, glm-5.3, gpt-5.6-luna,
   minimax-m3, qwen3.8-max, …). Claude models on Zen go through `opencode-anthropic`.
-- **Anthropic-compatible gateways** (`*-anthropic`): kaipi still sends its four
+- **Anthropic-compatible gateways** (`*-anthropic`): the client passes only `api_key`
+  as an SDK credential, with `Authorization: Bearer` in the ordinary request headers.
+  Passing the same key as both `api_key` and `auth_token` is rejected by newer SDKs.
+  kaipi still sends its four
   `cache_control` breakpoints and reads Anthropic-shaped usage, but omits the
   preserved-thinking beta header and `thinking.block_binding`, which only Anthropic
   understands; the gateway's own thinking default applies.
