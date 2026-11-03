@@ -46,7 +46,7 @@ kaipi 能阅读代码、修改文件、执行命令和运行测试。你可以�
 从 [Releases](https://github.com/jingchaoqi/kaipi/releases/latest) 下载 `.whl` 安装包，然后执行：
 
 ```sh
-uv tool install --force ./kaipi-0.1.2-py3-none-any.whl
+uv tool install --force ./kaipi-0.1.3-py3-none-any.whl
 cd /path/to/your/project
 kaipi
 ```
