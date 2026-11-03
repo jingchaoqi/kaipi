@@ -15,7 +15,7 @@ import typer
 from prompt_toolkit.utils import get_cwidth
 from pydantic import BaseModel, Field
 
-from kaipi import agent, context, graph, guard, ledger, providers, summarize, titles
+from kaipi import agent, context, graph, guard, ledger, providers, summarize, titles, update
 from kaipi.model import (
     Depth,
     NodeArchived,
@@ -1016,6 +1016,8 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("trunk", "[pin <节点id>]", "显示主干，或把主干钉到某个节点"),
     ("rewind", "[节点id] [both|code|conversation]", "回退：上下键选节点，再选回退方式"),
     ("status", "", "当前状态：模型、会话、上下文、用量与费用"),
+    ("version", "", "显示当前 kaipi 版本"),
+    ("update", "", "检查并安装新版，完成后接回当前会话"),
     ("ledger", "", "总账：花费、各项 token、探索/嫁接/打断各省了多少"),
     ("canvas", "", "把会话搬到浏览器（画布里敲 /cli 搬回来）"),
     ("provider", "", "配置 API 提供商：地址、key、模型 id"),
@@ -1083,6 +1085,7 @@ def run_surfaces(s: Session, surface: str) -> None:
     """Alternate between the two surfaces until the user quits. Exactly one is open."""
     from kaipi.server import serve
 
+    upgrade: update.Plan | None = None
     try:
         while True:
             if surface == "canvas":
@@ -1097,11 +1100,15 @@ def run_surfaces(s: Session, surface: str) -> None:
                     f"{DIM}canvas opened in your browser; this prompt is closed until the"
                     f" canvas sends /cli (or press Ctrl-C here){RESET}"
                 )
+    except update.Ready as ready:
+        upgrade = ready.plan
     finally:
         s.save()
         release_lock(s.cwd)
-        if not s.log.state.nodes:  # a conversation nobody had: leave no file behind
+        if not s.log.state.nodes and upgrade is None:
             s.log.path.unlink(missing_ok=True)
+    if upgrade:
+        update.install(upgrade, resume=s.log.path.stem)
 
 
 def verb(s: Session, argv: list[str]) -> list[str] | None:
@@ -1142,6 +1149,8 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
             return cmd_ledger(s)
         case "status":
             return cmd_status(s)
+        case "version":
+            return [f"kaipi {update.current()}"]
         case "new":
             if args:
                 raise typer.BadParameter("用法：/new（不带参数）")
@@ -1174,6 +1183,12 @@ def slash(s: Session, argv: list[str]) -> bool:
             cmd_provider()
         case "model":
             cmd_model()
+        case "update":
+            if args:
+                raise typer.BadParameter("用法：/update（不带参数）")
+            plan = update.prepare(typer.echo)
+            if plan:
+                raise update.Ready(plan)
         case "explore":
             cli_turn(s, " ".join(args), explore=True)
         case "resume" if not args:
@@ -1274,6 +1289,25 @@ def main(ctx: typer.Context, cont: ContinueOpt = False, resume: ResumeOpt = None
     if ctx.invoked_subcommand is None:
         onboard()
         run_surfaces(_open(cont, resume), "cli")
+
+
+@app.command()
+def version() -> None:
+    """show the installed kaipi version."""
+    typer.echo(f"kaipi {update.current()}")
+
+
+@app.command("update")
+def update_command() -> None:
+    """check GitHub Releases and update a uv tool installation."""
+    refuse_if_open(Path.cwd())
+    try:
+        plan = update.prepare(typer.echo)
+        if plan:
+            update.install(plan)
+    except (OSError, ValueError) as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
 
 
 @app.command()

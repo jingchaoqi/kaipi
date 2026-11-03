@@ -326,6 +326,29 @@ latest, `-r <id>` for a given one, `/resume` inside a session - never by acciden
 conversation can be named (`/rename`); the name is an event in its own log, so it folds
 like everything else and travels with the file.
 
+Every release must support direct, lossless upgrades from all earlier official releases;
+downgrades are not supported. Preserve saved history, attachment bytes, usage, configuration,
+cursor and Git snapshot references. Reading never rewrites old logs; continuing only appends.
+If a format change needs conversion, handle it at the storage boundary, retain the original
+and test the old format. Unknown events must not be silently skipped. Price-derived estimates
+still use the selected pricing table; they are not frozen billing records.
+
+`version` / `/version` read installed package metadata locally. `update` / `/update`
+query the public GitHub latest-release endpoint and show both versions and the release URL.
+The tty starts a daemon check, cached for 24 hours under the user cache directory, with
+one notice per release; failures stay silent. `KAIPI_NO_UPDATE_CHECK=1` disables automatic
+checks, while explicit updates always check again. No project data or model credentials
+are included in these requests. Only newer stable releases can be installed automatically.
+The updater accepts only an identifiable uv tool installation; other installations get
+manual instructions. Download and SHA-256 verification finish before leaving the session.
+Queued messages or attachment/text drafts prevent the terminal handoff. Once ready, save
+the cursor, release the surface lock, then replace the process with a stdlib-only installer.
+It targets the same uv tool directory and entrypoint and resumes the exact session id in
+the original working directory. An empty session is retained during this handoff. Failed
+installation prints a retry command; history and configuration are never rewritten by
+the updater. The verified wheel stays cached because uv records it as its install source.
+Canvas users return with `/cli` before updating.
+
 After the first successful root turn, an unnamed conversation gets a short title from
 an independent model request using only the opening question's first 4,000 characters.
 It uses the same-provider summary model (or the active model), with no project prompt,

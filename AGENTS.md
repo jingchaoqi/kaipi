@@ -7,6 +7,8 @@
   library is around 3.7k lines (`wc -l kaipi/*.py kaipi/providers/*.py`); if a change makes
   it much larger, that is worth a second look rather than a rule violation.
 - `docs/CONCEPTS.md` is the constitution. Change it in the same commit as any semantic change.
+- Preserve direct, lossless upgrades from every prior official release; downgrades are not
+  supported. Keep old data readable and add regression tests when its format changes.
 - No agent frameworks, no MCP, no sub-agents, no plugin system. One tool (`bash`), one
   provider interface (four wire protocols behind it, see `docs/PROVIDERS.md`), one storage
   format (JSONL event log).

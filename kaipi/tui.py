@@ -40,7 +40,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, attachments, cli, context, graph, ledger
+from kaipi import agent, attachments, cli, context, graph, ledger, update
 from kaipi.store import kaipi_dir
 
 FPS = 60
@@ -774,13 +774,15 @@ class Terminal:
             FormattedText([("", "\n"), ("bg:#30343b fg:#f3f4f6", panel), ("", "\n")])
         )
 
-    def prompt(self) -> str:
+    def prompt(self, *, default: str = "") -> str:
         def start_fade() -> None:
             if self.fading():
                 get_app().create_background_task(self.fade_out(get_app()))
 
         with patch_stdout(raw=True):
-            line = self.collect_input(self.session.prompt(pre_run=start_fade).strip())
+            line = self.collect_input(
+                self.session.prompt(default=default, pre_run=start_fade).strip()
+            )
         if line:
             self.echo(line)
         return line
@@ -901,20 +903,34 @@ class Terminal:
 def loop(s: cli.Session) -> str:
     """The tty loop. Returns "canvas" when the user hands the session to the canvas."""
     t = Terminal(s)
+    update.background(lambda text: print(f"\n{cli.DIM}{text}{cli.RESET}\n"))
     pending: list[str] = []
+    draft = ""
     while True:
         try:
+            from_queue = bool(pending)
             if pending:
                 line = pending.pop(0)
                 t.echo(line)
             else:
-                line = t.prompt()
+                line = t.prompt(default=draft) if draft else t.prompt()
+                draft = ""
         except (EOFError, KeyboardInterrupt):
             return "quit"
         if not line:
             continue
         try:
             if line.startswith("/"):
+                if line.split()[0] == "/update" and (
+                    pending
+                    or t.attachments
+                    or t._pasting
+                    or (from_queue and t.session.default_buffer.text.strip() not in ("", line))
+                ):
+                    if from_queue and t.session.default_buffer.text.strip() != line:
+                        draft = t.session.default_buffer.text
+                    print("还有排队消息或附件草稿，请处理完后再输入 /update。")
+                    continue
                 if line.split()[0] in ("/canvas", "/cli"):
                     s.save()
                     return "canvas"
