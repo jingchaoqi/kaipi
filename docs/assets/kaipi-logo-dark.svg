@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">kaipi — 树状上下文与探索分支</title>
+  <g fill="none" stroke="#E8F4EF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M60 108V48"/>
+    <path d="M60 82H38A12 12 0 0 1 26 70V53"/>
+  </g>
+  <path d="M60 64H88A12 12 0 0 0 100 52V45" fill="none" stroke="#89DDBD" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="60" cy="30" r="11" fill="none" stroke="#E8F4EF" stroke-width="8"/>
+  <circle cx="26" cy="45" r="8" fill="#E8F4EF"/>
+  <path d="M100 7L104.5 17.5L115 22L104.5 26.5L100 37L95.5 26.5L85 22L95.5 17.5Z" fill="#89DDBD"/>
+</svg>

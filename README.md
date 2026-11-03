@@ -1,11 +1,29 @@
-# kaipi（开辟）
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/kaipi-logo-dark.svg">
+    <img src="docs/assets/kaipi-logo.svg" alt="kaipi 标志：树状上下文与探索分支" width="64" height="64" align="absmiddle">
+  </picture>
+  &nbsp;kaipi（开辟）
+</h1>
 
-**用会话树管理上下文的命令行编程 Agent。**
+<p align="center"><strong>用会话树管理上下文的命令行编程 Agent。</strong></p>
+
+<p align="center">
+  <a href="https://github.com/jingchaoqi/kaipi/releases/latest"><img src="https://img.shields.io/github/v/release/jingchaoqi/kaipi?style=flat-square&amp;label=release&amp;color=58B99C" alt="最新版本"></a>
+  <a href="https://github.com/jingchaoqi/kaipi/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jingchaoqi/kaipi/ci.yml?branch=master&amp;style=flat-square&amp;label=build" alt="构建状态"></a>
+  <a href="#快速开始"><img src="https://img.shields.io/badge/python-%E2%89%A53.11-627D6D?style=flat-square" alt="Python ≥3.11"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-627D6D?style=flat-square" alt="MIT 许可证"></a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#分支工作流">分支工作流</a> ·
+  <a href="https://github.com/jingchaoqi/kaipi/releases/latest">下载</a> ·
+  <a href="docs/CONCEPTS.md">设计原理</a>
+</p>
 
 kaipi 能阅读代码、修改文件、执行命令和运行测试。你可以从任意一轮分支探索，
 再把有用的结论带回主线，让后续对话保持精简。
-
-[快速开始](#快速开始) · [分支工作流](#分支工作流) · [下载](https://github.com/jingchaoqi/kaipi/releases/latest) · [设计原理](docs/CONCEPTS.md)
 
 ## 核心亮点
 
