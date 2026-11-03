@@ -172,6 +172,13 @@ class SessionRenamed(_Ev):
     name: str
 
 
+class SessionTitleGenerated(_Ev):
+    type: Literal["session_title_generated"] = "session_title_generated"
+    name: str
+    model: str
+    usage: Usage = Field(default_factory=Usage)
+
+
 class SummaryGenerated(_Ev):
     type: Literal["summary_generated"] = "summary_generated"
     node_id: str
@@ -191,6 +198,7 @@ Event = Annotated[
     | NodeTombstoned
     | TrunkPinned
     | SessionRenamed
+    | SessionTitleGenerated
     | SummaryGenerated,
     Field(discriminator="type"),
 ]

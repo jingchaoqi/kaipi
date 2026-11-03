@@ -268,17 +268,17 @@ class Branch(BaseModel):
 
 class Report(BaseModel):
     total_cost: float
-    usage: Usage  # nodes + graft summaries: everything the API billed
+    usage: Usage  # nodes + summaries + titles: everything the API billed
     trunk: str | None
     trunk_burden: int
     branches: list[Branch]
 
 
 def total_cost(state: State, pricing: Pricing) -> float:
-    """Every dollar the session spent: the turns plus the graft summaries, which are
+    """Every dollar the session spent: the turns plus summaries and titles, which are
     charged to no node but are real money."""
     return sum(pricing.price(n.model).cost(n.usage) for n in state.nodes.values()) + sum(
-        pricing.price(m).cost(u) for m, u in state.summaries
+        pricing.price(m).cost(u) for m, u in state.summaries + state.titles
     )
 
 
@@ -286,7 +286,7 @@ def report(state: State, pricing: Pricing) -> Report:
     total = Usage()
     for n in state.nodes.values():
         total = total + n.usage
-    for _, usage in state.summaries:
+    for _, usage in state.summaries + state.titles:
         total = total + usage
     cost = total_cost(state, pricing)
     t = graph.trunk(state)

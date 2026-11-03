@@ -12,6 +12,7 @@ import asyncio
 import threading
 import time
 from collections.abc import Callable, Iterable
+from functools import partial
 from io import StringIO
 from queue import Empty, SimpleQueue
 from typing import Any
@@ -34,7 +35,7 @@ from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from prompt_toolkit.widgets import Label
+from prompt_toolkit.widgets import Label, RadioList
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
@@ -215,6 +216,59 @@ def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
 
 def pick_rewind(s: cli.Session) -> str | None:
     return pick_node(s, rewind=True)
+
+
+def pick_session(s: cli.Session) -> str | None:
+    """An inline, scrolling session menu; opening or cancelling it changes nothing."""
+    rows = cli.session_rows(s.cwd, s.log.path.name)
+    if not rows:
+        print("这个目录里还没有对话")
+        return None
+
+    def label(line: str) -> str:
+        return short_line(line, max(1, get_app().output.get_size().columns - 5))
+
+    choices: RadioList[str] = RadioList(
+        [(p.stem, partial(label, line)) for p, line in rows],
+        default=s.log.path.stem,
+        select_on_focus=True,
+        open_character="",
+        select_character="▸",
+        close_character="",
+        show_cursor=False,
+    )
+    kb = KeyBindings()
+
+    @kb.add("enter", eager=True)
+    def accept(event: Any) -> None:
+        event.app.exit(result=choices.current_value)
+
+    @kb.add("escape", eager=True)
+    @kb.add("c-c")
+    @kb.add("c-d")
+    def cancel(event: Any) -> None:
+        event.app.exit(result=None)
+
+    app: Application[str | None] = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    Label("这个目录里的对话"),
+                    HSplit([choices], height=Dimension(max=10)),
+                    Label("↑↓ 选择 · Enter 进入 · Esc 取消"),
+                ]
+            ),
+            focused_element=choices,
+        ),
+        key_bindings=kb,
+        style=Style.from_dict({"radio-selected": "bg:#30343b fg:#f3f4f6 bold"}),
+        full_screen=False,
+        erase_when_done=True,
+    )
+    try:
+        return app.run()
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 class SlashCompleter(Completer):
@@ -623,6 +677,8 @@ class Terminal:
 
     def hook(self, kind: str, text: str) -> None:
         if kind == "phase":
+            if text == "生成标题":
+                self.flush_answer()
             self.phase = text
             self._intent = ""
         else:

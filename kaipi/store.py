@@ -21,6 +21,7 @@ from kaipi.model import (
     ReferenceEdge,
     SessionRenamed,
     SessionStarted,
+    SessionTitleGenerated,
     SummaryGenerated,
     TrunkPinned,
     Usage,
@@ -31,7 +32,7 @@ _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 
 class State(BaseModel):
     session_id: str = ""
-    name: str = ""  # what /rename gave it; empty until then
+    name: str = ""  # generated title or explicit /rename
     cwd: str = ""
     model: str = ""
     system_prompt: str = ""
@@ -41,6 +42,7 @@ class State(BaseModel):
     next_seq: int = 0
     # (model, usage) per generated graft summary: real spend that belongs to no node
     summaries: list[tuple[str, Usage]] = Field(default_factory=list)
+    titles: list[tuple[str, Usage]] = Field(default_factory=list)
 
     def label(self, node_id: str | None) -> str:
         """What people see and type: N1, N2, ... in creation order. The ULID stays the
@@ -105,6 +107,10 @@ def fold(events: list[Event]) -> State:
                 s.trunk_pin = ev.node_id
             case SessionRenamed():
                 s.name = ev.name
+            case SessionTitleGenerated():
+                if not s.name:
+                    s.name = ev.name
+                s.titles.append((ev.model, ev.usage))
             case SummaryGenerated():
                 s.nodes[ev.node_id].summary = ev.summary
                 s.summaries.append((ev.model, ev.usage))
