@@ -12,6 +12,7 @@ dependencies = [
     # that path, so a user without a proxy pays nothing but the download.
     "httpx[socks]>=0.28",
     "pydantic>=2.11",
+    "packaging>=24",
     "pillow>=11",
     "pillow-heif>=1.0",
     "markitdown[docx,xlsx,xls,pptx]>=0.1.9,<0.2",

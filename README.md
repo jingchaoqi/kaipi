@@ -46,7 +46,7 @@ kaipi 能阅读代码、修改文件、执行命令和运行测试。你可以�
 从 [Releases](https://github.com/jingchaoqi/kaipi/releases/latest) 下载 `.whl` 安装包，然后执行：
 
 ```sh
-uv tool install --force ./kaipi-*.whl
+uv tool install --force ./kaipi-0.1.2-py3-none-any.whl
 cd /path/to/your/project
 kaipi
 ```
@@ -58,7 +58,11 @@ kaipi
 ```
 
 后续用 `kaipi -c` 继续最近的会话，或用 `kaipi -r <会话id>` 打开指定会话。
-升级时下载新版安装包，执行同一条安装命令即可。
+用 `kaipi version` 或 `/version` 查看版本；用 `kaipi update` 更新，或在对话中输入
+`/update`，校验安装包后更新并接回原会话（支持 uv tool 安装）。终端每天后台检查一次新版，
+提示当前版本、最新版本和 Release 链接；设置 `KAIPI_NO_UPDATE_CHECK=1` 可关闭自动检查。
+支持从任意历史正式版直接升级，保留已保存的会话、附件、配置和回退快照，不保证降级兼容。
+旧版尚无更新命令时，先下载新版安装包，执行 `uv tool install --force <安装包.whl>` 后运行 `kaipi -c`。
 
 ## 图片与文件
 

@@ -76,6 +76,8 @@ def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No test may read - or write - the developer's real ~/.config/kaipi, which holds
     their API keys and decides which model kaipi would pick."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("KAIPI_NO_UPDATE_CHECK", "1")
 
 
 @pytest.fixture(autouse=True)
