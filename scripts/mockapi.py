@@ -38,6 +38,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
+from kaipi.titles import PROMPT as TITLE_PROMPT
+
 
 class Rejected(Exception):
     """A request that a real endpoint would refuse."""
@@ -167,6 +169,11 @@ class Turn:
 
 
 class MockAPI:
+    def act(self, system: str, turn: Turn) -> dict[str, Any]:
+        if system == TITLE_PROMPT:
+            return {"text": "Investigate rate limit"}
+        return self.brain.act(turn)
+
     def __init__(self) -> None:
         self.cache = PrefixCache()
         self.signer = Signer()
@@ -183,6 +190,8 @@ class MockAPI:
         so an unrelated one-shot request on the same model - a graft summary, say - is its
         own conversation and merely misses the cache, as it would on a real endpoint."""
         key = f"{model}\x00{digest(first_turn)}"
+        if system == TITLE_PROMPT:  # independent metadata request, not a history rewrite
+            return
         prior = self.systems.setdefault(key, system)
         if prior != system:
             raise Rejected(
@@ -273,7 +282,7 @@ class MockAPI:
 
         self.carries_reasoning = True
         turn = turn_from(_events_from_anthropic(msgs))
-        action = self.brain.act(turn)
+        action = self.act(system[0]["text"], turn)
         sig = self.signer.sign([system, bare, []])
         content: list[dict[str, Any]] = [
             {"type": "thinking", "thinking": "", "signature": sig},
@@ -346,7 +355,7 @@ class MockAPI:
         read, _ = self.cache.lookup(_incremental(body.get("instructions"), items))
         self.carries_reasoning = True
         turn = turn_from(_events_from_openai(items))
-        action = self.brain.act(turn)
+        action = self.act(str(body.get("instructions", "")), turn)
         enc = self.signer.sign(items)
         output: list[dict[str, Any]] = [
             {
@@ -408,7 +417,7 @@ class MockAPI:
         read, _ = self.cache.lookup(_incremental(sysi, bare))
         self.carries_reasoning = True
         turn = turn_from(_events_from_gemini(contents))
-        action = self.brain.act(turn)
+        action = self.act(sysi, turn)
         sig = self.signer.sign([sysi, bare, []])
         if "command" in action:
             parts = [
@@ -446,7 +455,7 @@ class MockAPI:
         self.check_tool_pairing(calls, results)
         running = tokens(json.dumps(msgs, ensure_ascii=False))
         read, _ = self.cache.lookup(_incremental(msgs[0], msgs[1:]))
-        action = self.brain.act(turn_from(_events_from_chat(msgs)))
+        action = self.act(str(msgs[0]["content"]), turn_from(_events_from_chat(msgs)))
         if "command" in action:
             message = {
                 "role": "assistant",

@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from kaipi import cli, context, graph, guard, ledger  # noqa: E402
+from kaipi import cli, context, graph, guard, ledger, titles  # noqa: E402
 from kaipi.model import Message, NodeArchived, ReferenceEdge, Usage  # noqa: E402
 from kaipi.providers import Provider, Reply  # noqa: E402
 
@@ -97,7 +97,8 @@ class Tally:
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
         r = self.inner.complete(system, messages, cache_points)
         self.usage = self.usage + r.usage
-        self.replies.append(r)
+        if system != titles.PROMPT:
+            self.replies.append(r)  # title reasoning belongs to metadata, not turn history
         u = r.usage
         print(
             f"    {DIM}api: uncached {u.input_uncached} write {u.cache_write} "
@@ -132,6 +133,12 @@ class FakeProvider:
         self.prev = 0  # payload size of the previous request: what a real cache would serve
 
     def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+        if system == titles.PROMPT:
+            return Reply(
+                content=[{"type": "text", "text": "Investigate rate limit"}],
+                stop_reason="end_turn",
+                usage=Usage(input_uncached=30, output=5),
+            )
         self.step += 1
         blob = json.dumps(messages, ensure_ascii=False)
         # GUARD_TEXT, not GUARD_TAG: the release notice carries the same tag and says the

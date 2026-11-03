@@ -438,7 +438,7 @@ def test_switching_the_model_takes_effect_on_the_next_turn(
     monkeypatch.setattr(cli.Session, "_build", build)
     r = CliRunner()
     assert r.invoke(cli.app, ["-c"], input="first\n/quit\n").exit_code == 0
-    assert built == ["claude-opus-5"]
+    assert built == ["claude-opus-5", "claude-haiku-4-5"]  # independent opening title
 
     monkeypatch.setenv("KAIPI_MODEL", "kimi-anthropic-cn/kimi-k2.7-code")
     out = r.invoke(cli.app, ["-c"], input="second\n/quit\n")

@@ -326,6 +326,27 @@ latest, `-r <id>` for a given one, `/resume` inside a session - never by acciden
 conversation can be named (`/rename`); the name is an event in its own log, so it folds
 like everything else and travels with the file.
 
+After the first successful root turn, an unnamed conversation gets a short title from
+an independent model request using only the opening question's first 4,000 characters.
+It uses the same-provider summary model (or the active model), with no project prompt,
+history, attachment contents or tool execution. The answer is displayed before this
+request; the activity line says that a title is being generated. Failure keeps the
+opening-question preview and never fails the completed turn. An explicit name is never
+overwritten. The title and its model/usage are recorded in `session_title_generated`;
+even an empty/refused response is billed. This metadata never enters model context or
+adds a node. `/rename` can replace it. Old logs remain readable without title events.
+The generator lives in `titles.py`, separate from graft summarization. Its boundary is
+plain opening text plus a provider in, title/usage metadata out: it receives no Session,
+Log, State or context builder and cannot persist messages. Only the caller appends the
+metadata event. Naming instructions, title responses and title metadata are excluded
+from trunk/branch history, all graft depths, graft summaries and subsequent model input.
+
+In the terminal, bare `/resume` opens an inline menu of this directory's conversations,
+newest first. The current conversation is selected initially; Up/Down moves a highlighted
+row, Enter resumes it, and Esc cancels without changes. The menu scrolls within ten rows,
+retains title, short ID, time and turn count, and truncates long rows to terminal width.
+Plain/piped input retains the numbered fallback; `/resume <id>` still works directly.
+
 `/new` saves the current cursor, creates a fresh log with the selected model and a new
 snapshot of project instructions, and enters it in place. The old nonempty log remains
 available through `/resume`; an empty abandoned log is removed. No workspace files are

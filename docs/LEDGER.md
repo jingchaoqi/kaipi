@@ -58,6 +58,11 @@ to `leaf` and the turn goes on. That spend belongs to no node, so it is recorded
 model's rate. `scripts/smoke.py` checks that the ledger totals equal the sum of what the
 API reported, which is what caught this being missing.
 
+The opening conversation title uses the same model-selection rule, in a separate request
+with only the first question. Its usage is stored on `session_title_generated` and included
+in session totals, even if the response provides no usable title. It contributes no node,
+context burden or projected savings; manually renaming a conversation costs no tokens.
+
 ## Savings: what the shape of the session is worth
 
 `kaipi ledger` and both status bars report savings from the three things kaipi does that a

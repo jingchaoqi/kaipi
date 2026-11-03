@@ -15,7 +15,7 @@ import typer
 from prompt_toolkit.utils import get_cwidth
 from pydantic import BaseModel, Field
 
-from kaipi import agent, context, graph, guard, ledger, providers, summarize
+from kaipi import agent, context, graph, guard, ledger, providers, summarize, titles
 from kaipi.model import (
     Depth,
     NodeArchived,
@@ -656,7 +656,7 @@ def cmd_status(s: Session) -> list[str]:
     ctx += f" / 窗口 {window}"
     if used is not None and price and price.context:
         ctx += f" · {used / price.context:.1%}"
-    models = {n.model for n in st.nodes.values()} | {m for m, _ in st.summaries}
+    models = {n.model for n in st.nodes.values()} | {m for m, _ in st.summaries + st.titles}
     cost_note = "部分模型未计价" if any(s.pricing.find(m) is None for m in models) else "价格表估算"
     mode = "探索（只读）" if graph.is_exploration(st, s.leaf) else "主干续写"
     u = r.usage
@@ -757,7 +757,11 @@ def session_rows(cwd: Path, current: str = "") -> list[tuple[Path, str]]:
 
 
 def pick_session(s: Session) -> str | None:
-    """`/resume` without an id, in the terminal: a numbered list to choose from."""
+    """Use the keyboard menu on a tty, with a numbered fallback for plain input."""
+    if sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("KAIPI_PLAIN"):
+        from kaipi.tui import pick_session as picker
+
+        return picker(s)
     rows = session_rows(s.cwd, s.log.path.name)
     typer.echo(f"{BOLD}这个目录里的对话{RESET}")
     for i, (_, line) in enumerate(rows, 1):
@@ -884,6 +888,18 @@ def run_input(
         s.log.append(TrunkPinned(node_id=nid))  # extending the pinned leaf moves the pin
     s.leaf = nid
     n = s.log.state.nodes[nid]
+    if (
+        n.parent_id is None
+        and sum(node.completed for node in s.log.state.nodes.values()) == 1
+        and not s.log.state.name
+        and not s.log.state.titles
+        and not (stop and stop.is_set())
+    ):
+        try:
+            hook("phase", "生成标题")
+            s.log.append(titles.generate(str(text), s.cheap))
+        except Exception:  # noqa: BLE001 - optional metadata must never fail a completed turn
+            pass
     cost = s.pricing.price(n.model).cost(n.usage)
     kind = "exploration" if exploration else "trunk"
     hook(
@@ -1005,7 +1021,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("provider", "", "配置 API 提供商：地址、key、模型 id"),
     ("model", "", "换一个模型，下一句开始生效"),
     ("new", "", "结束当前对话、清空显示，进入新对话；旧对话保留"),
-    ("resume", "[对话id]", "接上这个目录里的旧对话；不带参数就列出来选"),
+    ("resume", "[对话id]", "接上旧对话；不带参数用上下键选择，回车进入"),
     ("rename", "<名字>", "给当前对话起个名字"),
     ("help", "", "显示这份清单"),
     ("quit", "", "结束（/exit 也一样）"),
