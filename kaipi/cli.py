@@ -6,16 +6,29 @@ import json
 import os
 import sys
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from prompt_toolkit.formatted_text import ANSI, fragment_list_width, to_formatted_text
 from prompt_toolkit.utils import get_cwidth
 from pydantic import BaseModel, Field
 
-from kaipi import agent, context, graph, guard, ledger, providers, summarize, titles, update
+from kaipi import (
+    agent,
+    context,
+    graph,
+    guard,
+    ledger,
+    providers,
+    settings,
+    summarize,
+    titles,
+    update,
+)
 from kaipi.model import (
     Depth,
     NodeArchived,
@@ -293,6 +306,9 @@ class Session:
         """The bar both surfaces show: where you are, what you are using, what it has cost
         and what the shape of the session has saved. Everything but the path is a number
         worth reading, so the path is what yields when the terminal is narrow."""
+        fields = settings.statusline()
+        if not any(fields.values()):
+            return ""
         st, spec = self.log.state, self.wanted_model()
         price = self.pricing.price(spec)
         burden = ledger.trunk_burden(st)
@@ -305,22 +321,48 @@ class Session:
         tokens = sum(t for t, _ in saved.values())
         money = sum(c for _, c in saved.values())
         who, model = self.pricing.split(spec)
-        spent = f"context {window}  spent ${ledger.total_cost(st, self.pricing):.4f}"
-        long, short_ = f"saved {ledger.fmt(tokens)}/turn = ${money:.4f}", f"saved ${money:.4f}"
+        spent = "  ".join(
+            text
+            for key, text in (
+                ("context", f"context {window}"),
+                ("spent", f"spent ${ledger.total_cost(st, self.pricing):.4f}"),
+            )
+            if fields[key]
+        )
+        figures = []
+        if fields["saved_tokens"]:
+            figures.append(f"{ledger.fmt(tokens)}/turn")
+        if fields["saved_cost"]:
+            figures.append(f"${money:.4f}")
+        long = "saved " + " = ".join(figures) if figures else ""
+        short_ = f"saved ${money:.4f}" if fields["saved_cost"] else long
 
         def bar(where: str, figure: str) -> str:
-            head = f"{who}/{model}  " + (f"{DIM}{where}{RESET}  " if where else "")
-            return f"{head}{spent}  {GREEN}{figure}{RESET}"
+            head = "/".join(
+                text for key, text in (("provider", who), ("model", model)) if fields[key]
+            )
+            return "  ".join(
+                part
+                for part in (
+                    head,
+                    f"{DIM}{where}{RESET}" if where else "",
+                    spent,
+                    f"{GREEN}{figure}{RESET}" if figure else "",
+                )
+                if part
+            )
 
         def visible(text: str) -> int:
-            return len(text) - 9 * text.count(RESET)  # the escapes take no columns
+            return fragment_list_width(to_formatted_text(ANSI(text)))
 
         # Narrower than everything fits: give up the path first, then the per-turn figure.
         # A number that is not on screen is worth less than a path that is not.
-        name = f"{st.name} · " if st.name else ""
+        name = st.name if fields["session"] else ""
+        available = width - visible(bar(name, long)) - (3 if name else 2)
+        directory = _home(self.cwd, max(12, available)) if fields["directory"] else ""
         for where, figure in (
-            (name + _home(self.cwd, max(12, width - 86)), long),
-            (name.rstrip(" ·"), long),
+            (" · ".join(part for part in (name, directory) if part), long),
+            (name, long),
             ("", long),
             ("", short_),
         ):
@@ -551,95 +593,16 @@ def cmd_rewind(s: Session, ref: str, mode: str) -> list[str]:
     return out
 
 
-def cmd_provider() -> None:
-    """Pick a vendor, confirm its endpoint, paste a key: the three things that otherwise
-    have to be exported by hand every session. Regional endpoints differ (Moonshot and
-    Z.ai each have a .cn and an international one), so the URL is always editable."""
-    from kaipi.providers import BUILTIN, auth, parse_models, save_auth
+def cmd_provider() -> bool:
+    from kaipi import configuration
 
-    current = auth()
-    done = current.get("providers", {})
-    if done:
-        typer.echo(f"{BOLD}已配置的提供商{RESET}")
-        for n, saved in done.items():
-            models = ", ".join(saved.get("models", [])) or "(还没填模型)"
-            typer.echo(f"   · {n:<22} {DIM}{saved.get('base_url', '')}  {models}{RESET}")
-        typer.echo(f"{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}")
-
-    names = list(BUILTIN)
-    typer.echo(f"{BOLD}选择 API 提供商{RESET}")
-    for i, n in enumerate(names, 1):
-        cfg = BUILTIN[n]
-        mark = " (已配置)" if n in done else ""
-        url = cfg.base_url or "(官方默认)"
-        typer.echo(f"  {i:>2}. {n:<22} {DIM}{cfg.api:<17} {url}{RESET}{mark}")
-    pick = typer.prompt("序号", type=int)
-    if not 1 <= pick <= len(names):
-        raise typer.BadParameter(f"序号要在 1..{len(names)} 之间")
-    name = names[pick - 1]
-    cfg = BUILTIN[name]
-
-    saved = done.get(name, {})
-    base = typer.prompt(
-        "API 地址（不同地区可能不同，回车接受）",
-        default=saved.get("base_url") or cfg.base_url or "https://api.anthropic.com",
-    )
-    saved_key = saved.get("api_key", "")
-    key = typer.prompt(
-        f"{cfg.api_key_env} 的 key" + ("（回车保留已存的）" if saved_key else ""),
-        hide_input=True,
-        default="" if saved_key else None,
-        show_default=False,
-    ).strip()
-    known = [
-        m.removeprefix(f"{pr.provider}/")
-        for m, pr in ledger.Pricing.load().models.items()
-        if pr.provider in {name, cfg.model_catalog}
-    ]
-    if known:
-        typer.echo(f"{DIM}价格表里这个提供商的模型：{', '.join(known)}{RESET}")
-    defaults = known or saved.get("models", [])
-    listed = typer.prompt(
-        "你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔）"
-        if defaults
-        else "你要用的 model id（请手动输入，逗号分隔）",
-        default=", ".join(defaults),
-    )
-    picked = parse_models(listed)
-
-    path = save_auth(name, base.strip().rstrip("/"), key, picked)
-    typer.echo(f"{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}")
-    typer.echo(f"{DIM}临时想换 key，export {cfg.api_key_env} 仍然优先于这里{RESET}")
-    typer.echo(f"{DIM}接下来用 /model 选一个模型启用{RESET}")
+    return configuration.run(configuration.provider)
 
 
-def cmd_model() -> None:
-    """Switch models across every provider you configured. One list, so moving from a
-    Kimi model to a Claude one is the same gesture as moving between two Kimi ones."""
-    from kaipi.providers import active_model, configured_models, use_model
+def cmd_model() -> bool:
+    from kaipi import configuration
 
-    pairs = configured_models()
-    if not pairs:
-        typer.echo(
-            f"{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 model id{RESET}"
-        )
-        return
-    now, pricing = active_model(), ledger.Pricing.load()
-    typer.echo(f"{BOLD}选择模型{RESET}")
-    for i, (who, m) in enumerate(pairs, 1):
-        spec = f"{who}/{m}"
-        price = pricing.find(spec)
-        cost = f"in {price.input}/out {price.output} 每百万" if price else "不在价格表，账本按 0 记"
-        typer.echo(
-            f"  {i:>2}. {m:<26} {DIM}{who:<12} {cost}{RESET}"
-            + (f"{GREEN} (当前){RESET}" if spec == now else "")
-        )
-    pick = typer.prompt("序号", type=int)
-    if not 1 <= pick <= len(pairs):
-        raise typer.BadParameter(f"序号要在 1..{len(pairs)} 之间")
-    who, model = pairs[pick - 1]
-    use_model(who, model)
-    typer.echo(f"{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}")
+    return configuration.run(configuration.model)
 
 
 def cmd_status(s: Session) -> list[str]:
@@ -1004,6 +967,7 @@ def cli_turn(s: Session, text: str, *, explore: bool = False) -> None:
 COMMANDS: list[tuple[str, str, str]] = [
     ("tree", "", "会话树导航：方向键选择节点，回车从此继续"),
     ("raw", "", "原样打印下一轮要发给模型的全部内容，含嫁接块；不发送、不花钱"),
+    ("inspect-context", "", "导出下一轮上下文为 Markdown，在 workspace 根目录查看"),
     ("explore", "<你的问题>", "从当前位置岔出去问一句，主干钉在原地不动"),
     ("go", "[节点id]", "跳转到节点；不带参数打开会话树导航"),
     (
@@ -1022,6 +986,8 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("canvas", "", "把会话搬到浏览器（画布里敲 /cli 搬回来）"),
     ("provider", "", "配置 API 提供商：地址、key、模型 id"),
     ("model", "", "换一个模型，下一句开始生效"),
+    ("config", "", "设置：上下选择、左右修改，立即生效，Esc 返回"),
+    ("statusline", "", "定制底部状态行：上下选择、左右开关，Esc 保存返回"),
     ("new", "", "结束当前对话、清空显示，进入新对话；旧对话保留"),
     ("resume", "[对话id]", "接上旧对话；不带参数用上下键选择，回车进入"),
     ("rename", "<名字>", "给当前对话起个名字"),
@@ -1060,11 +1026,20 @@ def interactive(s: Session) -> str:
     except ImportError:
         pass
     typer.echo(f"kaipi  {s.status()}")
+    exit_requested: float | None = None
     while True:
         try:
             line = input(f"{s.name(s.leaf)}> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             return "quit"
+        except KeyboardInterrupt:
+            now = time.monotonic()
+            if exit_requested is not None and now - exit_requested < 3:
+                return "quit"
+            exit_requested = now
+            typer.echo("\n再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消")
+            continue
+        exit_requested = None
         if not line:
             continue
         try:
@@ -1107,6 +1082,13 @@ def run_surfaces(s: Session, surface: str) -> None:
         release_lock(s.cwd)
         if not s.log.state.nodes and upgrade is None:
             s.log.path.unlink(missing_ok=True)
+        if upgrade is None:
+            hint = (
+                f"回到这个对话：kaipi -r {s.log.path.stem}"
+                if s.log.state.nodes
+                else "重新开始：kaipi"
+            )
+            typer.echo(f"\n{DIM}{hint}{RESET}")
     if upgrade:
         update.install(upgrade, resume=s.log.path.stem)
 
@@ -1126,6 +1108,16 @@ def verb(s: Session, argv: list[str]) -> list[str] | None:
             return cmd_tree(s)
         case "raw":
             return cmd_raw(s)
+        case "inspect-context":
+            from kaipi import context_export
+
+            if args:
+                raise typer.BadParameter("用法：/inspect-context（不带参数）")
+            try:
+                path = context_export.export(s, PLACEHOLDER)
+            except OSError as e:
+                raise typer.BadParameter(f"无法导出上下文：{e}") from e
+            return [f"上下文已导出。打开此文件查看：\n{path}"]
         case "go":
             return cmd_go(s, args[0])
         case "graft":
@@ -1180,9 +1172,19 @@ def slash(s: Session, argv: list[str]) -> bool:
                 typer.echo("\033[2J\033[3J\033[H", nl=False)
             say(out or [])
         case "provider":
-            cmd_provider()
+            if cmd_provider():
+                s.pricing = ledger.Pricing.load()
+                s._provider = s._cheap = None
         case "model":
             cmd_model()
+        case "config":
+            if args:
+                raise typer.BadParameter("用法：/config（不带参数）")
+            config()
+        case "statusline":
+            if args:
+                raise typer.BadParameter("用法：/statusline（不带参数）")
+            statusline()
         case "update":
             if args:
                 raise typer.BadParameter("用法：/update（不带参数）")
@@ -1247,12 +1249,14 @@ def onboard() -> None:
     if not has_key:
         typer.echo(f"{BOLD}👋 第一次用 kaipi，先花一分钟配两件事。{RESET}")
         typer.echo(f"{DIM}第 1 步 / 共 2 步：选一个 API 提供商，填上地址和 key。{RESET}\n")
-        cmd_provider()
+        if not cmd_provider():
+            raise typer.Exit()
         typer.echo("")
     if not (os.environ.get("KAIPI_MODEL") or active_model()):
         if configured_models():
             typer.echo(f"{DIM}第 2 步 / 共 2 步：挑一个模型启用。{RESET}\n")
-            cmd_model()
+            if not cmd_model():
+                raise typer.Exit()
         else:
             typer.echo(f"{RED}还没有可用的模型：再跑一次 /provider，把 model id 填上{RESET}")
             raise typer.Exit(1)
@@ -1416,6 +1420,22 @@ def provider() -> None:
 def model() -> None:
     """switch models across every provider you configured."""
     cmd_model()
+
+
+@app.command()
+def config() -> None:
+    """open settings; use arrow keys to change preferences immediately."""
+    from kaipi import configuration
+
+    configuration.config()
+
+
+@app.command()
+def statusline() -> None:
+    """customize status-line elements; Esc saves and returns."""
+    from kaipi import configuration
+
+    configuration.statusline()
 
 
 if __name__ == "__main__":

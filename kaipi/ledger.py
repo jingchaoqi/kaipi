@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from collections.abc import Callable
@@ -78,7 +79,12 @@ class Pricing(BaseModel):
                 "read from ~/.config/kaipi/pricing.toml or the packaged defaults."
             )
             providers = {}
-        return cls(**raw.get("defaults", {}), models=raw.get("models", {}), providers=providers)
+        models = raw.get("models", {})
+        if path is None:
+            refreshed = catalog_prices()
+            # Explicit local prices win; downloaded rows only supersede packaged defaults.
+            models = models | refreshed if chosen == PACKAGED_PRICING else refreshed | models
+        return cls(**raw.get("defaults", {}), models=models, providers=providers)
 
     def find(self, spec: str) -> Price | None:
         """A spec is a model id listed here, or `<provider>/<model id>`. Prices belong to the
@@ -109,6 +115,18 @@ class Pricing(BaseModel):
         """(provider, model id) for the status bars."""
         name, _, model = spec.partition("/")
         return (name, model) if model else (self.price(spec).provider, spec)
+
+
+def catalog_path() -> Path:
+    return user_pricing().with_name("catalog.json")
+
+
+def catalog_prices() -> dict[str, Price]:
+    try:
+        raw = json.loads(catalog_path().read_text(encoding="utf-8"))
+        return {key: Price.model_validate(value) for key, value in raw.items()}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
 
 
 def estimate_tokens(text: str) -> int:

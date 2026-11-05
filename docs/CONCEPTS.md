@@ -233,6 +233,21 @@ in the terminal opens the canvas and closes the prompt; `/cli` on the canvas clo
 canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
+Slash completion appears above the input, with up to ten visible rows and scrolling.
+At the idle prompt, Ctrl-C first asks for confirmation; a second press within three
+seconds exits. Editing the input cancels that confirmation. During a turn Ctrl-C still
+stops the turn. Normal session exits print `kaipi -r <full-session-id>` after saving and
+releasing the lock; an empty discarded session instead prints `kaipi` to start again.
+
+`/statusline` (also `kaipi statusline`) selects which bottom-line elements are visible:
+provider, model, session title, working directory, context usage, accumulated cost,
+estimated token savings and estimated cost savings. All default to visible. Up/Down
+selects an item; Left disables it and Right enables it in a local draft. Esc atomically
+saves these preferences in the user settings file and returns; Ctrl-C/Ctrl-D cancels the
+draft. A failed save keeps the panel open. Returning refreshes the bar immediately,
+without altering ledger calculations, `/status` details or the activity/elapsed-time row.
+The line keeps its existing space even when all elements are hidden to avoid layout jumps.
+
 `/status` (also `kaipi status`) is a local, read-only overview shared by CLI and Canvas:
 version, selected next-turn model/provider, session, working directory, cursor and next-turn
 mode, pending graft count, cumulative tokens/cache reads and estimated session cost.
@@ -240,6 +255,18 @@ Context usage is the current cursor node's last recorded request, compared with 
 selected model's window from pricing; it is not a next-request token estimate and excludes
 pending grafts. Empty sessions and unknown windows are labelled explicitly. Unpriced
 historical usage is marked in the cost line. It neither creates a turn nor calls a model.
+
+`/inspect-context` exports the next request's unified context as Markdown, using the same
+`context.build` as the agent without changing assembly. It includes the system prompt,
+all message fields and blocks (including tools and attachments), live root-to-cursor
+lineage, cache points and staged grafts. Unrelated branches are not implicitly loaded;
+historical and staged explicit grafts remain visible. The not-yet-entered question is a
+placeholder, and pending missing summaries are labelled rather than generated. Provider
+wire-format conversion happens later. No model is called and no session state is mutated.
+The export goes to the session workspace root as
+`YYYYMMDDHHMMSS-<session-title>-<node-label>-context.md` (local time); unsafe filename
+characters are replaced, long titles shortened, and same-second collisions gain `-2`,
+`-3`, etc. before `.md` without overwriting files. The command prints the absolute path.
 
 In the terminal's completion menu, Enter submits the selected slash command, or the
 first matching command when none is selected (so `/tr` submits `/tree`). An exact
@@ -336,8 +363,16 @@ still use the selected pricing table; they are not frozen billing records.
 `version` / `/version` read installed package metadata locally. `update` / `/update`
 query the public GitHub latest-release endpoint and show both versions and the release URL.
 The tty starts a daemon check, cached for 24 hours under the user cache directory, with
-one notice per release; failures stay silent. `KAIPI_NO_UPDATE_CHECK=1` disables automatic
-checks, while explicit updates always check again. No project data or model credentials
+one notice per release; failures stay silent. `/config` (also `kaipi config`) opens a
+keyboard settings panel: Up/Down selects a row, Left turns it off, Right turns it on, and
+each change is saved atomically to `~/.config/kaipi/settings.json` without Enter. Esc
+returns, retaining changes already made. Automatic checks default to enabled;
+`KAIPI_NO_UPDATE_CHECK=1` supplies a disabled default until the user explicitly saves a
+choice in the panel. A saved choice takes precedence so the visible setting is effective
+immediately. Turning it on starts a background check with the same 24-hour cache;
+turning it off suppresses future checks and pending notifications. Concurrent automatic
+checks are coalesced. Explicit updates always check again regardless of this setting.
+No project data or model credentials
 are included in these requests. Only newer stable releases can be installed automatically.
 The updater accepts only an identifiable uv tool installation; other installations get
 manual instructions. Download and SHA-256 verification finish before leaving the session.
@@ -386,6 +421,17 @@ model. `/provider` asks for the first (vendor, endpoint - editable, since severa
 run a separate Chinese endpoint with separate keys - key, and the model ids that vendor
 offers you); `/model` picks the second, from every model listed across every configured
 provider, as one list. A first run walks both in order.
+The provider selector starts with an empty number field: users may type a number or
+use Up/Down to highlight a row and fill its number, then Enter confirms. Valid typed
+numbers also highlight their row; invalid/empty input stays in the selector. Existing
+providers open an Up/Down/Enter action menu for refreshing, editing or clearing their
+saved configuration. Clearing removes that provider's saved URL, key and model list,
+and its active selection if applicable, but preserves other providers, history, prices
+and environment variables. Esc at either menu exits without changes.
+In a terminal `/model` uses Up/Down and Enter, initially focused on the active model;
+plain/piped input retains the numbered fallback. Both configuration commands advertise
+Esc cancellation, which exits only the command without saving partial input. Ctrl-C
+inside these menus also cancels the command, rather than exiting the session.
 The model-id prompt defaults to every model listed
 for that provider in the pricing table: Enter accepts all, while a comma-separated
 input selects a subset or supplies custom ids. The pricing table takes precedence
@@ -398,6 +444,17 @@ price keys are stripped to model ids in setup; the model selector resolves price
 the same `Pricing.find(provider/model)` lookup as requests and the ledger. Unrelated
 regions and subscription plans keep distinct catalogs. DeepSeek's packaged rates are
 fixed peak USD rates; time-of-day discounts are not modelled.
+
+Selecting an already configured provider offers model/price refresh by default, editing
+its endpoint, key and model list, or clearing its configuration. Refresh reads only model rows from kaipi's
+maintained online `master/kaipi/pricing.toml`, without sending API credentials. This is
+not a live vendor inventory: new releases become available when that catalog is updated.
+The preview is saved only on Enter; cancellation, invalid data and network failure leave
+configuration unchanged. Refresh preserves existing/custom model ids and the active model,
+adds catalog ids to `/model`, and stores prices separately in `~/.config/kaipi/catalog.json`.
+Downloaded rows supersede packaged prices, while explicit project/user pricing overrides
+remain authoritative. Remote endpoint declarations are never imported. The current CLI
+session reloads pricing and provider instances after configuration, without restarting.
 
 Credentials go to `~/.config/kaipi/auth.toml`, mode 600, never into a project: a key in a
 repository is a key in someone's clone. The environment still wins over the file, so a
