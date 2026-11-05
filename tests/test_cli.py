@@ -1344,7 +1344,7 @@ def test_slash_menu_is_above_input_and_shows_more_candidates(
 ) -> None:
     import asyncio
 
-    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.application import Application, create_app_session
     from prompt_toolkit.data_structures import Size
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.layout.menus import CompletionsMenuControl
@@ -1361,21 +1361,38 @@ def test_slash_menu_is_above_input_and_shows_more_candidates(
         terminal = tui.Terminal(cli.Session(repo))
 
         async def inspect_menu() -> None:
+            ready, menu_drawn = asyncio.Event(), asyncio.Event()
+
+            def rendered(app: Application[str]) -> None:
+                ready.set()
+                screen = app.renderer.last_rendered_screen
+                if screen and any(
+                    isinstance(w.content, CompletionsMenuControl)
+                    for w in screen.visible_windows_to_write_positions
+                ):
+                    menu_drawn.set()
+
+            terminal.session.app.after_render += rendered
             prompt = asyncio.create_task(terminal.session.prompt_async())
-            await asyncio.sleep(0.05)
-            pipe.send_text("/")
-            await asyncio.sleep(0.1)
-            screen = terminal.session.app.renderer.last_rendered_screen
-            assert screen is not None
-            windows = screen.visible_windows_to_write_positions
-            menu = next(
-                p for w, p in windows.items() if isinstance(w.content, CompletionsMenuControl)
-            )
-            cursor = screen.get_cursor_position(terminal.session.layout.current_window)
-            assert menu.ypos + menu.height <= cursor.y
-            assert menu.height >= min(10, rows - 5), (menu, cursor)
-            pipe.send_text("\r")
-            assert (await asyncio.wait_for(prompt, 2)).strip() == "/help"
+            try:
+                await asyncio.wait_for(ready.wait(), 5)
+                pipe.send_text("/")
+                await asyncio.wait_for(menu_drawn.wait(), 5)
+                screen = terminal.session.app.renderer.last_rendered_screen
+                assert screen is not None
+                windows = screen.visible_windows_to_write_positions
+                menu = next(
+                    p for w, p in windows.items() if isinstance(w.content, CompletionsMenuControl)
+                )
+                cursor = screen.get_cursor_position(terminal.session.layout.current_window)
+                assert menu.ypos + menu.height <= cursor.y
+                assert menu.height >= min(10, rows - 5), (menu, cursor)
+                pipe.send_text("\r")
+                assert (await asyncio.wait_for(prompt, 5)).strip() == "/help"
+            finally:
+                terminal.session.app.after_render -= rendered
+                prompt.cancel()
+                await asyncio.gather(prompt, return_exceptions=True)
 
         asyncio.run(inspect_menu())
 
