@@ -256,13 +256,11 @@ selected model's window from pricing; it is not a next-request token estimate an
 pending grafts. Empty sessions and unknown windows are labelled explicitly. Unpriced
 historical usage is marked in the cost line. It neither creates a turn nor calls a model.
 
-`/inspect-context` exports the next request's unified context as Markdown, using the same
-`context.build` as the agent without changing assembly. It includes the system prompt,
-all message fields and blocks (including tools and attachments), live root-to-cursor
-lineage, cache points and staged grafts. Unrelated branches are not implicitly loaded;
-historical and staged explicit grafts remain visible. The not-yet-entered question is a
-placeholder, and pending missing summaries are labelled rather than generated. Provider
-wire-format conversion happens later. No model is called and no session state is mutated.
+`/inspect-context` serializes only the next request's `system` and `messages` as JSON text
+in a `.md` file, using the same `context.build` as the agent. All message fields and blocks
+(including tools and attachments) are preserved; the next question is a placeholder.
+There are no added headings, annotations or metadata. Provider wire-format conversion
+happens later. No model is called and no session state is mutated.
 The export goes to the session workspace root as
 `YYYYMMDDHHMMSS-<session-title>-<node-label>-context.md` (local time); unsafe filename
 characters are replaced, long titles shortened, and same-second collisions gain `-2`,

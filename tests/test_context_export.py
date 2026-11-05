@@ -16,13 +16,6 @@ from kaipi.model import NodeCompleted, NodeCreated, ReferenceEdge, SessionRename
 from tests.conftest import Builder
 
 
-def messages(document: str) -> list[dict[str, object]]:
-    return [
-        json.loads(m.group(2))
-        for m in re.finditer(r"^(`{3,})json\n(.*?)\n\1$", document, re.M | re.S)
-    ]
-
-
 def test_export_uses_actual_context_and_excludes_sibling_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -48,7 +41,6 @@ def test_export_uses_actual_context_and_excludes_sibling_branch(
     assert path.parent == tmp_path and path.is_absolute()
     assert re.fullmatch(r"\d{14}-检查上下文-N2-context\.md", path.name)
     document = path.read_text()
-    assert "N1 → N2" in document and "路径外节点：2" in document
     assert "UNRELATED" not in document
     built = context.build(
         session.log.state,
@@ -57,10 +49,8 @@ def test_export_uses_actual_context_and_excludes_sibling_branch(
         cli.PLACEHOLDER,
         guard=graph.is_exploration(session.log.state, left),
     )
-    assert messages(document) == built.messages
-    assert session.log.state.system_prompt in document
-    assert cli.PLACEHOLDER in document and "尚未输入" in document
-    assert "缓存断点" in document
+    assert json.loads(document) == {"system": built.system, "messages": built.messages}
+    assert cli.PLACEHOLDER in document
     assert (session.log.path.read_bytes(), session.cursor_path.read_bytes()) == before
     assert session.leaf == left and not session.pending
     assert path.stat().st_mode & 0o777 == 0o600
@@ -69,7 +59,9 @@ def test_export_uses_actual_context_and_excludes_sibling_branch(
     assert any("/inspect-context" in row for row in cli.cmd_help(session))
 
 
-def test_explicit_graft_is_labelled_without_loading_the_rest_of_its_branch(tmp_path: Path) -> None:
+def test_explicit_graft_preserves_request_content_without_loading_its_descendants(
+    tmp_path: Path,
+) -> None:
     session = cli.Session(tmp_path)
     builder = Builder(session.log)
     root = builder.node(None, "root")
@@ -80,9 +72,15 @@ def test_explicit_graft_is_labelled_without_loading_the_rest_of_its_branch(tmp_p
     session.pending = [ReferenceEdge(src_id=right, dst_id="", depth="leaf+summary")]
     before = session.log.path.read_bytes()
     document = context_export.export(session, cli.PLACEHOLDER).read_text()
-    assert "N3 · `leaf+summary`" in document
     assert "EXPLICIT GRAFT" in document and "EXCLUDED CHILD" not in document
-    assert "摘要尚未生成" in document and "no summary available" in document
+    built = context.build(
+        session.log.state,
+        left,
+        session.pending,
+        cli.PLACEHOLDER,
+        guard=graph.is_exploration(session.log.state, left),
+    )
+    assert json.loads(document) == {"system": built.system, "messages": built.messages}
     assert len(session.pending) == 1 and session.log.path.read_bytes() == before
 
 
@@ -111,7 +109,7 @@ def test_attachments_and_nontext_blocks_are_not_dropped(tmp_path: Path) -> None:
     session.log.append(NodeCompleted(id="image-node", payload=payload, usage=Usage()))
     session.leaf = "image-node"
     document = context_export.export(session, cli.PLACEHOLDER).read_text()
-    assert messages(document)[:-1] == payload
+    assert json.loads(document)["messages"][:-1] == payload
 
 
 def test_empty_session_safe_names_and_same_second_exports(
@@ -132,7 +130,7 @@ def test_empty_session_safe_names_and_same_second_exports(
     assert third.parent == tmp_path and len(third.name.encode()) < 255
     assert not re.search(r'[\\/:*?"<>|\n]', third.name)
     assert (
-        messages(third.read_text())
+        json.loads(third.read_text())["messages"]
         == context.build(session.log.state, None, [], cli.PLACEHOLDER).messages
     )
     with pytest.raises(typer.BadParameter):
