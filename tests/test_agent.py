@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import _thread
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -196,7 +197,9 @@ def test_a_stopped_command_does_not_outlive_the_turn(log: Log, tmp_path: Path) -
                         "type": "tool_use",
                         "id": "t1",
                         "name": "bash",
-                        "input": {"command": f"echo $$ > {pidfile}; sleep 30"},
+                        "input": {
+                            "command": f"sleep 30 >/dev/null 2>&1 & echo $$ > {pidfile}; wait"
+                        },
                     }
                 ],
                 stop_reason="tool_use",
@@ -218,9 +221,27 @@ def test_a_stopped_command_does_not_outlive_the_turn(log: Log, tmp_path: Path) -
             log, CtrlCDuringTheCommand(), None, [], "go", exploration=False, cwd=tmp_path, stop=stop
         )
     pid = int(pidfile.read_text().strip())
-    time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        os.killpg(pid, 0)  # the whole group is gone, not just the shell
+    try:
+        deadline = time.monotonic() + 2
+        while True:
+            # Containers may not reap orphaned zombies. They cannot execute; check
+            # every member's state instead of treating killpg(pid, 0) as liveness.
+            processes = subprocess.check_output(["ps", "-A", "-o", "pgid=,stat="], text=True)
+            running = [
+                row
+                for row in processes.splitlines()
+                if row.split()[0] == str(pid) and not row.split()[1].startswith("Z")
+            ]
+            if not running or time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+        assert not running, f"command processes survived the stop: {running}"
+    finally:
+        # A failing assertion must not leave the test's command running either.
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def test_a_rate_limit_is_waited_out_not_lost(log: Log, tmp_path: Path) -> None:

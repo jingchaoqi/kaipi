@@ -20,8 +20,11 @@ from typing import Any
 import httpx
 from packaging.version import Version
 
+from kaipi import settings
+
 REPO = "https://github.com/jingchaoqi/kaipi"
 API = "https://api.github.com/repos/jingchaoqi/kaipi/releases/latest"
+_background_lock = threading.Lock()
 
 
 def current() -> str:
@@ -95,19 +98,30 @@ def check(*, force: bool = False) -> Release | None:
 
 
 def background(emit: Callable[[str], None]) -> None:
-    if os.environ.get("KAIPI_NO_UPDATE_CHECK"):
+    if not settings.auto_check_updates():
         return
 
     def work() -> None:
+        if not _background_lock.acquire(blocking=False):
+            return
         try:
+            if not settings.auto_check_updates():
+                return
             release = check()
             cache = _read_cache()
-            if release and release.newer and cache.get("notified") != release.tag:
+            if (
+                settings.auto_check_updates()
+                and release
+                and release.newer
+                and cache.get("notified") != release.tag
+            ):
                 emit(f"发现新版！{release.describe()}\n输入 /update 更新，并接回当前会话。")
                 cache["notified"] = release.tag
                 _save_cache(cache)
         except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError):
             pass
+        finally:
+            _background_lock.release()
 
     threading.Thread(target=work, daemon=True).start()
 

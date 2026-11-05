@@ -577,7 +577,7 @@ def test_status_is_available_in_cli_slash_commands_and_completion(repo: Path) ->
     completions = tui.SlashCompleter(cli.Session(repo)).get_completions(
         Document("/st"), CompleteEvent()
     )
-    assert [c.text for c in completions] == ["/status"]
+    assert [c.text for c in completions] == ["/status", "/statusline"]
 
 
 def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
@@ -1297,7 +1297,7 @@ def test_provider_setup_shares_model_catalog_without_changing_route(
 
     providers.save_auth(who, models=[expected])  # a saved subset must not hide other models
     pick = list(providers.BUILTIN).index(who) + 1
-    result = CliRunner().invoke(cli.app, ["provider"], input=f"{pick}\n\nsk-test\n\n")
+    result = CliRunner().invoke(cli.app, ["provider"], input=f"{pick}\n2\n\nsk-test\n\n")
     assert result.exit_code == 0, result.output
     saved = providers.auth()["providers"][who]
     catalog = providers.BUILTIN[who].model_catalog or who
@@ -1336,3 +1336,150 @@ def test_manually_entered_deepseek_flash_has_price_and_uses_anthropic_endpoint(r
     assert provider.model == "deepseek-flash" and provider.compat
     assert str(provider.client.base_url).startswith("https://api.deepseek.com/anthropic")
     provider.client.close()
+
+
+@pytest.mark.parametrize("rows", [12, 24])
+def test_slash_menu_is_above_input_and_shows_more_candidates(
+    repo: Path, rows: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from prompt_toolkit.application import Application, create_app_session
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.layout.menus import CompletionsMenuControl
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    class SizedOutput(DummyOutput):
+        def get_size(self) -> Size:
+            return Size(rows=rows, columns=100)
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=SizedOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+
+        async def inspect_menu() -> None:
+            ready, menu_drawn = asyncio.Event(), asyncio.Event()
+
+            def rendered(app: Application[str]) -> None:
+                ready.set()
+                screen = app.renderer.last_rendered_screen
+                if screen and any(
+                    isinstance(w.content, CompletionsMenuControl)
+                    for w in screen.visible_windows_to_write_positions
+                ):
+                    menu_drawn.set()
+
+            terminal.session.app.after_render += rendered
+            prompt = asyncio.create_task(terminal.session.prompt_async())
+            try:
+                await asyncio.wait_for(ready.wait(), 5)
+                pipe.send_text("/")
+                await asyncio.wait_for(menu_drawn.wait(), 5)
+                screen = terminal.session.app.renderer.last_rendered_screen
+                assert screen is not None
+                windows = screen.visible_windows_to_write_positions
+                menu = next(
+                    p for w, p in windows.items() if isinstance(w.content, CompletionsMenuControl)
+                )
+                cursor = screen.get_cursor_position(terminal.session.layout.current_window)
+                assert menu.ypos + menu.height <= cursor.y
+                assert menu.height >= min(10, rows - 5), (menu, cursor)
+                pipe.send_text("\r")
+                assert (await asyncio.wait_for(prompt, 5)).strip() == "/help"
+            finally:
+                terminal.session.app.after_render -= rendered
+                prompt.cancel()
+                await asyncio.gather(prompt, return_exceptions=True)
+
+        asyncio.run(inspect_menu())
+
+
+@pytest.mark.parametrize("mode", ["confirm", "typing", "expired", "running"])
+def test_ctrl_c_requires_confirmation_without_losing_draft(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    import asyncio
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from kaipi import tui
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+        terminal.running = mode == "running"
+
+        async def check() -> None:
+            async def send() -> None:
+                await asyncio.sleep(0.05)
+                pipe.send_text("draft\x03")
+                await asyncio.sleep(0.08)
+                assert terminal.session.default_buffer.text == "draft"
+                if mode == "running":
+                    assert terminal.stop.is_set() and terminal._exit_requested_at is None
+                    pipe.send_text("\r")
+                    return
+                assert "再按一次 Ctrl+C" in terminal.notice
+                if mode == "typing":
+                    pipe.send_text("x")
+                    await asyncio.sleep(0.05)
+                    assert terminal._exit_requested_at is None
+                    pipe.send_text("\r")
+                    return
+                if mode == "expired":
+                    assert terminal._exit_requested_at is not None
+                    terminal._exit_requested_at -= 4
+                    pipe.send_text("\x03")
+                    await asyncio.sleep(0.05)
+                    assert terminal._exit_requested_at is not None
+                pipe.send_text("\x03")
+
+            typing = asyncio.create_task(send())
+            try:
+                if mode in ("confirm", "expired"):
+                    with pytest.raises(KeyboardInterrupt):
+                        await terminal.session.prompt_async()
+                else:
+                    result = await terminal.session.prompt_async()
+                    assert result == ("draftx" if mode == "typing" else "draft")
+            finally:
+                await typing
+
+        asyncio.run(check())
+
+
+@pytest.mark.parametrize("exit_command", ["/quit\n", "/exit\n", ""])
+def test_exit_shows_exact_resumable_session(repo: Path, exit_command: str) -> None:
+    result = CliRunner().invoke(cli.app, ["-c"], input="hello\n" + exit_command)
+    assert result.exit_code == 0, result.output
+    match = re.search(r"回到这个对话：kaipi -r (\w+)", result.output)
+    assert match is not None
+    session_id = match.group(1)
+    assert (repo / ".kaipi" / "sessions" / f"{session_id}.jsonl").exists()
+    resumed = CliRunner().invoke(cli.app, ["-r", session_id], input="/quit\n")
+    assert resumed.exit_code == 0 and f"kaipi -r {session_id}" in resumed.output
+
+
+def test_plain_ctrl_c_confirmation_and_resume_hint(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    session = cli.Session(repo)
+    cli.cli_turn(session, "hello")
+    attempts = 0
+
+    def interrupt(prompt: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+    cli.run_surfaces(session, "cli")
+    output = capsys.readouterr().out
+    assert attempts == 2 and "再按一次 Ctrl+C" in output
+    assert f"kaipi -r {session.log.path.stem}" in output
+    assert cli.lock_holder(repo) is None

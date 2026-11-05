@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -177,6 +178,15 @@ def parse_models(listed: str) -> list[str]:
     return [m for m in re.split(r"[,\uff0c\s]+", listed) if m]
 
 
+def remove_auth(name: str) -> Path:
+    data = auth()
+    data.get("providers", {}).pop(name, None)
+    if data.get("provider") == name or str(data.get("model", "")).startswith(name + "/"):
+        data.pop("model", None)
+        data.pop("provider", None)
+    return _write(data)
+
+
 def use_model(provider: str, model: str) -> Path:
     """Activate one model, always as `<provider>/<id>`. The provider is the one the user
     listed the model under in `/provider`, with the endpoint and key they gave it; a price
@@ -199,10 +209,14 @@ def _write(data: dict[str, Any]) -> Path:
         body += [""]
     # It holds credentials: 600 before a byte is written, not after - write-then-chmod
     # leaves the key world-readable for a moment under the usual 022 umask.
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    p.chmod(0o600)  # O_CREAT's mode does not apply to a file that already existed
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write("\n".join(body))
+    fd, temporary = tempfile.mkstemp(dir=p.parent)  # mode 600 from creation
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\n".join(body))
+        os.replace(temporary, p)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return p
 
 

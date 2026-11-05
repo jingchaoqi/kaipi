@@ -53,6 +53,17 @@ two presets; the `-anthropic` one is the endpoint each vendor documents for Clau
 because several vendors run a separate Chinese endpoint with separate keys - the key, and
 the model ids you intend to use from it. `kaipi model` then switches between every model
 you listed, across all configured vendors, and activates one.
+In the terminal use Up/Down and Enter to choose a model. Esc cancels either command
+without changing configuration, including while editing an endpoint or entering a key.
+
+The provider number field starts empty. Type a number, or use Up/Down to fill it and
+highlight the provider; Enter confirms. An existing provider opens an arrow-key menu
+for refreshing, editing or clearing its configuration. Clearing only removes that
+provider's saved URL, key and model list (and active selection if it was in use).
+Other providers, history, prices and exported environment variables are retained.
+Refresh previews kaipi's maintained online pricing catalog, then Enter saves and Esc cancels.
+It retains custom model ids, credentials and the active model; `/model` immediately lists
+new ids. A model must first be added to kaipi's online catalog to appear through refresh.
 
 That is stored in `~/.config/kaipi/auth.toml`, mode 600, never in the project. The
 environment still wins over it, so a one-off `MOONSHOT_API_KEY=... kaipi` overrides a saved
@@ -129,6 +140,9 @@ quick retries are not enough on their own.
 The first of `.kaipi/pricing.toml` in the project, `~/.config/kaipi/pricing.toml`, then the
 copy shipped inside the package. Copy the packaged one to either location to correct a price
 or add a vendor without editing site-packages.
+Refreshed prices are stored separately in `~/.config/kaipi/catalog.json`: they override
+packaged rows, while rows in the chosen project/user pricing file take priority. Refresh
+does not overwrite either custom file or import remote endpoint settings.
 
 **A project file's `[providers]` table is ignored**, with a warning. That table names an
 endpoint URL and an environment variable to send there as a credential; a repository you

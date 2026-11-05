@@ -30,7 +30,8 @@ jobs:
           uv run mypy --strict kaipi tests
 
       - name: tests
-        run: uv run pytest -q
+        timeout-minutes: 5
+        run: uv run pytest -v -o faulthandler_timeout=60
 
       - name: the four wire protocols against the mock endpoint
         run: |

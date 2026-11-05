@@ -29,9 +29,10 @@ from prompt_toolkit.formatted_text import ANSI, FormattedText, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from prompt_toolkit.layout import FloatContainer, HSplit, Layout, Window
+from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
@@ -349,6 +350,7 @@ class Terminal:
         self.attachments: dict[str, attachments.Attachment] = {}
         self._attachment_seq = {"image": 0, "file": 0}
         self.notice = ""
+        self._exit_requested_at: float | None = None
         self._pasting = False
         self._submit_after_paste = False
         paste_jobs: list[
@@ -509,7 +511,19 @@ class Terminal:
             if self.running:
                 self.stop.set()
             else:
-                event.app.exit(exception=KeyboardInterrupt())
+                now = time.monotonic()
+                if self._exit_requested_at is not None and now - self._exit_requested_at < 3:
+                    event.app.exit(exception=KeyboardInterrupt())
+                    return
+                self._exit_requested_at = now
+                self.notice = "再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消"
+
+                def expire() -> None:
+                    if self._exit_requested_at == now:
+                        self.cancel_exit_confirmation()
+                        event.app.invalidate()
+
+                event.app.loop.call_later(3, expire)
 
         self.session: PromptSession[str] = PromptSession(
             message=self.message,
@@ -530,12 +544,15 @@ class Terminal:
         # it compact and put spare space above it, so output cannot move the input.
         self.session.layout.current_window.dont_extend_height = Always()
         prompt_layout = self.session.layout.container
-        floats = []
+        floats: list[Float] = []
         for container in self.session.layout.walk():
             if isinstance(container, FloatContainer):
-                floats.extend(container.floats)
+                floats.extend(f for f in container.floats if not f.ycursor)
                 container.floats = []
-        self.session.layout.container = FloatContainer(HSplit([Window(), prompt_layout]), floats)
+        self.session.layout.container = FloatContainer(
+            HSplit([Window(), CompletionsMenu(max_height=10, scroll_offset=1), prompt_layout]),
+            floats,
+        )
         self.session.default_buffer.on_text_changed += self.refresh_completions
         self.session.default_buffer.on_cursor_position_changed += self.refresh_completions
 
@@ -577,6 +594,7 @@ class Terminal:
         return attachments.Input(text, items) if items else text
 
     def refresh_completions(self, buffer: Buffer) -> None:
+        self.cancel_exit_confirmation()
         if self._selecting:
             return
         candidates = (
@@ -588,6 +606,12 @@ class Terminal:
             CompletionState(buffer.document, candidates, complete_index=0) if candidates else None
         )
         buffer.on_completions_changed.fire()
+
+    def cancel_exit_confirmation(self) -> None:
+        if self._exit_requested_at is not None:
+            self._exit_requested_at = None
+            if self.notice.startswith("再按一次 Ctrl+C"):
+                self.notice = ""
 
     def columns(self) -> int:
         try:
@@ -608,7 +632,7 @@ class Terminal:
         now, width = time.monotonic(), self.columns()
         # The ledger folds are much slower than drawing a frame. Keep their refresh
         # separate from the animation, and always refresh after a turn or resize.
-        if not self._bar or now - self._bar_at >= 0.5 or width != self._bar_width:
+        if not self._bar_at or now - self._bar_at >= 0.5 or width != self._bar_width:
             self._bar = self.s.status(width)
             self._bar_at, self._bar_width = now, width
         elapsed = (
@@ -944,6 +968,8 @@ def loop(s: cli.Session) -> str:
                 elif line.split()[0] == "/new":
                     pending.clear()
                     t = Terminal(s)
+                elif line.split()[0] == "/statusline":
+                    t._bar_at = 0.0
             else:
                 pending = t.turn(line) + pending
         except (EOFError, KeyboardInterrupt):
