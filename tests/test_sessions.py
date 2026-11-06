@@ -39,7 +39,7 @@ def test_title_is_isolated_billed_persisted_and_only_generated_once(session: cli
         def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
             calls.append((system, messages, cache_points))
             return Reply(
-                content=[{"type": "text", "text": "「排查登录超时」"}],
+                content=[{"type": "text", "text": '{"title": "排查登录超时"}'}],
                 stop_reason="end_turn",
                 usage=usage,
             )
@@ -121,7 +121,11 @@ def test_title_only_receives_text_not_attachment_contents(session: cli.Session) 
                 {"role": "user", "content": [{"type": "text", "text": "看看 [file1]"}]}
             ]
             assert type(messages[0]["content"][0]["text"]) is str
-            return super().complete(system, messages, cache_points)
+            return Reply(
+                content=[{"type": "text", "text": '{"title": "查看文件"}'}],
+                stop_reason="end_turn",
+                usage=Usage(output=5),
+            )
 
     question = attachments.Input(
         "看看 [file1]",
@@ -136,6 +140,44 @@ def test_title_only_receives_text_not_attachment_contents(session: cli.Session) 
     result = titles.generate(question, Title())
     assert result.name and result.usage.output > 0
     assert session.log.path.read_bytes() == before, "generation cannot write to the session"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        "你好！请问有什么可以帮你的吗？",
+        "Hello! How can I help you?",
+        '{"title": 123}',
+        '{"title": ""}',
+        '{"title": "one\\ntwo"}',
+        '{"title": "topic", "answer": "extra response"}',
+        '{"title": "' + "x" * 41 + '"}',
+    ],
+)
+def test_invalid_title_is_not_saved_or_displayed_on_exit(
+    session: cli.Session,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    response: str,
+) -> None:
+    class Title(Echo):
+        def complete(self, system: str, messages: list[Message], cache_points: list[int]) -> Reply:
+            return Reply(
+                content=[{"type": "text", "text": response}],
+                stop_reason="end_turn",
+                usage=Usage(output=7),
+            )
+
+    session._cheap = Title()
+    cli.run_input(session, "你好", lambda *_: None)
+    assert not session.log.state.name
+    assert session.log.state.titles == [(Title.model, Usage(output=7))]
+    assert cli.session_title(session.log.state) == "你好"
+    assert "你好" in cli.session_rows(session.cwd)[0][1]
+    monkeypatch.setattr(cli, "interactive", lambda _: "quit")
+    cli.run_surfaces(session, "cli")
+    output = capsys.readouterr().out
+    assert "你好 |" in output and response not in output
 
 
 def test_title_metadata_never_enters_history_branches_grafts_or_summaries(

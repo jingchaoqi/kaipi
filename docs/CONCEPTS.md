@@ -354,6 +354,10 @@ width minus one; styling resets before the answer, and content still truncates a
 The per-turn usage summary has one blank line above and below it, separating the
 answer from the summary and the next input area's rule.
 
+Terminal lists align columns using the widest displayed cell in the current list,
+ignoring ANSI styling and counting Chinese characters at their terminal width.
+Settings recalculate the layout immediately when the interface language changes.
+
 Interactive slash commands do not echo into the conversation. Query commands (`/help`,
 `/status`, `/version`, `/ledger`, `/raw`, and bare `/trunk`) use a scrollable temporary
 screen, closed with Esc/Ctrl-C. Menus, configuration prompts and rewind previews also
@@ -427,7 +431,10 @@ an independent model request using only the opening question's first 4,000 chara
 It uses the same-provider summary model (or the active model), with no project prompt,
 history, attachment contents or tool execution. The answer is displayed before this
 request; the activity line says that a title is being generated. Failure keeps the
-opening-question preview and never fails the completed turn. An explicit name is never
+opening-question preview and never fails the completed turn. The naming response must
+be a JSON object containing only a nonempty, single-line `title` of at most 40 characters;
+ordinary replies or malformed output are not saved as names. Previously saved and
+explicitly renamed titles remain unchanged. An explicit name is never
 overwritten. The title and its model/usage are recorded in `session_title_generated`;
 even an empty/refused response is billed. This metadata never enters model context or
 adds a node. `/rename` can replace it. Old logs remain readable without title events.

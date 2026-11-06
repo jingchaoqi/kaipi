@@ -14,7 +14,6 @@ from typing import Annotated, Any
 
 import typer
 from prompt_toolkit.formatted_text import ANSI, fragment_list_width, to_formatted_text
-from prompt_toolkit.utils import get_cwidth
 from pydantic import BaseModel, Field
 from typer.core import TyperArgument, TyperCommand, TyperGroup, TyperOption
 
@@ -31,6 +30,7 @@ from kaipi import (
     titles,
     update,
 )
+from kaipi.display import columns
 from kaipi.i18n import tr
 from kaipi.model import (
     Depth,
@@ -802,10 +802,9 @@ def cmd_status(s: Session) -> list[str]:
         (tr("会话费用"), f"${r.total_cost:.4f} ({cost_note})"),
     ]
     _, _, dim, bold, reset = s.palette()
-    width = max(get_cwidth(label) for label, _ in rows)
     return [
         tr("\n{bold}kaipi {v1} · 状态{reset}\n", bold=bold, v1=version("kaipi"), reset=reset),
-        *(f"  {label}{' ' * (width - get_cwidth(label) + 2)}{value}" for label, value in rows),
+        *(f"  {row}" for row in columns(rows)),
         tr(
             "\n  {dim}上下文为当前节点最近请求记录；待嫁接内容未计入。{reset}\n",
             dim=dim,
@@ -843,11 +842,21 @@ def cmd_ledger(s: Session) -> list[str]:
     ]
     if r.branches:
         out.append(tr("explorations (one-time cost | tokens kept out of the trunk):"))
-        for b in r.branches:
-            out.append(
-                f"  {s.name(b.leaf_id)} {tr('ui.' + b.status)} · {tr('{v0} 个节点', v0=b.nodes)}"
-                f"  ${b.one_time_cost:.4f} | {ledger.fmt(b.blocked_tokens)}"
+        out.extend(
+            f"  {row}"
+            for row in columns(
+                [
+                    (
+                        s.name(b.leaf_id),
+                        tr("ui." + b.status),
+                        tr("{v0} 个节点", v0=b.nodes),
+                        f"${b.one_time_cost:.4f}",
+                        ledger.fmt(b.blocked_tokens),
+                    )
+                    for b in r.branches
+                ]
             )
+        )
     saved = ledger.saved_by_kind(s.log.state, s.pricing)
     labels = {
         "exploration": tr("探索分支未并入主干"),
@@ -1257,12 +1266,11 @@ HELP = "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。"
 
 def cmd_help(s: Session) -> list[str]:
     _, _, DIM, BOLD, RESET = s.palette()
-    rows = [(f"/{name} {tr(args)}".strip(), tr(what)) for name, args, what in COMMANDS]
-    width = max(get_cwidth(label) for label, _ in rows)
-    out = [
-        f"  {BOLD}{label}{' ' * (width - get_cwidth(label))}{RESET}  {DIM}{what}{RESET}"
-        for label, what in rows
+    rows = [
+        (f"{BOLD}{f'/{name} {tr(args)}'.strip()}{RESET}", f"{DIM}{tr(what)}{RESET}")
+        for name, args, what in COMMANDS
     ]
+    out = [f"  {row}" for row in columns(rows)]
     return [
         *out,
         tr("  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}", DIM=DIM, RESET=RESET),
