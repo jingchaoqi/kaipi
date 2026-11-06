@@ -176,6 +176,15 @@ def test_independent_worker_installs_and_resumes_exact_session(
             "v0.1.3",
             "session-exact",
             str(tmp_path / "tools"),
+            json.dumps(
+                [
+                    "正在安装 v0.1.3",
+                    "更新未完成，可重试：",
+                    "安装成功后继续会话：",
+                    "已更新至 v0.1.3",
+                    "正在接回原会话。",
+                ]
+            ),
         ],
         cwd=project,
         capture_output=True,

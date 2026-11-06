@@ -1,0 +1,1946 @@
+{
+  "{ref}: 没有这个节点（用 /tree 里的编号，如 N3）": {
+    "zh": "{ref}: 没有这个节点（用 /tree 里的编号，如 N3）",
+    "en": "{ref}: node not found (use an ID from /tree, e.g. N3)"
+  },
+  "未知": {
+    "zh": "未知",
+    "en": "unknown"
+  },
+  " [已归档]": {
+    "zh": " [已归档]",
+    "en": " [archived]"
+  },
+  " {RED}[已废弃 · 不进上下文]{RESET}": {
+    "zh": " {RED}[已废弃 · 不进上下文]{RESET}",
+    "en": " {RED}[discarded · excluded from context]{RESET}"
+  },
+  " · 当前": {
+    "zh": " · 当前",
+    "en": " · current"
+  },
+  " · 主线": {
+    "zh": " · 主干",
+    "en": " · trunk"
+  },
+  "{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}": {
+    "zh": "{DIM}已登记待嫁接（下一句生效）：{staged}{RESET}",
+    "en": "{DIM}Queued grafts (applied to your next message): {staged}{RESET}"
+  },
+  "{DIM}主线 · 当前  ⟵嫁接  |  {v1}{RESET}": {
+    "zh": "{DIM}主干 · 当前  ⟵嫁接  |  {v1}{RESET}",
+    "en": "{DIM}trunk · current  ⟵graft  |  {v1}{RESET}"
+  },
+  "{DIM}--- ↑ 缓存断点（system prompt 末尾，Anthropic 系协议固定放这一个）---{RESET}": {
+    "zh": "{DIM}--- ↑ 缓存断点（系统提示词 末尾，Anthropic 系协议固定放这一个）---{RESET}",
+    "en": "{DIM}--- ↑ Cache breakpoint (end of system prompt; fixed for Anthropic protocols) ---{RESET}"
+  },
+  "{DIM}=== 第 {v1}/{v2} 条消息 · {v3} ==={RESET}": {
+    "zh": "{DIM}=== 第 {v1}/{v2} 条消息 · {v3} ==={RESET}",
+    "en": "{DIM}=== Message {v1}/{v2} · {v3} ==={RESET}"
+  },
+  "{DIM}--- ↑ 缓存断点（第 {v1} 条消息末尾）---{RESET}": {
+    "zh": "{DIM}--- ↑ 缓存断点（第 {v1} 条消息末尾）---{RESET}",
+    "en": "{DIM}--- ↑ Cache breakpoint (end of message {v1}) ---{RESET}"
+  },
+  "{DIM}=== {v1} 条消息  约 {v2} token（本地估算，没有发任何请求）  缓存断点 {points} 处 ==={RESET}": {
+    "zh": "{DIM}=== {v1} 条消息  约 {v2} token（本地估算，没有发任何请求）  缓存断点 {points} 处 ==={RESET}",
+    "en": "{DIM}=== {v1} messages  ~{v2} tokens (local estimate; no request sent)  {points} cache breakpoints ==={RESET}"
+  },
+  "{RED}{names} 的摘要还没生成，真正发送时才会生成{RESET}": {
+    "zh": "{RED}{names} 的摘要还没生成，真正发送时才会生成{RESET}",
+    "en": "{RED}Summaries for {names} will be generated when the request is sent{RESET}"
+  },
+  "尚无请求记录": {
+    "zh": "尚无请求记录",
+    "en": "No requests yet"
+  },
+  " / 窗口 {window}": {
+    "zh": " / 窗口 {window}",
+    "en": " / window {window}"
+  },
+  "部分模型未计价": {
+    "zh": "部分模型未计价",
+    "en": "some models have no pricing"
+  },
+  "价格表估算": {
+    "zh": "价格表估算",
+    "en": "estimated from pricing catalog"
+  },
+  "探索（只读）": {
+    "zh": "探索（只读）",
+    "en": "Exploration (read-only)"
+  },
+  "主干续写": {
+    "zh": "主干续写",
+    "en": "Continue trunk"
+  },
+  "模型": {
+    "zh": "模型",
+    "en": "Model"
+  },
+  "提供商": {
+    "zh": "提供商",
+    "en": "Provider"
+  },
+  "未指定": {
+    "zh": "未指定",
+    "en": "unspecified"
+  },
+  "会话": {
+    "zh": "会话",
+    "en": "Session"
+  },
+  "未命名": {
+    "zh": "未命名",
+    "en": "Untitled"
+  },
+  "目录": {
+    "zh": "目录",
+    "en": "Directory"
+  },
+  "位置": {
+    "zh": "位置",
+    "en": "Position"
+  },
+  "{v0} · {mode} · 主干 {v2}": {
+    "zh": "{v0} · {mode} · 主干 {v2}",
+    "en": "{v0} · {mode} · trunk {v2}"
+  },
+  "上下文": {
+    "zh": "上下文",
+    "en": "Context"
+  },
+  "待嫁接": {
+    "zh": "待嫁接",
+    "en": "Pending grafts"
+  },
+  "{v0} 个节点": {
+    "zh": "{v0} 个节点",
+    "en": "{v0} nodes"
+  },
+  "累计用量": {
+    "zh": "累计用量",
+    "en": "Total usage"
+  },
+  "输入 {v0:,} · 输出 {v1:,} tokens": {
+    "zh": "输入 {v0:,} · 输出 {v1:,} tokens",
+    "en": "Input {v0:,} · output {v1:,} tokens"
+  },
+  "缓存读取": {
+    "zh": "缓存读取",
+    "en": "Cache read"
+  },
+  " · 命中 {v0:.1%}": {
+    "zh": " · 命中 {v0:.1%}",
+    "en": " · hit rate {v0:.1%}"
+  },
+  "会话费用": {
+    "zh": "会话费用",
+    "en": "Session cost"
+  },
+  "\n{bold}kaipi {v1} · 状态{reset}\n": {
+    "zh": "\n{bold}kaipi {v1} · 状态{reset}\n",
+    "en": "\n{bold}kaipi {v1} · Status{reset}\n"
+  },
+  "\n  {dim}上下文为当前节点最近请求记录；待嫁接内容未计入。{reset}\n": {
+    "zh": "\n  {dim}上下文为当前节点最近请求记录；待嫁接内容未计入。{reset}\n",
+    "en": "\n  {dim}Context reflects the current node's latest request; pending grafts are excluded.{reset}\n"
+  },
+  "探索分支未并入主干": {
+    "zh": "探索分支未并入主干",
+    "en": "Exploration branches kept out of the trunk"
+  },
+  "嫁接带的是结论而非整条分支": {
+    "zh": "嫁接带的是结论而非整条分支",
+    "en": "Grafts carry conclusions, not entire branches"
+  },
+  "打断的回合不进上下文": {
+    "zh": "打断的回合不进上下文",
+    "en": "Interrupted turns kept out of context"
+  },
+  "(空对话)": {
+    "zh": "(空会话)",
+    "en": "(empty session)"
+  },
+  " (当前)": {
+    "zh": " (当前)",
+    "en": " (current)"
+  },
+  "{v0}  {when}  {v2:>3} 轮  {v3}{mark}": {
+    "zh": "{v0}  {when}  {v2:>3} 轮  {v3}{mark}",
+    "en": "{v0}  {when}  {v2:>3} turns  {v3}{mark}"
+  },
+  "{BOLD}这个目录里的对话{RESET}": {
+    "zh": "{BOLD}这个目录里的会话{RESET}",
+    "en": "{BOLD}Sessions in this directory{RESET}"
+  },
+  "序号（回车取消）": {
+    "zh": "序号（回车取消）",
+    "en": "Number (Enter to cancel)"
+  },
+  "已开始新对话。输入 /resume 可找回之前的对话。": {
+    "zh": "已开始新会话。输入 /resume 可找回之前的会话。",
+    "en": "New session started. Use /resume to return to an earlier session."
+  },
+  "{DIM}已经在这个对话里{RESET}": {
+    "zh": "{DIM}已经在这个会话里{RESET}",
+    "en": "{DIM}Already in this session{RESET}"
+  },
+  "{GREEN}接上 {v1}  {v2}{RESET}  {DIM}{v5} 轮，光标在 {v6}{v7}": {
+    "zh": "{GREEN}接上 {v1}  {v2}{RESET}  {DIM}{v5} 轮，光标在 {v6}{v7}",
+    "en": "{GREEN}Resumed {v1}  {v2}{RESET}  {DIM}{v5} turns, cursor at {v6}{v7}"
+  },
+  "用法：/rename <名字>": {
+    "zh": "用法：/rename <名字>",
+    "en": "Usage: /rename <name>"
+  },
+  "{GREEN}这个对话现在叫「{name}」{RESET}": {
+    "zh": "{GREEN}这个会话现在叫「{name}」{RESET}",
+    "en": "{GREEN}Session renamed to “{name}”{RESET}"
+  },
+  "… 还有 {v0} 行（/canvas 里点开看全部）": {
+    "zh": "… 还有 {v0} 行（/canvas 里点开看全部）",
+    "en": "… {v0} more lines (open /canvas to see all)"
+  },
+  "[{v0} 摘要没生成：{why}] 改按 leaf 嫁接": {
+    "zh": "[{v0} 摘要没生成：{why}] 改按 leaf 嫁接",
+    "en": "[{v0} summary unavailable: {why}] Using a leaf graft"
+  },
+  "[{v0} 已废弃] ${cost:.4f}  不会进入之后的上下文": {
+    "zh": "[{v0} 已废弃] ${cost:.4f}  不会进入之后的上下文",
+    "en": "[{v0} discarded] ${cost:.4f}  Excluded from future context"
+  },
+  "生成标题": {
+    "zh": "生成标题",
+    "en": "Naming"
+  },
+  "{RED}这一轮没能完成：{err}{RESET}": {
+    "zh": "{RED}这一轮没能完成：{err}{RESET}",
+    "en": "{RED}This turn could not finish: {err}{RESET}"
+  },
+  "{DIM}已花掉的 token 记在账上；下一句从 {v1} 重新长出兄弟节点{RESET}": {
+    "zh": "{DIM}已花掉的 token 记在账上；下一句从 {v1} 重新长出兄弟节点{RESET}",
+    "en": "{DIM}Tokens used have been recorded; your next message branches from {v1}{RESET}"
+  },
+  "{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}": {
+    "zh": "{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}",
+    "en": "{RED}Stopped. This turn is excluded from future context; tokens used have been recorded.{RESET}"
+  },
+  "被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?": {
+    "zh": "被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?",
+    "en": "The stopped exploration changed the working tree. Revert (git checkout -- . && git clean -fd)?"
+  },
+  "{DIM}下一句会从 {v1} 重新长出一个兄弟节点{RESET}": {
+    "zh": "{DIM}下一句会从 {v1} 重新长出一个兄弟节点{RESET}",
+    "en": "{DIM}Your next message branches from {v1}{RESET}"
+  },
+  "会话树导航：方向键选择节点，回车从此继续": {
+    "zh": "会话树导航：方向键选择节点，回车从此继续",
+    "en": "Navigate the session tree: arrows to select, Enter to continue"
+  },
+  "原样打印下一轮要发给模型的全部内容，含嫁接块；不发送、不花钱": {
+    "zh": "原样打印下一轮要发给模型的全部内容，含嫁接块；不发送、不花钱",
+    "en": "Print the complete next context, including grafts; no request or charge"
+  },
+  "导出下一轮上下文为 Markdown，在 workspace 根目录查看": {
+    "zh": "导出下一轮上下文为 Markdown，在 工作目录 根目录查看",
+    "en": "Export the next context as Markdown in the workspace root"
+  },
+  "<你的问题>": {
+    "zh": "<你的问题>",
+    "en": "<question>"
+  },
+  "从当前位置岔出去问一句，主干钉在原地不动": {
+    "zh": "从当前位置岔出去问一句，主干钉在原地不动",
+    "en": "Explore from here while keeping the trunk pinned"
+  },
+  "[节点id]": {
+    "zh": "[节点id]",
+    "en": "[node-id]"
+  },
+  "跳转到节点；不带参数打开会话树导航": {
+    "zh": "跳转到节点；不带参数打开会话树导航",
+    "en": "Go to a node; without arguments, open the tree navigator"
+  },
+  "<节点id> [--depth leaf|leaf+summary|branch] [--with-tool <id>...]": {
+    "zh": "<节点id> [--depth leaf|leaf+summary|branch] [--with-tool <id>...]",
+    "en": "<node-id> [--depth leaf|leaf+summary|branch] [--with-tool <id>...]"
+  },
+  "把那个节点嫁接进下一句输入，只搬结论": {
+    "zh": "把那个节点嫁接进下一句输入，只搬结论",
+    "en": "Graft a node's conclusion into the next message"
+  },
+  "<节点id>": {
+    "zh": "<节点id>",
+    "en": "<node-id>"
+  },
+  "把节点连同整棵子树收起来，退出上下文": {
+    "zh": "把节点连同整棵子树收起来，退出上下文",
+    "en": "Archive a node and its subtree, removing them from context"
+  },
+  "撤销归档": {
+    "zh": "撤销归档",
+    "en": "Restore an archived subtree"
+  },
+  "[pin <节点id>]": {
+    "zh": "[pin <节点id>]",
+    "en": "[pin <node-id>]"
+  },
+  "显示主干，或把主干钉到某个节点": {
+    "zh": "显示主干，或把主干钉到某个节点",
+    "en": "Show the trunk, or pin it to a node"
+  },
+  "[节点id] [both|code|conversation]": {
+    "zh": "[节点id] [both|code|conversation]",
+    "en": "[node-id] [both|code|conversation]"
+  },
+  "回退：上下键选节点，再选回退方式": {
+    "zh": "回退：上下键选节点，再选回退方式",
+    "en": "Rewind: select a node with arrows, then choose what to restore"
+  },
+  "当前状态：模型、会话、上下文、用量与费用": {
+    "zh": "当前状态：模型、会话、上下文、用量与费用",
+    "en": "Show model, session, context, usage and costs"
+  },
+  "显示当前 kaipi 版本": {
+    "zh": "显示当前 kaipi 版本",
+    "en": "Show the current kaipi version"
+  },
+  "检查并安装新版，完成后接回当前会话": {
+    "zh": "检查并安装新版，完成后接回当前会话",
+    "en": "Check for updates, install, then resume this session"
+  },
+  "总账：花费、各项 token、探索/嫁接/打断各省了多少": {
+    "zh": "总账：花费、各项 token、探索/嫁接/打断各省了多少",
+    "en": "Ledger: costs, tokens and estimated savings from exploration, grafts and interruptions"
+  },
+  "把会话搬到浏览器（画布里敲 /cli 搬回来）": {
+    "zh": "把会话搬到浏览器（画布里敲 /cli 搬回来）",
+    "en": "Move this session to the browser canvas; /cli returns to the terminal"
+  },
+  "配置 API 提供商：地址、key、模型 id": {
+    "zh": "配置 API 提供商：地址、key、模型 ID",
+    "en": "Configure an API provider: endpoint, key and model IDs"
+  },
+  "换一个模型，下一句开始生效": {
+    "zh": "换一个模型，下一句开始生效",
+    "en": "Switch models starting with the next message"
+  },
+  "设置：上下选择、左右修改，立即生效，Esc 返回": {
+    "zh": "设置：上下选择、左右修改，立即生效，Esc 返回",
+    "en": "Settings: arrows to change, applied immediately, Esc to return"
+  },
+  "定制底部状态行：上下选择、左右切换选项，Esc 保存返回": {
+    "zh": "定制底部状态行：上下选择、左右切换选项，Esc 保存返回",
+    "en": "Status line: ↑↓ select, ←→ cycle options, Esc to save"
+  },
+  "结束当前对话、清空显示，进入新对话；旧对话保留": {
+    "zh": "结束当前会话、清空显示，进入新会话；旧会话保留",
+    "en": "Close this session, clear the screen and start a new one; history is kept"
+  },
+  "[对话id]": {
+    "zh": "[会话id]",
+    "en": "[session-id]"
+  },
+  "接上旧对话；不带参数用上下键选择，回车进入": {
+    "zh": "接上旧会话；不带参数用上下键选择，回车进入",
+    "en": "Resume a session; without arguments, use arrows and Enter to select"
+  },
+  "<名字>": {
+    "zh": "<名字>",
+    "en": "<name>"
+  },
+  "给当前对话起个名字": {
+    "zh": "给当前会话起个名字",
+    "en": "Rename this session"
+  },
+  "显示这份清单": {
+    "zh": "显示这份清单",
+    "en": "Show this list"
+  },
+  "结束（/exit 也一样）": {
+    "zh": "结束（/exit 也一样）",
+    "en": "Exit (also /exit)"
+  },
+  "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。": {
+    "zh": "🌱 欢迎使用 kaipi，输入 /help 查看所有指令及用法。",
+    "en": "🌱 Welcome to kaipi. Type /help for commands."
+  },
+  "  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}": {
+    "zh": "  {DIM}Esc 停止当前回合 · 运行中敲的话会排队 · ↑↓ 翻历史{RESET}",
+    "en": "  {DIM}Esc stops the current turn · Messages typed while busy are queued · ↑↓ history{RESET}"
+  },
+  "\n再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消": {
+    "zh": "\n再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消",
+    "en": "\nPress Ctrl+C again within 3 seconds to exit; typing cancels"
+  },
+  "\n  {DIM}已关闭会话{RESET}\n": {
+    "zh": "\n  {DIM}已关闭会话{RESET}\n",
+    "en": "\n  {DIM}Session closed{RESET}\n"
+  },
+  "  {DIM}会话详情：{RESET}": {
+    "zh": "  {DIM}会话详情：{RESET}",
+    "en": "  {DIM}Session details:{RESET}"
+  },
+  "  {title} | {directory} | {v2} 个节点 | ${v3:.4f}\n": {
+    "zh": "  {title} | {directory} | {v2} 个节点 | ${v3:.4f}\n",
+    "en": "  {title} | {directory} | {v2} nodes | ${v3:.4f}\n"
+  },
+  "  {DIM}恢复此会话：{RESET}\n  {GREEN}kaipi -r {v3}{v4}\n": {
+    "zh": "  {DIM}恢复此会话：{RESET}\n  {GREEN}kaipi -r {v3}{v4}\n",
+    "en": "  {DIM}Resume this session:{RESET}\n  {GREEN}kaipi -r {v3}{v4}\n"
+  },
+  "  {DIM}本次尚无对话。{RESET}\n\n  重新开始：kaipi\n": {
+    "zh": "  {DIM}本次尚无会话。{RESET}\n\n  重新开始：kaipi\n",
+    "en": "  {DIM}No conversation yet.{RESET}\n\n  Start again: kaipi\n"
+  },
+  "用法：/{name} {usage}": {
+    "zh": "用法：/{name} {usage}",
+    "en": "Usage: /{name} {usage}"
+  },
+  "用法：/inspect-context（不带参数）": {
+    "zh": "用法：/inspect-context（不带参数）",
+    "en": "Usage: /inspect-context (no arguments)"
+  },
+  "无法导出上下文：{e}": {
+    "zh": "无法导出上下文：{e}",
+    "en": "Could not export context: {e}"
+  },
+  "上下文已导出。打开此文件查看：\n{path}": {
+    "zh": "上下文已导出。打开此文件查看：\n{path}",
+    "en": "Context exported. Open this file to view it:\n{path}"
+  },
+  "用法：/new（不带参数）": {
+    "zh": "用法：/new（不带参数）",
+    "en": "Usage: /new (no arguments)"
+  },
+  "用法：/config（不带参数）": {
+    "zh": "用法：/config（不带参数）",
+    "en": "Usage: /config (no arguments)"
+  },
+  "用法：/statusline（不带参数）": {
+    "zh": "用法：/statusline（不带参数）",
+    "en": "Usage: /statusline (no arguments)"
+  },
+  "用法：/update（不带参数）": {
+    "zh": "用法：/update（不带参数）",
+    "en": "Usage: /update (no arguments)"
+  },
+  "目标节点（回车取消）": {
+    "zh": "目标节点（回车取消）",
+    "en": "Target node (Enter to cancel)"
+  },
+  "还没有可回退的节点": {
+    "zh": "还没有可回退的节点",
+    "en": "No nodes to rewind to yet"
+  },
+  "{BOLD}👋 第一次用 kaipi，先花一分钟配两件事。{RESET}": {
+    "zh": "{BOLD}👋 第一次用 kaipi，先花一分钟配两件事。{RESET}",
+    "en": "{BOLD}👋 Let's set up kaipi.{RESET}"
+  },
+  "{DIM}第 1 步 / 共 2 步：选一个 API 提供商，填上地址和 key。{RESET}\n": {
+    "zh": "{DIM}选择 API 提供商，填写地址和 key。{RESET}\n",
+    "en": "{DIM}Choose an API provider, then enter its endpoint and key.{RESET}\n"
+  },
+  "{DIM}第 2 步 / 共 2 步：挑一个模型启用。{RESET}\n": {
+    "zh": "{DIM}选择一个模型启用。{RESET}\n",
+    "en": "{DIM}Choose a model to use.{RESET}\n"
+  },
+  "{RED}还没有可用的模型：再跑一次 /provider，把 model id 填上{RESET}": {
+    "zh": "{RED}还没有可用的模型：再跑一次 /provider，把 模型 ID 填上{RESET}",
+    "en": "{RED}No models available. Run /provider and enter model IDs{RESET}"
+  },
+  "\n{GREEN}配置完成！直接描述你要做的事，它会自己查看代码、执行命令。{RESET}": {
+    "zh": "\n{GREEN}配置完成！直接描述你要做的事，它会自己查看代码、执行命令。{RESET}",
+    "en": "\n{GREEN}Ready! Describe your task; kaipi will inspect code and run commands.{RESET}"
+  },
+  "{DIM}随时 /tree 看分支，Esc 停掉跑歪的一轮，/ledger 看省了多少。{RESET}\n": {
+    "zh": "{DIM}随时 /tree 看分支，Esc 停掉跑歪的一轮，/ledger 看省了多少。{RESET}\n",
+    "en": "{DIM}/tree shows branches · Esc stops a turn · /ledger shows estimated savings.{RESET}\n"
+  },
+  "接上最近的那个对话": {
+    "zh": "接上最近的那个会话",
+    "en": "Resume the most recent session"
+  },
+  "接上指定 id 的对话": {
+    "zh": "接上指定 id 的会话",
+    "en": "Resume a session by ID"
+  },
+  "处理结果": {
+    "zh": "处理结果",
+    "en": "Processing"
+  },
+  "查看项目文件与代码": {
+    "zh": "查看项目文件与代码",
+    "en": "Inspect project files and code"
+  },
+  "运行项目命令与检查": {
+    "zh": "运行项目命令与检查",
+    "en": "Run project commands and checks"
+  },
+  "执行 Git 操作": {
+    "zh": "执行 Git 操作",
+    "en": "Run Git commands"
+  },
+  "执行命令": {
+    "zh": "执行命令",
+    "en": "Executing"
+  },
+  "还没有可选择的节点": {
+    "zh": "还没有可选择的节点",
+    "en": "No nodes to select yet"
+  },
+  "无": {
+    "zh": "无",
+    "en": "none"
+  },
+  "主线": {
+    "zh": "主干",
+    "en": "Trunk"
+  },
+  "探索分支：下一句从此分叉": {
+    "zh": "探索分支：下一句从此分叉",
+    "en": "Exploration: branch from here"
+  },
+  "选择后预览文件并确认回退方式": {
+    "zh": "选择后预览文件并确认回退方式",
+    "en": "Preview files and choose what to restore"
+  },
+  "{own} tokens · ${cost:.4f} · 嫁接：{grafts}": {
+    "zh": "{own} tokens · ${cost:.4f} · 嫁接：{grafts}",
+    "en": "{own} tokens · ${cost:.4f} · grafts: {grafts}"
+  },
+  "回退到节点": {
+    "zh": "回退到节点",
+    "en": "Rewind to a node"
+  },
+  "会话树 · 选择继续的位置": {
+    "zh": "会话树 · 选择继续的位置",
+    "en": "Session tree · Choose where to continue"
+  },
+  "↑↓ 浏览 · ←父节点 →子节点 · Enter ": {
+    "zh": "↑↓ 浏览 · ←父节点 →子节点 · Enter ",
+    "en": "↑↓ browse · ← parent → child · Enter "
+  },
+  "选择": {
+    "zh": "选择",
+    "en": "select"
+  },
+  "从此继续": {
+    "zh": "从此继续",
+    "en": "continue here"
+  },
+  " · Esc 取消": {
+    "zh": " · Esc 取消",
+    "en": " · Esc cancel"
+  },
+  "这个目录里还没有对话": {
+    "zh": "这个目录里还没有会话",
+    "en": "No sessions in this directory yet"
+  },
+  "这个目录里的对话": {
+    "zh": "这个目录里的会话",
+    "en": "Sessions in this directory"
+  },
+  "↑↓ 选择 · Enter 进入 · Esc 取消": {
+    "zh": "↑↓ 选择 · Enter 进入 · Esc 取消",
+    "en": "↑↓ select · Enter open · Esc cancel"
+  },
+  "就绪": {
+    "zh": "就绪",
+    "en": "Ready"
+  },
+  "正在读取附件…": {
+    "zh": "正在读取附件…",
+    "en": "Reading attachments…"
+  },
+  "已取消添加附件": {
+    "zh": "已取消添加附件",
+    "en": "Attachment cancelled"
+  },
+  " · 回车发送 · 退格移除": {
+    "zh": " · 回车发送 · 退格移除",
+    "en": " · Enter send · Backspace remove"
+  },
+  "剪贴板为空": {
+    "zh": "剪贴板为空",
+    "en": "Clipboard is empty"
+  },
+  "附件请随问题发送；也可使用 /explore 问题": {
+    "zh": "附件请随问题发送；也可使用 /explore 问题",
+    "en": "Send attachments with a question, or use /explore <question>"
+  },
+  "再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消": {
+    "zh": "再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消",
+    "en": "Press Ctrl+C again within 3 seconds to exit; typing cancels"
+  },
+  "再按一次 Ctrl+C": {
+    "zh": "再按一次 Ctrl+C",
+    "en": "Press Ctrl+C again"
+  },
+  "正在停止": {
+    "zh": "正在停止",
+    "en": "Stopping"
+  },
+  "Esc 停止": {
+    "zh": "Esc 停止",
+    "en": "Esc stop"
+  },
+  "等待输入": {
+    "zh": "等待输入",
+    "en": "Awaiting input"
+  },
+  "等待重试": {
+    "zh": "等待重试",
+    "en": "Retrying"
+  },
+  "整理回答": {
+    "zh": "整理回答",
+    "en": "Formatting"
+  },
+  "整理结果": {
+    "zh": "整理结果",
+    "en": "Finalizing"
+  },
+  "准备中": {
+    "zh": "准备中",
+    "en": "Preparing"
+  },
+  "已完成": {
+    "zh": "已完成",
+    "en": "Completed"
+  },
+  "已停止": {
+    "zh": "已停止",
+    "en": "Stopped"
+  },
+  "未完成": {
+    "zh": "未完成",
+    "en": "Incomplete"
+  },
+  "{v0}已排队，这一轮结束后执行：{line}{v2}": {
+    "zh": "{v0}已排队，这一轮结束后执行：{line}{v2}",
+    "en": "{v0}Queued; will run after this turn: {line}{v2}"
+  },
+  "还有排队消息或附件草稿，请处理完后再输入 /update。": {
+    "zh": "还有排队消息或附件草稿，请处理完后再输入 /update。",
+    "en": "Finish queued messages and attachment drafts before running /update."
+  },
+  "请在交互终端中运行 kaipi statusline，或在对话中使用 /statusline": {
+    "zh": "请在交互终端中运行 kaipi statusline，或在会话中使用 /statusline",
+    "en": "Run kaipi statusline in an interactive terminal, or /statusline in a session"
+  },
+  "选择底部状态行要显示的元素": {
+    "zh": "选择底部状态行要显示的元素",
+    "en": "Choose what to show in the bottom status line"
+  },
+  "保存失败，尚未退出；请重试，或 Ctrl+C 取消修改": {
+    "zh": "保存失败，尚未退出；请重试，或 Ctrl+C 取消修改",
+    "en": "Could not save. Retry, or press Ctrl+C to discard changes"
+  },
+  "底部状态行": {
+    "zh": "底部状态行",
+    "en": "Status line"
+  },
+  "↑↓ 选择 · ←→ 切换选项 · Esc 保存返回 · Ctrl+C 取消": {
+    "zh": "↑↓ 选择 · ←→ 切换选项 · Esc 保存返回 · Ctrl+C 取消",
+    "en": "↑↓ select · ←→ cycle options · Esc save and return · Ctrl+C cancel"
+  },
+  "请在交互终端中运行 kaipi config，或在对话中使用 /config": {
+    "zh": "请在交互终端中运行 kaipi config，或在会话中使用 /config",
+    "en": "Run kaipi config in an interactive terminal, or /config in a session"
+  },
+  "修改立即保存并生效": {
+    "zh": "修改立即保存并生效",
+    "en": "Changes are saved and applied immediately"
+  },
+  "每日自动检查更新      ": {
+    "zh": "每日自动检查更新      ",
+    "en": "Check for updates daily      "
+  },
+  "开": {
+    "zh": "开",
+    "en": "On"
+  },
+  "关": {
+    "zh": "关",
+    "en": "Off"
+  },
+  "保存失败，设置未修改；请检查配置目录权限后重试": {
+    "zh": "保存失败，设置未修改；请检查配置目录权限后重试",
+    "en": "Could not save. Settings unchanged; check directory permissions and retry"
+  },
+  "已保存：每日自动检查更新": {
+    "zh": "已保存：每日自动检查更新",
+    "en": "Saved: daily update checks "
+  },
+  "已开启": {
+    "zh": "已开启",
+    "en": "enabled"
+  },
+  "已关闭": {
+    "zh": "已关闭",
+    "en": "disabled"
+  },
+  "kaipi 设置": {
+    "zh": "kaipi 设置",
+    "en": "kaipi settings"
+  },
+  "↑↓ 选择 · ← 关 / → 开 · 无需回车 · Esc 返回": {
+    "zh": "↑↓ 选择 · ← 关 / → 开 · 无需回车 · Esc 返回",
+    "en": "↑↓ select · ← off / → on · No Enter needed · Esc return"
+  },
+  "请输入有效序号": {
+    "zh": "请输入有效序号",
+    "en": "Enter a valid number"
+  },
+  "{DIM}Esc 退出当前命令，不修改任何配置{RESET}": {
+    "zh": "{DIM}Esc 退出当前命令，不修改任何配置{RESET}",
+    "en": "{DIM}Esc cancels this command without changing configuration{RESET}"
+  },
+  "{DIM}已取消，配置未修改{RESET}": {
+    "zh": "{DIM}已取消，配置未修改{RESET}",
+    "en": "{DIM}Cancelled; configuration unchanged{RESET}"
+  },
+  "选择模型": {
+    "zh": "选择模型",
+    "en": "Choose a model"
+  },
+  "序号": {
+    "zh": "序号",
+    "en": "Number"
+  },
+  "序号要在 1..{v0} 之间": {
+    "zh": "序号要在 1..{v0} 之间",
+    "en": "Choose a number from 1..{v0}"
+  },
+  "↑↓ 选择 · Enter 确认 · Esc 退出，不修改配置": {
+    "zh": "↑↓ 选择 · Enter 确认 · Esc 退出，不修改配置",
+    "en": "↑↓ select · Enter confirm · Esc cancel without changes"
+  },
+  "{BOLD}选择 API 提供商{RESET}": {
+    "zh": "{BOLD}选择 API 提供商{RESET}",
+    "en": "{BOLD}Choose an API provider{RESET}"
+  },
+  "序号：": {
+    "zh": "序号：",
+    "en": "Number: "
+  },
+  "请输入 1..{v0} 的序号，或用上下键选择": {
+    "zh": "请输入 1..{v0} 的序号，或用上下键选择",
+    "en": "Enter a number from 1..{v0}, or use ↑↓ to select"
+  },
+  "选择 API 提供商": {
+    "zh": "选择 API 提供商",
+    "en": "Choose an API provider"
+  },
+  "输入序号或 ↑↓ 选择 · Enter 确认 · Esc 取消": {
+    "zh": "输入序号或 ↑↓ 选择 · Enter 确认 · Esc 取消",
+    "en": "Type a number or use ↑↓ · Enter confirm · Esc cancel"
+  },
+  "{BOLD}已配置的提供商{RESET}": {
+    "zh": "{BOLD}已配置的提供商{RESET}",
+    "en": "{BOLD}Configured providers{RESET}"
+  },
+  "(还没填模型)": {
+    "zh": "(还没填模型)",
+    "en": "(no models yet)"
+  },
+  "{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}": {
+    "zh": "{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}",
+    "en": "{DIM}Select a provider to add or update it; use /model to switch models{RESET}"
+  },
+  " (已配置)": {
+    "zh": " (已配置)",
+    "en": " (configured)"
+  },
+  "(官方默认)": {
+    "zh": "(官方默认)",
+    "en": "(official default)"
+  },
+  "刷新模型与价格（保留地址和 key）": {
+    "zh": "刷新模型与价格（保留地址和 key）",
+    "en": "Refresh models and prices (keep endpoint and key)"
+  },
+  "编辑配置": {
+    "zh": "编辑配置",
+    "en": "Edit configuration"
+  },
+  "清除配置（移除地址、key 和模型列表）": {
+    "zh": "清除配置（移除地址、key 和模型列表）",
+    "en": "Remove configuration (endpoint, key and model list)"
+  },
+  "{name} · 已配置": {
+    "zh": "{name} · 已配置",
+    "en": "{name} · configured"
+  },
+  "{RED}清除失败，原配置已保留；请检查配置目录权限{RESET}": {
+    "zh": "{RED}清除失败，原配置已保留；请检查配置目录权限{RESET}",
+    "en": "{RED}Could not remove configuration; existing settings kept. Check directory permissions{RESET}"
+  },
+  "{GREEN}{name} 的配置已清除{RESET}": {
+    "zh": "{GREEN}{name} 的配置已清除{RESET}",
+    "en": "{GREEN}Configuration for {name} removed{RESET}"
+  },
+  "当前模型选择已清除，请用 /model 选择其他模型，或 /provider 添加配置": {
+    "zh": "当前模型选择已清除，请用 /model 选择其他模型，或 /provider 添加配置",
+    "en": "Current model selection cleared. Use /model to select another, or /provider to configure one"
+  },
+  "API 地址（不同地区可能不同，回车接受）": {
+    "zh": "API 地址（不同地区可能不同，回车接受）",
+    "en": "API endpoint (may vary by region; Enter to accept)"
+  },
+  "{v0} 的 key": {
+    "zh": "{v0} 的 key",
+    "en": "{v0} key"
+  },
+  "（回车保留已存的）": {
+    "zh": "（回车保留已存的）",
+    "en": " (Enter to keep saved key)"
+  },
+  "{DIM}价格表里这个提供商的模型：{v1}{RESET}": {
+    "zh": "{DIM}价格表里这个提供商的模型：{v1}{RESET}",
+    "en": "{DIM}Models in this provider's pricing catalog: {v1}{RESET}"
+  },
+  "你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔）": {
+    "zh": "你要用的 模型 ID（回车全部接受；只选部分请手动输入，逗号分隔）",
+    "en": "Model IDs (Enter to accept all; to select a subset, enter comma-separated IDs)"
+  },
+  "你要用的 model id（请手动输入，逗号分隔）": {
+    "zh": "你要用的 模型 ID（请手动输入，逗号分隔）",
+    "en": "Model IDs (enter comma-separated IDs)"
+  },
+  "{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}": {
+    "zh": "{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}",
+    "en": "{GREEN}{name} saved to {path} (permissions 600, readable only by you){RESET}"
+  },
+  "{DIM}临时想换 key，export {v1} 仍然优先于这里{RESET}": {
+    "zh": "{DIM}临时想换 key，export {v1} 仍然优先于这里{RESET}",
+    "en": "{DIM}To override the saved key temporarily, export {v1}{RESET}"
+  },
+  "{DIM}接下来用 /model 选一个模型启用{RESET}": {
+    "zh": "{DIM}接下来用 /model 选一个模型启用{RESET}",
+    "en": "{DIM}Use /model to choose a model{RESET}"
+  },
+  "{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 model id{RESET}": {
+    "zh": "{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 模型 ID{RESET}",
+    "en": "{RED}No models available. Use /provider to configure a provider and its model IDs{RESET}"
+  },
+  "in {v0}/out {v1} 每百万": {
+    "zh": "输入 {v0}/输出 {v1} 每百万",
+    "en": "in {v0}/out {v1} per million"
+  },
+  "不在价格表，账本按 0 记": {
+    "zh": "不在价格表，账本按 0 记",
+    "en": "no price listed; recorded as 0"
+  },
+  "{GREEN} (当前){RESET}": {
+    "zh": "{GREEN} (当前){RESET}",
+    "en": "{GREEN} (current){RESET}"
+  },
+  "{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}": {
+    "zh": "{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}",
+    "en": "{GREEN}Selected {model} ({who}), starting with your next message{RESET}"
+  },
+  "{DIM}正在读取 kaipi 在线模型与价格目录…{RESET}": {
+    "zh": "{DIM}正在读取 kaipi 在线模型与价格目录…{RESET}",
+    "en": "{DIM}Fetching kaipi's online model and pricing catalog…{RESET}"
+  },
+  "{RED}刷新失败，原配置和价格已保留；请稍后重试{RESET}": {
+    "zh": "{RED}刷新失败，原配置和价格已保留；请稍后重试{RESET}",
+    "en": "{RED}Refresh failed; existing configuration and prices kept. Try again later{RESET}"
+  },
+  "{BOLD}{name} · 目录内 {v2} 个模型 · 新增 {v3} 个{RESET}": {
+    "zh": "{BOLD}{name} · 目录内 {v2} 个模型 · 新增 {v3} 个{RESET}",
+    "en": "{BOLD}{name} · {v2} models in catalog · {v3} new{RESET}"
+  },
+  "  {model_id}  {DIM}in {v2}/out {v3} 每百万{RESET}": {
+    "zh": "  {model_id}  {DIM}输入 {v2}/输出 {v3} 每百万{RESET}",
+    "en": "  {model_id}  {DIM}in {v2}/out {v3} per million{RESET}"
+  },
+  "{DIM}保留自定义模型和价格；保存后可在 /model 中选择{RESET}": {
+    "zh": "{DIM}保留自定义模型和价格；保存后可在 /model 中选择{RESET}",
+    "en": "{DIM}Custom models and prices are preserved; available in /model after saving{RESET}"
+  },
+  "回车保存刷新结果；Esc 取消": {
+    "zh": "回车保存刷新结果；Esc 取消",
+    "en": "Enter to save refreshed catalog; Esc to cancel"
+  },
+  "{RED}保存失败，原配置和价格已保留{RESET}": {
+    "zh": "{RED}保存失败，原配置和价格已保留{RESET}",
+    "en": "{RED}Could not save; existing configuration and prices kept{RESET}"
+  },
+  "{GREEN}{name} 模型与价格已刷新，/model 可立即使用{RESET}": {
+    "zh": "{GREEN}{name} 模型与价格已刷新，/model 可立即使用{RESET}",
+    "en": "{GREEN}Models and prices for {name} refreshed; available in /model now{RESET}"
+  },
+  "当前版本 {v0} → 最新版本 {v1}\n更新内容：{v2}": {
+    "zh": "当前版本 {v0} → 最新版本 {v1}\n更新内容：{v2}",
+    "en": "Current version {v0} → latest {v1}\nRelease notes: {v2}"
+  },
+  "发现新版！{v0}\n输入 /update 更新，并接回当前会话。": {
+    "zh": "发现新版！{v0}\n输入 /update 更新，并接回当前会话。",
+    "en": "Update available! {v0}\nUse /update to install and resume this session."
+  },
+  "当前不是可识别的 uv tool 安装，暂不自动替换。源码安装请在源码目录手动更新并运行 uv sync；其他安装方式请从 {REPO}/releases/latest 下载新版安装包。": {
+    "zh": "当前不是可识别的 uv tool 安装，暂不自动替换。源码安装请在源码目录手动更新并运行 uv sync；其他安装方式请从 {REPO}/releases/latest 下载新版安装包。",
+    "en": "This installation is not managed by uv tool, so automatic updates are unavailable. For a source install, update the source and run uv sync; otherwise download the latest package from {REPO}/releases/latest."
+  },
+  "当前版本 {v0}，正在检查新版…": {
+    "zh": "当前版本 {v0}，正在检查新版…",
+    "en": "Current version {v0}. Checking for updates…"
+  },
+  "暂时无法检查更新，请稍后再试。也可访问 {REPO}/releases/latest": {
+    "zh": "暂时无法检查更新，请稍后再试。也可访问 {REPO}/releases/latest",
+    "en": "Could not check for updates. Try later or visit {REPO}/releases/latest"
+  },
+  "暂未找到正式版本。请查看 {REPO}/releases": {
+    "zh": "暂未找到正式版本。请查看 {REPO}/releases",
+    "en": "No stable release found. See {REPO}/releases"
+  },
+  "已是最新正式版，无需更新。": {
+    "zh": "已是最新正式版，无需更新。",
+    "en": "Already on the latest stable release."
+  },
+  "当前版本不低于最新正式版，无需更新。": {
+    "zh": "当前版本不低于最新正式版，无需更新。",
+    "en": "Your version is at least as recent as the latest stable release."
+  },
+  "安装包地址不属于 kaipi Release": {
+    "zh": "安装包地址不属于 kaipi Release",
+    "en": "Package URL does not belong to a kaipi release"
+  },
+  "正在下载并校验安装包；完成前不会退出当前会话…": {
+    "zh": "正在下载并校验安装包；完成前不会退出当前会话…",
+    "en": "Downloading and verifying the package; this session stays open until ready…"
+  },
+  "缺少唯一的安装包校验值": {
+    "zh": "缺少唯一的安装包校验值",
+    "en": "A unique package checksum is missing"
+  },
+  "安装包 SHA-256 校验失败": {
+    "zh": "安装包 SHA-256 校验失败",
+    "en": "Package SHA-256 verification failed"
+  },
+  "下载或校验未完成，尚未替换程序，可稍后重试。版本说明：{v0}": {
+    "zh": "下载或校验未完成，尚未替换程序，可稍后重试。版本说明：{v0}",
+    "en": "Download or verification failed; the application has not been replaced. Retry later. Release notes: {v0}"
+  },
+  "PDF 附件": {
+    "zh": "PDF 附件",
+    "en": "PDF attachment"
+  },
+  "请求过大；原始附件总大小最多 40 MiB": {
+    "zh": "请求过大；原始附件总大小最多 40 MiB",
+    "en": "Request too large; original attachments must total at most 40 MiB"
+  },
+  "请输入问题或添加附件": {
+    "zh": "请输入问题或添加附件",
+    "en": "Enter a question or add an attachment"
+  },
+  "the canvas at {v0}": {
+    "zh": "画布 {v0}",
+    "en": "the canvas at {v0}"
+  },
+  "another terminal": {
+    "zh": "另一个终端",
+    "en": "another terminal"
+  },
+  "{RED}session is open in {where} (pid {v2}); /quit there first{RESET}": {
+    "zh": "{RED}会话正在{where}中打开（进程 {v2}）；请先在那里执行 /quit{RESET}",
+    "en": "{RED}session is open in {where} (pid {v2}); /quit there first{RESET}"
+  },
+  "{RED}warning: {model} not in pricing.toml; costs will read 0{RESET}": {
+    "zh": "{RED}提示：{model} 不在价格表中，费用暂按 0 记录{RESET}",
+    "en": "{RED}warning: {model} not in pricing.toml; costs will read 0{RESET}"
+  },
+  "trunk burden: {v0}": {
+    "zh": "主干上下文：{v0}",
+    "en": "trunk burden: {v0}"
+  },
+  "context {window}": {
+    "zh": "上下文 {window}",
+    "en": "context {window}"
+  },
+  "spent ${v0:.4f}": {
+    "zh": "累计 ${v0:.4f}",
+    "en": "spent ${v0:.4f}"
+  },
+  "saved ": {
+    "zh": "预计节省 ",
+    "en": "estimated savings "
+  },
+  "saved ${money:.4f}": {
+    "zh": "预计节省 ${money:.4f}",
+    "en": "estimated savings ${money:.4f}"
+  },
+  "{v0} is not live; restore it first": {
+    "zh": "{v0} 已归档或废弃，请先恢复",
+    "en": "{v0} is not live; restore it first"
+  },
+  "at {v0} ({kind}); next input opens a branch here": {
+    "zh": "已到达 {v0}（{kind}）；下一条输入从此继续",
+    "en": "at {v0} ({kind}); next input opens a branch here"
+  },
+  "graft {v0} -> next node  depth={depth}  ": {
+    "zh": "嫁接 {v0} → 下一节点  depth={depth}  ",
+    "en": "graft {v0} -> next node  depth={depth}  "
+  },
+  "including tool outputs: {v0}": {
+    "zh": "包含工具输出：{v0}",
+    "en": "including tool outputs: {v0}"
+  },
+  "{DIM}restore with /restore {v1}{RESET}": {
+    "zh": "{DIM}可用 /restore {v1} 恢复{RESET}",
+    "en": "{DIM}restore with /restore {v1}{RESET}"
+  },
+  "{word} {v1} node(s) under {v2}": {
+    "zh": "{word} {v2} 下的 {v1} 个节点",
+    "en": "{word} {v1} node(s) under {v2}"
+  },
+  "trunk pinned to {v0}": {
+    "zh": "主干已固定到 {v0}",
+    "en": "trunk pinned to {v0}"
+  },
+  "cursor moved to {v0}": {
+    "zh": "当前位置已移到 {v0}",
+    "en": "cursor moved to {v0}"
+  },
+  "  (no prefix changes)": {
+    "zh": "  （缓存前缀未改变）",
+    "en": "  (no prefix changes)"
+  },
+  "{v0} has no snapshot (not a git repo?)": {
+    "zh": "{v0} 没有代码快照（可能不是 Git 仓库）",
+    "en": "{v0} has no snapshot (not a git repo?)"
+  },
+  "files a code rewind to {v0} would restore: {v1}": {
+    "zh": "回退代码到 {v0} 将恢复这些文件：{v1}",
+    "en": "files a code rewind to {v0} would restore: {v1}"
+  },
+  "mode must be both | code | conversation": {
+    "zh": "回退方式必须是 both | code | conversation",
+    "en": "mode must be both | code | conversation"
+  },
+  "{v0} is not live; restore it or rewind code only": {
+    "zh": "{v0} 已归档或废弃，请先恢复或只回退代码",
+    "en": "{v0} is not live; restore it or rewind code only"
+  },
+  "restored {v0} file(s) to {v1}; previous state at refs/kaipi/undo": {
+    "zh": "已将 {v0} 个文件恢复到 {v1}；回退前的状态保存在 refs/kaipi/undo",
+    "en": "restored {v0} file(s) to {v1}; previous state at refs/kaipi/undo"
+  },
+  "{BOLD}session {v1}  started on {v2}{RESET}": {
+    "zh": "{BOLD}会话 {v1}  初始模型 {v2}{RESET}",
+    "en": "{BOLD}session {v1}  started on {v2}{RESET}"
+  },
+  "total cost: ${v0:.4f}   tokens: uncached {v1}  cache write {v2}  cache read {v3}  output {v4}": {
+    "zh": "累计费用：${v0:.4f}   token：未缓存输入 {v1}  缓存写入 {v2}  缓存读取 {v3}  输出 {v4}",
+    "en": "total cost: ${v0:.4f}   tokens: uncached {v1}  cache write {v2}  cache read {v3}  output {v4}"
+  },
+  "trunk: {v0}   trunk burden: {v1}": {
+    "zh": "主干：{v0}   主干上下文：{v1}",
+    "en": "trunk: {v0}   trunk burden: {v1}"
+  },
+  "explorations (one-time cost | tokens kept out of the trunk):": {
+    "zh": "探索分支（单次费用 | 未进入主干的 token）：",
+    "en": "explorations (one-time cost | tokens kept out of the trunk):"
+  },
+  "{GREEN}saved {v1} per trunk turn = ${v2:.4f} not spent so far{RESET}": {
+    "zh": "{GREEN}主干每轮预计节省 {v1} token，累计预计节省 ${v2:.4f}{RESET}",
+    "en": "{GREEN}Estimated savings: {v1} tokens per trunk turn, ${v2:.4f} so far{RESET}"
+  },
+  "  {v0:>7}/turn  ${money:<8.4f} {DIM}{v3}{RESET}": {
+    "zh": "  {v0:>7}/轮  ${money:<8.4f} {DIM}{v3}{RESET}",
+    "en": "  {v0:>7}/turn  ${money:<8.4f} {DIM}{v3}{RESET}"
+  },
+  "{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}": {
+    "zh": "{RED}API 丢弃的思考块（前缀改变）：{dropped}{RESET}",
+    "en": "{RED}thinking blocks dropped by the API (prefix edits): {dropped}{RESET}"
+  },
+  "{RED}exploration branch dirtied the working tree{RESET}": {
+    "zh": "{RED}探索分支改动了工作树{RESET}",
+    "en": "{RED}exploration branch dirtied the working tree{RESET}"
+  },
+  "[{v0} {kind}] ${cost:.4f}  cache read {v3}/{v4}  {v5}": {
+    "zh": "[{v0} {kind}] ${cost:.4f}  缓存读取 {v3}/{v4}  {v5}",
+    "en": "[{v0} {kind}] ${cost:.4f}  cache read {v3}/{v4}  {v5}"
+  },
+  "revert working tree (git checkout -- . && git clean -fd)?": {
+    "zh": "回滚工作树（git checkout -- . && git clean -fd）？",
+    "en": "revert working tree (git checkout -- . && git clean -fd)?"
+  },
+  "pin trunk to {v0} instead?": {
+    "zh": "改将 {v0} 固定为主干？",
+    "en": "pin trunk to {v0} instead?"
+  },
+  "canvas at {url} closed; session is back in this terminal": {
+    "zh": "画布 {url} 已关闭，会话已回到当前终端",
+    "en": "canvas at {url} closed; session is back in this terminal"
+  },
+  "{DIM}canvas opened in your browser; this prompt is closed until the canvas sends /cli (or press Ctrl-C here){RESET}": {
+    "zh": "{DIM}画布已在浏览器打开；在画布中执行 /cli 回到终端，也可在此按 Ctrl-C{RESET}",
+    "en": "{DIM}canvas opened in your browser; this prompt is closed until the canvas sends /cli (or press Ctrl-C here){RESET}"
+  },
+  "rewind [both|code|conversation|cancel]": {
+    "zh": "回退方式 [both|code|conversation|cancel]",
+    "en": "rewind [both|code|conversation|cancel]"
+  },
+  "{RED}unknown command /{name}{RESET}": {
+    "zh": "{RED}未知命令 /{name}{RESET}",
+    "en": "{RED}unknown command /{name}{RESET}"
+  },
+  "{DIM}no session in this directory yet; run `kaipi` to start one{RESET}": {
+    "zh": "{DIM}这个目录还没有会话；运行 kaipi 开始{RESET}",
+    "en": "{DIM}no session in this directory yet; run `kaipi` to start one{RESET}"
+  },
+  "depth must be leaf | leaf+summary | branch": {
+    "zh": "嫁接深度必须是 leaf | leaf+summary | branch",
+    "en": "depth must be leaf | leaf+summary | branch"
+  },
+  "handing the session back to the terminal": {
+    "zh": "正在将会话交回终端",
+    "en": "handing the session back to the terminal"
+  },
+  "already on the canvas": {
+    "zh": "当前已在画布中",
+    "en": "already on the canvas"
+  },
+  "exploration started": {
+    "zh": "已开始探索",
+    "en": "exploration started"
+  },
+  "\nuse the node's right-click menu, or /rewind <id> both|code|conversation": {
+    "zh": "\n请使用节点右键菜单，或 /rewind <id> both|code|conversation",
+    "en": "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
+  },
+  "/{v0} needs the terminal: /cli, then run it there": {
+    "zh": "/{v0} 需要在终端执行：先输入 /cli，再运行此命令",
+    "en": "/{v0} needs the terminal: /cli, then run it there"
+  },
+  "unknown command /{v0}": {
+    "zh": "未知命令 /{v0}",
+    "en": "unknown command /{v0}"
+  },
+  "a turn is already running": {
+    "zh": "已有一轮正在运行",
+    "en": "a turn is already running"
+  },
+  "not a local, token-carrying request": {
+    "zh": "请求必须来自本地并携带令牌",
+    "en": "not a local, token-carrying request"
+  },
+  "not found": {
+    "zh": "未找到",
+    "en": "not found"
+  },
+  "not a local, token-carrying JSON request": {
+    "zh": "请求必须来自本地、携带令牌并使用 JSON 格式",
+    "en": "not a local, token-carrying JSON request"
+  },
+  "a turn is running": {
+    "zh": "当前回合正在运行",
+    "en": "a turn is running"
+  },
+  "等待模型": {
+    "zh": "等待模型",
+    "en": "Waiting"
+  },
+  "对话名称": {
+    "zh": "会话名称",
+    "en": "Session title"
+  },
+  "工作目录": {
+    "zh": "工作目录",
+    "en": "Working directory"
+  },
+  "上下文用量": {
+    "zh": "上下文用量",
+    "en": "Context usage"
+  },
+  "累计费用": {
+    "zh": "累计费用",
+    "en": "Total cost"
+  },
+  "节省 token 估算": {
+    "zh": "节省 token 估算",
+    "en": "Estimated token savings"
+  },
+  "节省费用估算": {
+    "zh": "节省费用估算",
+    "en": "Estimated cost savings"
+  },
+  "完整": {
+    "zh": "完整",
+    "en": "Full"
+  },
+  "简约": {
+    "zh": "简约",
+    "en": "Compact"
+  },
+  "关闭": {
+    "zh": "关闭",
+    "en": "Off"
+  },
+  "百分比": {
+    "zh": "百分比",
+    "en": "Percentage"
+  },
+  "语言": {
+    "zh": "语言",
+    "en": "Language"
+  },
+  "每日自动检查更新": {
+    "zh": "每日自动检查更新",
+    "en": "Check for updates daily"
+  },
+  "↑↓ 选择 · ←→ 修改 · 无需回车 · Esc 返回": {
+    "zh": "↑↓ 选择 · ←→ 修改 · 无需回车 · Esc 返回",
+    "en": "↑↓ select · ←→ change · No Enter needed · Esc return"
+  },
+  "主干": {
+    "zh": "主干",
+    "en": "Trunk"
+  },
+  "探索": {
+    "zh": "探索",
+    "en": "Exploration"
+  },
+  "已归档": {
+    "zh": "已归档",
+    "en": "Archived"
+  },
+  "已恢复": {
+    "zh": "已恢复",
+    "en": "Restored"
+  },
+  "已废弃": {
+    "zh": "已废弃",
+    "en": "Discarded"
+  },
+  "kaipi 画布": {
+    "zh": "kaipi 画布",
+    "en": "kaipi canvas"
+  },
+  "模型 · 工作目录": {
+    "zh": "模型 · 工作目录",
+    "en": "Model · Working directory"
+  },
+  "上下文 · 每轮重付": {
+    "zh": "上下文 · 每轮重付",
+    "en": "Context · Sent each turn"
+  },
+  "累计花费": {
+    "zh": "累计费用",
+    "en": "Total cost"
+  },
+  "累计省下": {
+    "zh": "预计节省",
+    "en": "Estimated savings"
+  },
+  "当前": {
+    "zh": "当前",
+    "en": "Current"
+  },
+  "停止当前回合（这一轮作废，不进上下文，但已花的记账）": {
+    "zh": "停止当前回合（这一轮作废，不进上下文，但已花的记账）",
+    "en": "Stop this turn (exclude it from context; record tokens already used)"
+  },
+  "停止": {
+    "zh": "停止",
+    "en": "Stop"
+  },
+  "适应画面": {
+    "zh": "适应画面",
+    "en": "Fit to view"
+  },
+  "把会话交回终端（等同输入 /cli）": {
+    "zh": "把会话交回终端（等同输入 /cli）",
+    "en": "Return this session to the terminal (same as /cli)"
+  },
+  "移交到终端 /cli": {
+    "zh": "移交到终端 /cli",
+    "en": "Return to terminal /cli"
+  },
+  "还没有节点": {
+    "zh": "还没有节点",
+    "en": "No nodes yet"
+  },
+  "在右下角输入第一条任务，它会成为主干的根。": {
+    "zh": "在右下角输入第一条任务，它会成为主干的根。",
+    "en": "Enter your first task below to create the trunk root."
+  },
+  "拖到这里归档整棵子树": {
+    "zh": "拖到这里归档整棵子树",
+    "en": "Drop here to archive the subtree"
+  },
+  "嫁接": {
+    "zh": "嫁接",
+    "en": "Graft"
+  },
+  "探索分支改动了工作树。": {
+    "zh": "探索分支改动了工作树。",
+    "en": "Exploration changed the working tree."
+  },
+  "回滚 git checkout -- . &amp;&amp; git clean -fd": {
+    "zh": "回滚 git checkout -- . && git clean -fd",
+    "en": "Revert git checkout -- . && git clean -fd"
+  },
+  "改钉本分支为主干": {
+    "zh": "改钉本分支为主干",
+    "en": "Pin this branch as trunk"
+  },
+  "把画布上的节点拖到这里，嫁接到下一条输入": {
+    "zh": "把画布上的节点拖到这里，嫁接到下一条输入",
+    "en": "Drop a node here to graft it into your next message"
+  },
+  "添加图片、PDF 或文本文件": {
+    "zh": "添加图片、PDF 或文本文件",
+    "en": "Add images, PDFs or text documents"
+  },
+  "附件": {
+    "zh": "附件",
+    "en": "Attach"
+  },
+  "输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）": {
+    "zh": "输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）",
+    "en": "Enter a task or a /command (/tree /archive /trunk … /cli)"
+  },
+  "发送": {
+    "zh": "发送",
+    "en": "Send"
+  },
+  "下一条输入将挂在": {
+    "zh": "下一条输入将挂在",
+    "en": "Next message follows"
+  },
+  "之下": {
+    "zh": "之下",
+    "en": ""
+  },
+  "不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）": {
+    "zh": "不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）",
+    "en": "Keep the trunk pinned and start a read-only exploration (Alt+Enter)"
+  },
+  "作为探索": {
+    "zh": "作为探索",
+    "en": "Explore"
+  },
+  "点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移": {
+    "zh": "点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移",
+    "en": "Click to navigate · Drag to composer to graft · Drag to tray to archive · Right-click for actions · Scroll to zoom, drag background to pan"
+  },
+  "操作提示 ?": {
+    "zh": "操作提示 ?",
+    "en": "Controls ?"
+  },
+  "会话已移交到终端": {
+    "zh": "会话已移交到终端",
+    "en": "Session returned to the terminal"
+  },
+  "回到运行 kaipi 的终端继续对话。这个页面可以关闭。": {
+    "zh": "回到运行 kaipi 的终端继续会话。这个页面可以关闭。",
+    "en": "Continue in the terminal running kaipi. You can close this page."
+  },
+  "· 已归档": {
+    "zh": "· 已归档",
+    "en": "· archived"
+  },
+  "· 已废弃": {
+    "zh": "· 已废弃",
+    "en": "· discarded"
+  },
+  "不进上下文": {
+    "zh": "不进上下文",
+    "en": "Excluded from context"
+  },
+  "主干叶子": {
+    "zh": "主干叶子",
+    "en": "Trunk leaf"
+  },
+  "处嫁接": {
+    "zh": "处嫁接",
+    "en": "grafts"
+  },
+  "嫁接带结论而非整条分支": {
+    "zh": "嫁接带结论而非整条分支",
+    "en": "Grafts carry conclusions, not entire branches"
+  },
+  "/轮 · ": {
+    "zh": "/轮 · ",
+    "en": "/turn · "
+  },
+  "/轮，已省 $": {
+    "zh": "/轮，预计节省 $",
+    "en": "/turn, estimated savings $"
+  },
+  "还没有产生节省：探索、嫁接、打断都会记在这里": {
+    "zh": "还没有产生节省：探索、嫁接、打断都会记在这里",
+    "en": "No estimated savings yet; exploration, grafts and interruptions appear here"
+  },
+  "探索分支：只读，付一次": {
+    "zh": "探索分支：只读，付一次",
+    "en": "Exploration: read-only, paid once"
+  },
+  "主干：可写盘，每轮重付": {
+    "zh": "主干：可写盘，每轮重付",
+    "en": "Trunk: writable, sent each turn"
+  },
+  "这一轮已被停止作废：可以查看，但不会再进入上下文": {
+    "zh": "这一轮已被停止作废：可以查看，但不会再进入上下文",
+    "en": "This turn was stopped and discarded; you can view it, but it stays out of context"
+  },
+  "已归档的节点：右键可恢复": {
+    "zh": "已归档的节点：右键可恢复",
+    "en": "Archived node: right-click to restore"
+  },
+  "废弃的一轮不能嫁接：那正是停止时丢掉的东西": {
+    "zh": "废弃的一轮不能嫁接：那正是停止时丢掉的东西",
+    "en": "Discarded turns cannot be grafted back into context"
+  },
+  "跳到这里，在其下继续": {
+    "zh": "跳到这里，在其下继续",
+    "en": "Continue from here"
+  },
+  "回退到这里…": {
+    "zh": "回退到这里…",
+    "en": "Rewind here…"
+  },
+  "嫁接到下一条输入": {
+    "zh": "嫁接到下一条输入",
+    "en": "Graft into next message"
+  },
+  "钉为主干": {
+    "zh": "钉为主干",
+    "en": "Pin as trunk"
+  },
+  "归档整棵子树": {
+    "zh": "归档整棵子树",
+    "en": "Archive subtree"
+  },
+  "已停止作废 · 不进入上下文，也不能嫁接": {
+    "zh": "已停止作废 · 不进入上下文，也不能嫁接",
+    "en": "Stopped and discarded · Excluded from context and grafts"
+  },
+  "恢复整棵子树": {
+    "zh": "恢复整棵子树",
+    "en": "Restore subtree"
+  },
+  "嫁接到下一条输入（快照）": {
+    "zh": "嫁接到下一条输入（快照）",
+    "en": "Graft into next message (snapshot)"
+  },
+  "主干已改钉到": {
+    "zh": "主干已改钉到",
+    "en": "Trunk pinned to"
+  },
+  "已归档 ": {
+    "zh": "已归档 ",
+    "en": "Archived "
+  },
+  "个节点（": {
+    "zh": "个节点（",
+    "en": "nodes ("
+  },
+  "）· 主干负担 ": {
+    "zh": "）· 主干上下文 ",
+    "en": ") · trunk context "
+  },
+  "· 可在右键菜单恢复": {
+    "zh": "· 可在右键菜单恢复",
+    "en": "· Right-click to restore"
+  },
+  "这个节点已经在当前血缘里，不用嫁接": {
+    "zh": "这个节点已经在当前血缘里，不用嫁接",
+    "en": "This node is already in the current ancestry; no graft needed"
+  },
+  "已在待嫁接列表": {
+    "zh": "已在待嫁接列表",
+    "en": "Already queued for grafting"
+  },
+  "回退到 ": {
+    "zh": "回退到 ",
+    "en": "Rewind to "
+  },
+  "只回对话 = 光标跳回这里，代码不动。只回代码 = 把之后回合改过的文件写回当时的内容，其它文件（包括你手改的）不动。": {
+    "zh": "只回会话 = 光标跳回这里，代码不动。只回代码 = 把之后回合改过的文件写回当时的内容，其它文件（包括你手改的）不动。",
+    "en": "Conversation only moves the cursor without changing code. Code only restores files changed by later turns; other files (including your own edits) are left alone."
+  },
+  "（之后的回合没有改过文件）": {
+    "zh": "（之后的回合没有改过文件）",
+    "en": "(Later turns did not change any files)"
+  },
+  "这个节点没有代码快照（不是 git 仓库），只能回对话。": {
+    "zh": "这个节点没有代码快照（不是 git 仓库），只能回会话。",
+    "en": "This node has no code snapshot (not a Git repository). Only conversation rewind is available."
+  },
+  "对话与代码": {
+    "zh": "会话与代码",
+    "en": "Conversation and code"
+  },
+  "只回对话": {
+    "zh": "只回会话",
+    "en": "Conversation only"
+  },
+  "只回代码": {
+    "zh": "只回代码",
+    "en": "Code only"
+  },
+  "取消": {
+    "zh": "取消",
+    "en": "Cancel"
+  },
+  "已跳回": {
+    "zh": "已跳回",
+    "en": "Returned to"
+  },
+  "已回退代码到 ": {
+    "zh": "已回退代码到 ",
+    "en": "Code restored to "
+  },
+  "（回退前的状态在 refs/kaipi/undo）": {
+    "zh": "（回退前的状态在 refs/kaipi/undo）",
+    "en": "(previous state saved at refs/kaipi/undo)"
+  },
+  "工具输出": {
+    "zh": "工具输出",
+    "en": "tool outputs"
+  },
+  "移除": {
+    "zh": "移除",
+    "en": "Remove"
+  },
+  "（嫁接到探索分支，不动主干）": {
+    "zh": "（嫁接到探索分支，不动主干）",
+    "en": "(grafted into exploration; trunk unchanged)"
+  },
+  "· 追加型，缓存前缀不变": {
+    "zh": "· 追加型，缓存前缀不变",
+    "en": "· Append-only; cache prefix unchanged"
+  },
+  "这个节点没有工具调用": {
+    "zh": "这个节点没有工具调用",
+    "en": "This node has no tool calls"
+  },
+  "勾选要带上的工具输出（默认全部省略）": {
+    "zh": "勾选要带上的工具输出（默认全部省略）",
+    "en": "Select tool outputs to include (all omitted by default)"
+  },
+  "嫁接 ": {
+    "zh": "嫁接 ",
+    "en": "Graft "
+  },
+  "丢弃 thinking ×": {
+    "zh": "丢弃 thinking ×",
+    "en": "Discarded thinking ×"
+  },
+  "展开 ": {
+    "zh": "展开 ",
+    "en": "Show "
+  },
+  "条命令与完整记录": {
+    "zh": "条命令与完整记录",
+    "en": "commands and full transcript"
+  },
+  "展开附件与完整记录": {
+    "zh": "展开附件与完整记录",
+    "en": "Show attachments and full transcript"
+  },
+  "展开完整记录（含嫁接块）": {
+    "zh": "展开完整记录（含嫁接块）",
+    "en": "Show full transcript (including grafts)"
+  },
+  "图片附件": {
+    "zh": "图片附件",
+    "en": "Image attachment"
+  },
+  "文件附件": {
+    "zh": "文件附件",
+    "en": "File attachment"
+  },
+  "点击展开或收起": {
+    "zh": "点击展开或收起",
+    "en": "Click to expand or collapse"
+  },
+  "▸ 展开剩余 ": {
+    "zh": "▸ 展开剩余 ",
+    "en": "▸ Show remaining "
+  },
+  "行": {
+    "zh": "行",
+    "en": "lines"
+  },
+  "▾ 收起": {
+    "zh": "▾ 收起",
+    "en": "▾ Collapse"
+  },
+  "移除附件": {
+    "zh": "移除附件",
+    "en": "Remove attachment"
+  },
+  "每条消息最多添加 8 个附件": {
+    "zh": "每条消息最多添加 8 个附件",
+    "en": "At most 8 attachments per message"
+  },
+  "原文件单个最多 20 MiB": {
+    "zh": "原文件单个最多 20 MiB",
+    "en": "Each original file must be at most 20 MiB"
+  },
+  "文件读取失败：": {
+    "zh": "文件读取失败：",
+    "en": "Could not read file: "
+  },
+  "每条消息最多 8 个附件、原文件总计 40 MiB": {
+    "zh": "每条消息最多 8 个附件、原文件总计 40 MiB",
+    "en": "At most 8 attachments and 40 MiB of original files per message"
+  },
+  "每条消息最多 8 个附件": {
+    "zh": "每条消息最多 8 个附件",
+    "en": "At most 8 attachments per message"
+  },
+  "工作树已回滚": {
+    "zh": "工作树已回滚",
+    "en": "Working tree reverted"
+  },
+  "附件正在读取，请稍候": {
+    "zh": "附件正在读取，请稍候",
+    "en": "Reading attachments; please wait"
+  },
+  "请将附件随普通问题发送，或勾选“作为探索”": {
+    "zh": "请将附件随普通问题发送，或勾选“作为探索”",
+    "en": "Send attachments with a question, or select Explore"
+  },
+  "正在运行": {
+    "zh": "正在运行",
+    "en": "Running"
+  },
+  "模型思考中": {
+    "zh": "模型思考中",
+    "en": "Model is thinking"
+  },
+  "停止失败：": {
+    "zh": "停止失败：",
+    "en": "Could not stop: "
+  },
+  "探索分支改动了工作树，请处理": {
+    "zh": "探索分支改动了工作树，请处理",
+    "en": "Exploration changed the working tree; please review"
+  },
+  "已停止：这一轮作废（": {
+    "zh": "已停止：这一轮作废（",
+    "en": "Stopped: this turn was discarded ("
+  },
+  "），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。": {
+    "zh": "），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。",
+    "en": ") and excluded from future context; tokens used have been recorded. Your next message will be a sibling node."
+  },
+  "错误：": {
+    "zh": "错误：",
+    "en": "Error: "
+  },
+  "与 kaipi 进程的连接断开了；它可能已退出": {
+    "zh": "与 kaipi 进程的连接断开了；它可能已退出",
+    "en": "Disconnected from kaipi; the process may have exited"
+  },
+  "主干上下文：": {
+    "zh": "主干上下文：",
+    "en": "Trunk context:"
+  },
+  "ui.locale": {
+    "zh": "zh-CN",
+    "en": "en"
+  },
+  "ui.trunk": {
+    "zh": "主干",
+    "en": "trunk"
+  },
+  "ui.exploration": {
+    "zh": "探索",
+    "en": "exploration"
+  },
+  "ui.live": {
+    "zh": "有效",
+    "en": "live"
+  },
+  "ui.archived": {
+    "zh": "已归档",
+    "en": "archived"
+  },
+  "ui.aborted": {
+    "zh": "已废弃",
+    "en": "discarded"
+  },
+  "ui.restored": {
+    "zh": "已恢复",
+    "en": "restored"
+  },
+  "ui.no": {
+    "zh": "无",
+    "en": "no"
+  },
+  "主干：{node}  固定：{pin}  自动选择：{heuristic}": {
+    "zh": "主干：{node}  固定：{pin}  自动选择：{heuristic}",
+    "en": "Trunk: {node}  pinned: {pin}  automatic: {heuristic}"
+  },
+  "主干上下文：{before} → {after}（{change}）": {
+    "zh": "主干上下文：{before} → {after}（{change}）",
+    "en": "Trunk context: {before} → {after} ({change})"
+  },
+  "缓存前缀改变，需重写缓存并丢弃思考块": {
+    "zh": "缓存前缀改变，需重写缓存并丢弃思考块",
+    "en": "Prefix changed; cache rewrite and thinking blocks dropped"
+  },
+  "仅追加，缓存前缀不变": {
+    "zh": "仅追加，缓存前缀不变",
+    "en": "Append-only; cached prefixes unchanged"
+  },
+  "每轮": {
+    "zh": "轮",
+    "en": "turn"
+  },
+  "正在安装 {tag}，请稍候…": {
+    "zh": "正在安装 {tag}，请稍候…",
+    "en": "Installing {tag}; please wait…"
+  },
+  "更新未完成，会话和配置已保留。可重试：": {
+    "zh": "更新未完成，会话和配置已保留。可重试：",
+    "en": "Update failed; sessions and settings are preserved. Retry:"
+  },
+  "安装成功后继续会话：": {
+    "zh": "安装成功后继续会话：",
+    "en": "Resume after installation:"
+  },
+  "已更新至 {tag}。": {
+    "zh": "已更新至 {tag}。",
+    "en": "Updated to {tag}."
+  },
+  "正在接回原会话。": {
+    "zh": "正在接回原会话。",
+    "en": "Resuming your session."
+  },
+  "kaipi: a fresh conversation in the current directory; -c or -r picks up an old one.": {
+    "zh": "kaipi：在当前目录开始新会话；使用 -c 或 -r 恢复旧会话。",
+    "en": "kaipi: start a session here; -c or -r resumes an earlier session."
+  },
+  "show the installed kaipi version.": {
+    "zh": "显示当前 kaipi 版本。",
+    "en": "Show the installed kaipi version."
+  },
+  "check GitHub Releases and update a uv tool installation.": {
+    "zh": "检查新版并更新 uv tool 安装。",
+    "en": "Check GitHub Releases and update a uv tool installation."
+  },
+  "open the conversation on the canvas (browser) instead of the terminal.": {
+    "zh": "在浏览器画布中打开会话。",
+    "en": "Open the session in the browser canvas."
+  },
+  "print the exact context the next turn would send, grafts included.": {
+    "zh": "打印下一轮即将发送的上下文，包含嫁接内容。",
+    "en": "Print the next context, including grafts."
+  },
+  "rewind code and/or conversation to a node; only agent-touched files are restored.": {
+    "zh": "回退代码或会话；仅恢复 agent 改动过的文件。",
+    "en": "Rewind code and/or conversation; only agent-touched files are restored."
+  },
+  "show the trunk; `kaipi trunk pin <id>` re-pins it.": {
+    "zh": "显示主干；kaipi trunk pin <id> 将主干固定到节点。",
+    "en": "Show the trunk; kaipi trunk pin <id> pins it to a node."
+  },
+  "show the current model, session, context usage and estimated cost.": {
+    "zh": "显示模型、会话、上下文用量和估算费用。",
+    "en": "Show the model, session, context usage and estimated cost."
+  },
+  "configure an API provider: endpoint, key, and the model ids it offers you.": {
+    "zh": "配置 API 提供商：地址、key 和模型 ID。",
+    "en": "Configure a provider: endpoint, key and model IDs."
+  },
+  "switch models across every provider you configured.": {
+    "zh": "选择已配置提供商中的模型。",
+    "en": "Choose a model from your configured providers."
+  },
+  "open settings; use arrow keys to change preferences immediately.": {
+    "zh": "打开设置；方向键修改，立即生效。",
+    "en": "Open settings; arrow keys apply changes immediately."
+  },
+  "customize status-line elements; Esc saves and returns.": {
+    "zh": "定制底部状态栏；Esc 保存返回。",
+    "en": "Customize the status line; Esc saves and returns."
+  },
+  " [未完成]": {
+    "zh": " [未完成]",
+    "en": " [incomplete]"
+  },
+  "没有这个会话": {
+    "zh": "没有这个会话",
+    "en": "Session not found"
+  },
+  "匹配到多个会话，请输入更长的 ID": {
+    "zh": "匹配到多个会话，请输入更长的 ID",
+    "en": "Multiple sessions match; enter a longer ID"
+  },
+  "错误：{error}": {
+    "zh": "错误：{error}",
+    "en": "Error: {error}"
+  },
+  "文件不存在或不是普通文件：{name}": {
+    "zh": "文件不存在或不是普通文件：{name}",
+    "en": "File does not exist or is not a regular file: {name}"
+  },
+  "附件过大（原文件单个最多 20 MiB）：{name}": {
+    "zh": "附件过大（原文件单个最多 20 MiB）：{name}",
+    "en": "Attachment exceeds the 20 MiB original-file limit: {name}"
+  },
+  "附件编码无效": {
+    "zh": "附件编码无效",
+    "en": "Invalid attachment encoding"
+  },
+  "原始附件总大小最多 40 MiB": {
+    "zh": "原始附件总大小最多 40 MiB",
+    "en": "Original attachments must total at most 40 MiB"
+  },
+  "每条消息转换后最多 16 张图片，请减少附件或帧数": {
+    "zh": "每条消息转换后最多 16 张图片，请减少附件或帧数",
+    "en": "At most 16 decoded images per message; reduce attachments or frames"
+  },
+  "转换后的附件总大小最多 10 MiB": {
+    "zh": "转换后的附件总大小最多 10 MiB",
+    "en": "Decoded attachments must total at most 10 MiB"
+  },
+  "剪贴板中的文件已不可用": {
+    "zh": "剪贴板中的文件已不可用",
+    "en": "Clipboard files are no longer available"
+  },
+  "读取剪贴板失败，请粘贴或拖入文件路径": {
+    "zh": "读取剪贴板失败，请粘贴或拖入文件路径",
+    "en": "Could not read the clipboard; paste or drag file paths instead"
+  },
+  "当前环境无法读取系统剪贴板；请粘贴文件路径（Linux 可安装 wl-clipboard 或 xclip）": {
+    "zh": "当前环境无法读取系统剪贴板；请粘贴文件路径（Linux 可安装 wl-clipboard 或 xclip）",
+    "en": "Clipboard access is unavailable; paste file paths instead (Linux: install wl-clipboard or xclip)"
+  },
+  "PDF 超过模型可发送的 5 MiB 上限": {
+    "zh": "PDF 超过模型可发送的 5 MiB 上限",
+    "en": "PDF exceeds the 5 MiB model limit"
+  },
+  "无法解析此二进制附件：{name}": {
+    "zh": "无法解析此二进制附件：{name}",
+    "en": "Cannot parse this binary attachment: {name}"
+  },
+  "文本附件过大（最多 128 KiB）：{name}": {
+    "zh": "文本附件过大（最多 128 KiB）：{name}",
+    "en": "Text attachment exceeds 128 KiB: {name}"
+  },
+  "Excel 工作表过大；请选取需要的数据或导出 CSV": {
+    "zh": "Excel 工作表过大；请选取需要的数据或导出 CSV",
+    "en": "Excel sheet too large; select the needed data or export CSV"
+  },
+  "Excel 数据过多；请选取需要的数据或导出 CSV": {
+    "zh": "Excel 数据过多；请选取需要的数据或导出 CSV",
+    "en": "Too much Excel data; select the needed data or export CSV"
+  },
+  "文档解压后过大（最多 20 MiB）": {
+    "zh": "文档解压后过大（最多 20 MiB）",
+    "en": "Unpacked document exceeds 20 MiB"
+  },
+  "无法解析附件：{name}；文件可能损坏、加密或缺少对应的解码能力": {
+    "zh": "无法解析附件：{name}；文件可能损坏、加密或缺少对应的解码能力",
+    "en": "Cannot parse {name}; it may be damaged, encrypted or require an unavailable decoder"
+  },
+  "图片损坏或像素数量过大": {
+    "zh": "图片损坏或像素数量过大",
+    "en": "Image is damaged or has too many pixels"
+  },
+  "图片帧信息损坏": {
+    "zh": "图片帧信息损坏",
+    "en": "Image frame metadata is damaged"
+  },
+  "图片包含 {count} 帧，最多支持 {MAX_FRAMES} 帧；请选取需要的帧": {
+    "zh": "图片包含 {count} 帧，最多支持 {MAX_FRAMES} 帧；请选取需要的帧",
+    "en": "Image has {count} frames; at most {MAX_FRAMES} are supported. Select the frames you need"
+  },
+  "图片损坏，无法解码": {
+    "zh": "图片损坏，无法解码",
+    "en": "Image is damaged and cannot be decoded"
+  },
+  "图片超过 6400 万像素，请缩小后添加": {
+    "zh": "图片超过 6400 万像素，请缩小后添加",
+    "en": "Image exceeds 64 million pixels; resize it before attaching"
+  },
+  "浮点图像请先转换为普通 RGB 图片": {
+    "zh": "浮点图像请先转换为普通 RGB 图片",
+    "en": "Convert floating-point images to standard RGB first"
+  },
+  "图片色彩转换失败": {
+    "zh": "图片色彩转换失败",
+    "en": "Image color conversion failed"
+  },
+  "转换后的图片过大，请缩小或减少帧数": {
+    "zh": "转换后的图片过大，请缩小或减少帧数",
+    "en": "Converted images are too large; resize or reduce frames"
+  },
+  "图片无法解码或色彩配置损坏": {
+    "zh": "图片无法解码或色彩配置损坏",
+    "en": "Cannot decode the image or its color profile"
+  },
+  "PDF · 原始文档": {
+    "zh": "PDF · 原始文档",
+    "en": "PDF · original document"
+  },
+  "文本／文档 · 已提取内容": {
+    "zh": "文本／文档 · 已提取内容",
+    "en": "Text/document · extracted content"
+  },
+  " · {count} 帧全部保留": {
+    "zh": " · {count} 帧全部保留",
+    "en": " · all {count} frames kept"
+  },
+  " · 帧时长(ms): ": {
+    "zh": " · 帧时长(ms): ",
+    "en": " · frame durations (ms): "
+  },
+  " · 已缩放，长边 {edge}px 以内": {
+    "zh": " · 已缩放，长边 {edge}px 以内",
+    "en": " · resized to at most {edge}px on the longest side"
+  },
+  "{name} 还没有 API key。运行 kaipi provider 配置，或者 export {env}=...": {
+    "zh": "{name} 还没有 API key。运行 kaipi provider 配置，或者 export {env}=...",
+    "en": "No API key for {name}. Run kaipi provider to configure it, or export {env}=..."
+  },
+  "{spec} 不在价格表中，请使用 <provider>/<model>": {
+    "zh": "{spec} 不在价格表中，请使用 <provider>/<model>",
+    "en": "{spec} is not in the pricing catalog; use <provider>/<model>"
+  },
+  "未知提供商 {name}；可选：{known}": {
+    "zh": "未知提供商 {name}；可选：{known}",
+    "en": "Unknown provider {name}; available: {known}"
+  },
+  "用法：": {
+    "zh": "用法：",
+    "en": "Usage:"
+  },
+  "参数": {
+    "zh": "参数",
+    "en": "Arguments"
+  },
+  "选项": {
+    "zh": "选项",
+    "en": "Options"
+  },
+  "命令": {
+    "zh": "命令",
+    "en": "Commands"
+  },
+  "Show this message and exit.": {
+    "zh": "显示帮助并退出。",
+    "en": "Show this message and exit."
+  },
+  "↑↓ / PgUp PgDn 浏览 · Esc 返回": {
+    "zh": "↑↓ / PgUp PgDn 浏览 · Esc 返回",
+    "en": "↑↓ / PgUp PgDn to scroll · Esc to return"
+  },
+  "Esc 或回车返回": {
+    "zh": "Esc 或回车返回",
+    "en": "Esc or Enter to return"
+  }
+}

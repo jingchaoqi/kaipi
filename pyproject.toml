@@ -34,7 +34,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["kaipi"]
-artifacts = ["kaipi/canvas.html", "kaipi/pricing.toml"]
+artifacts = ["kaipi/canvas.html", "kaipi/pricing.toml", "kaipi/locales/*.json"]
 
 [tool.ruff]
 line-length = 100

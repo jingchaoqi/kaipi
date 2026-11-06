@@ -24,20 +24,26 @@ from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.validation import Validator
 from prompt_toolkit.widgets import Label, RadioList
 
-from kaipi import catalog, ledger, settings, update
+from kaipi import catalog, i18n, ledger, settings, update
+from kaipi.i18n import tr
 
 GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
 
 
 def statusline() -> None:
     if not sys.stdin.isatty():
-        typer.echo("请在交互终端中运行 kaipi statusline，或在对话中使用 /statusline")
+        typer.echo(tr("请在交互终端中运行 kaipi statusline，或在对话中使用 /statusline"))
         return
     values = settings.statusline()
-    notice = "选择底部状态行要显示的元素"
+    notice = tr("选择底部状态行要显示的元素")
 
     def label(key: str, title: str) -> str:
-        return title + " " * (24 - get_cwidth(title)) + ("开" if values[key] else "关")
+        title = tr(title)
+        return (
+            title
+            + " " * max(2, 26 - get_cwidth(title))
+            + tr(settings.STATUSLINE_OPTIONS[key][values[key]])
+        )
 
     choices = RadioList(
         [(key, partial(label, key, title)) for key, title in settings.STATUSLINE_ITEMS.items()],
@@ -52,7 +58,10 @@ def statusline() -> None:
     @keys.add("left")
     @keys.add("right")
     def change(event: Any) -> None:
-        values[choices.current_value] = event.key_sequence[-1].key == "right"
+        key = choices.current_value
+        options = list(settings.STATUSLINE_OPTIONS[key])
+        step = 1 if event.key_sequence[-1].key == "right" else -1
+        values[key] = options[(options.index(values[key]) + step) % len(options)]
 
     @keys.add("escape", eager=True)
     def save_and_back(event: Any) -> None:
@@ -60,7 +69,7 @@ def statusline() -> None:
         try:
             settings.save({"statusline": values})
         except OSError:
-            notice = "保存失败，尚未退出；请重试，或 Ctrl+C 取消修改"
+            notice = tr("保存失败，尚未退出；请重试，或 Ctrl+C 取消修改")
             return
         event.app.exit()
 
@@ -73,10 +82,10 @@ def statusline() -> None:
         layout=Layout(
             HSplit(
                 [
-                    Label("底部状态行"),
+                    Label(tr("底部状态行")),
                     HSplit([choices], height=Dimension(max=8)),
                     Label(lambda: notice),
-                    Label("↑↓ 选择 · ← 关 / → 开 · Esc 保存返回 · Ctrl+C 取消"),
+                    Label(tr("↑↓ 选择 · ←→ 切换选项 · Esc 保存返回 · Ctrl+C 取消")),
                 ]
             ),
             focused_element=choices,
@@ -94,7 +103,7 @@ def statusline() -> None:
 
 def config() -> None:
     if not sys.stdin.isatty():
-        typer.echo("请在交互终端中运行 kaipi config，或在对话中使用 /config")
+        typer.echo(tr("请在交互终端中运行 kaipi config，或在对话中使用 /config"))
         return
     notice = "修改立即保存并生效"
     choices = RadioList(
@@ -102,9 +111,12 @@ def config() -> None:
             (
                 "auto_check_updates",
                 lambda: (
-                    "每日自动检查更新      " + ("开" if settings.auto_check_updates() else "关")
+                    tr("每日自动检查更新")
+                    + "      "
+                    + (tr("开") if settings.auto_check_updates() else tr("关"))
                 ),
-            )
+            ),
+            ("language", lambda: tr("语言") + "      " + i18n.LANGUAGES[i18n.language()]),
         ],
         select_on_focus=True,
         open_character="",
@@ -118,6 +130,16 @@ def config() -> None:
     @keys.add("right")
     def change(event: Any) -> None:
         nonlocal notice
+        if choices.current_value == "language":
+            options = list(i18n.LANGUAGES)
+            step = 1 if event.key_sequence[-1].key == "right" else -1
+            selected = options[(options.index(i18n.language()) + step) % len(options)]
+            try:
+                settings.save({"language": selected})
+                notice = "修改立即保存并生效"
+            except OSError:
+                notice = "保存失败，设置未修改；请检查配置目录权限后重试"
+            return
         enabled = event.key_sequence[-1].key == "right"
         if enabled == settings.auto_check_updates():
             return
@@ -126,7 +148,7 @@ def config() -> None:
         except OSError:
             notice = "保存失败，设置未修改；请检查配置目录权限后重试"
             return
-        notice = "已保存：每日自动检查更新" + ("已开启" if enabled else "已关闭")
+        notice = "修改立即保存并生效"
         if enabled:
             update.background(typer.echo)
 
@@ -140,10 +162,10 @@ def config() -> None:
         layout=Layout(
             HSplit(
                 [
-                    Label("kaipi 设置"),
+                    Label(lambda: tr("kaipi 设置")),
                     choices,
-                    Label(lambda: notice),
-                    Label("↑↓ 选择 · ← 关 / → 开 · 无需回车 · Esc 返回"),
+                    Label(lambda: tr(notice)),
+                    Label(lambda: tr("↑↓ 选择 · ←→ 修改 · 无需回车 · Esc 返回")),
                 ]
             ),
             focused_element=choices,
@@ -185,27 +207,30 @@ def prompt(label: str, **kwargs: Any) -> Any:
     try:
         return kwargs.get("type", str)(value)
     except ValueError as e:
-        raise typer.BadParameter("请输入有效序号") from e
+        raise typer.BadParameter(tr("请输入有效序号")) from e
 
 
 def run(command: Callable[[], None]) -> bool:
-    typer.echo(f"{DIM}Esc 退出当前命令，不修改任何配置{RESET}")
+    typer.echo(tr("{DIM}Esc 退出当前命令，不修改任何配置{RESET}", DIM=DIM, RESET=RESET))
     try:
         command()
     except (EOFError, KeyboardInterrupt, typer.Abort):
-        typer.echo(f"{DIM}已取消，配置未修改{RESET}")
+        typer.echo(tr("{DIM}已取消，配置未修改{RESET}", DIM=DIM, RESET=RESET))
         return False
     return True
 
 
-def choose(rows: list[str], current: int = 0, *, title: str = "选择模型") -> int:
+def choose(rows: list[str], current: int = 0, *, title: str = "选择模型", hint: str = "") -> int:
+    title = tr(title)
     if not sys.stdin.isatty():
         typer.echo(f"{BOLD}{title}{RESET}")
         for i, row in enumerate(rows, 1):
             typer.echo(f"  {i:>2}. {row}")
-        pick = int(prompt("序号", type=int, default=current + 1)) - 1
+        pick = (
+            int(prompt("序号 / Number" if hint else tr("序号"), type=int, default=current + 1)) - 1
+        )
         if not 0 <= pick < len(rows):
-            raise typer.BadParameter(f"序号要在 1..{len(rows)} 之间")
+            raise typer.BadParameter(tr("序号要在 1..{v0} 之间", v0=len(rows)))
         return pick
     choices = RadioList(
         [(i, ANSI(row)) for i, row in enumerate(rows)],
@@ -234,7 +259,7 @@ def choose(rows: list[str], current: int = 0, *, title: str = "选择模型") ->
                 [
                     Label(title),
                     HSplit([choices], height=Dimension(max=10)),
-                    Label("↑↓ 选择 · Enter 确认 · Esc 退出，不修改配置"),
+                    Label(hint or tr("↑↓ 选择 · Enter 确认 · Esc 退出，不修改配置")),
                 ]
             ),
             focused_element=choices,
@@ -249,12 +274,12 @@ def choose(rows: list[str], current: int = 0, *, title: str = "选择模型") ->
 
 def choose_provider(rows: list[str]) -> int:
     if not sys.stdin.isatty():
-        typer.echo(f"{BOLD}选择 API 提供商{RESET}")
+        typer.echo(tr("{BOLD}选择 API 提供商{RESET}", BOLD=BOLD, RESET=RESET))
         for i, row in enumerate(rows, 1):
             typer.echo(f"  {i:>2}. {row}")
-        pick = int(prompt("序号", type=int)) - 1
+        pick = int(prompt(tr("序号"), type=int)) - 1
         if not 0 <= pick < len(rows):
-            raise typer.BadParameter(f"序号要在 1..{len(rows)} 之间")
+            raise typer.BadParameter(tr("序号要在 1..{v0} 之间", v0=len(rows)))
         return pick
 
     def selected(text: str) -> int | None:
@@ -284,11 +309,11 @@ def choose_provider(rows: list[str]) -> int:
         event.app.exit(exception=KeyboardInterrupt())
 
     session: PromptSession[str] = PromptSession(
-        "序号：",
+        tr("序号："),
         key_bindings=keys,
         validator=Validator.from_callable(
             lambda text: selected(text) is not None,
-            error_message=f"请输入 1..{len(rows)} 的序号，或用上下键选择",
+            error_message=tr("请输入 1..{v0} 的序号，或用上下键选择", v0=len(rows)),
             move_cursor_to_end=True,
         ),
         validate_while_typing=False,
@@ -319,17 +344,17 @@ def choose_provider(rows: list[str]) -> int:
     session.layout.current_window.dont_extend_height = Always()
     session.layout.container = HSplit(
         [
-            Label("选择 API 提供商"),
+            Label(tr("选择 API 提供商")),
             menu,
             session.layout.container,
-            Label("输入序号或 ↑↓ 选择 · Enter 确认 · Esc 取消"),
+            Label(tr("输入序号或 ↑↓ 选择 · Enter 确认 · Esc 取消")),
         ]
     )
     session.app.ttimeoutlen = 0.1
     return int(session.prompt()) - 1
 
 
-def provider() -> None:
+def provider(*, report: Callable[[str], None] = typer.echo) -> None:
     """Pick a vendor, confirm its endpoint, paste a key: the three things that otherwise
     have to be exported by hand every session. Regional endpoints differ (Moonshot and
     Z.ai each have a .cn and an international one), so the URL is always editable."""
@@ -338,18 +363,24 @@ def provider() -> None:
     current = auth()
     done = current.get("providers", {})
     if done:
-        typer.echo(f"{BOLD}已配置的提供商{RESET}")
+        typer.echo(tr("{BOLD}已配置的提供商{RESET}", BOLD=BOLD, RESET=RESET))
         for n, saved in done.items():
-            models = ", ".join(saved.get("models", [])) or "(还没填模型)"
+            models = ", ".join(saved.get("models", [])) or tr("(还没填模型)")
             typer.echo(f"   · {n:<22} {DIM}{saved.get('base_url', '')}  {models}{RESET}")
-        typer.echo(f"{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}")
+        typer.echo(
+            tr(
+                "{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}",
+                DIM=DIM,
+                RESET=RESET,
+            )
+        )
 
     names = list(BUILTIN)
     rows = []
     for n in names:
         cfg = BUILTIN[n]
-        mark = " (已配置)" if n in done else ""
-        url = cfg.base_url or "(官方默认)"
+        mark = tr(" (已配置)") if n in done else ""
+        url = cfg.base_url or tr("(官方默认)")
         rows.append(f"{n:<22} {DIM}{cfg.api:<17} {url}{RESET}{mark}")
     name = names[choose_provider(rows)]
     cfg = BUILTIN[name]
@@ -358,14 +389,14 @@ def provider() -> None:
     if saved:
         action = choose(
             [
-                "刷新模型与价格（保留地址和 key）",
-                "编辑配置",
-                "清除配置（移除地址、key 和模型列表）",
+                tr("刷新模型与价格（保留地址和 key）"),
+                tr("编辑配置"),
+                tr("清除配置（移除地址、key 和模型列表）"),
             ],
-            title=f"{name} · 已配置",
+            title=tr("{name} · 已配置", name=name),
         )
         if action == 0:
-            refresh(name, saved.get("models", []))
+            refresh(name, saved.get("models", []), report=report)
             return
         if action == 2:
             was_active = current.get("provider") == name or str(
@@ -374,19 +405,25 @@ def provider() -> None:
             try:
                 remove_auth(name)
             except OSError:
-                typer.echo(f"{RED}清除失败，原配置已保留；请检查配置目录权限{RESET}")
+                report(
+                    tr(
+                        "{RED}清除失败，原配置已保留；请检查配置目录权限{RESET}",
+                        RED=RED,
+                        RESET=RESET,
+                    )
+                )
                 return
-            typer.echo(f"{GREEN}{name} 的配置已清除{RESET}")
+            report(tr("{GREEN}{name} 的配置已清除{RESET}", GREEN=GREEN, name=name, RESET=RESET))
             if was_active:
-                typer.echo("当前模型选择已清除，请用 /model 选择其他模型，或 /provider 添加配置")
+                report(tr("当前模型选择已清除，请用 /model 选择其他模型，或 /provider 添加配置"))
             return
     base = prompt(
-        "API 地址（不同地区可能不同，回车接受）",
+        tr("API 地址（不同地区可能不同，回车接受）"),
         default=saved.get("base_url") or cfg.base_url or "https://api.anthropic.com",
     )
     saved_key = saved.get("api_key", "")
     key = prompt(
-        f"{cfg.api_key_env} 的 key" + ("（回车保留已存的）" if saved_key else ""),
+        tr("{v0} 的 key", v0=cfg.api_key_env) + (tr("（回车保留已存的）") if saved_key else ""),
         hide_input=True,
         default="" if saved_key else None,
         show_default=False,
@@ -397,31 +434,57 @@ def provider() -> None:
         if pr.provider in {name, cfg.model_catalog}
     ]
     if known:
-        typer.echo(f"{DIM}价格表里这个提供商的模型：{', '.join(known)}{RESET}")
+        typer.echo(
+            tr(
+                "{DIM}价格表里这个提供商的模型：{v1}{RESET}",
+                DIM=DIM,
+                v1=", ".join(known),
+                RESET=RESET,
+            )
+        )
     defaults = known or saved.get("models", [])
     listed = prompt(
-        "你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔）"
+        tr("你要用的 model id（回车全部接受；只选部分请手动输入，逗号分隔）")
         if defaults
-        else "你要用的 model id（请手动输入，逗号分隔）",
+        else tr("你要用的 model id（请手动输入，逗号分隔）"),
         default=", ".join(defaults),
     )
     picked = parse_models(listed)
 
     path = save_auth(name, base.strip().rstrip("/"), key, picked)
-    typer.echo(f"{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}")
-    typer.echo(f"{DIM}临时想换 key，export {cfg.api_key_env} 仍然优先于这里{RESET}")
-    typer.echo(f"{DIM}接下来用 /model 选一个模型启用{RESET}")
+    report(
+        tr(
+            "{GREEN}{name} 已保存到 {path}（权限 600，只有你能读）{RESET}",
+            GREEN=GREEN,
+            name=name,
+            path=path,
+            RESET=RESET,
+        )
+    )
+    typer.echo(
+        tr(
+            "{DIM}临时想换 key，export {v1} 仍然优先于这里{RESET}",
+            DIM=DIM,
+            v1=cfg.api_key_env,
+            RESET=RESET,
+        )
+    )
+    typer.echo(tr("{DIM}接下来用 /model 选一个模型启用{RESET}", DIM=DIM, RESET=RESET))
 
 
-def model() -> None:
+def model(*, report: Callable[[str], None] = typer.echo) -> None:
     """Switch models across every provider you configured. One list, so moving from a
     Kimi model to a Claude one is the same gesture as moving between two Kimi ones."""
     from kaipi.providers import active_model, configured_models, use_model
 
     pairs = configured_models()
     if not pairs:
-        typer.echo(
-            f"{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 model id{RESET}"
+        report(
+            tr(
+                "{RED}还没有可选的模型。先跑 /provider 配置一个提供商并列出它的 model id{RESET}",
+                RED=RED,
+                RESET=RESET,
+            )
         )
         return
     now, pricing = active_model(), ledger.Pricing.load()
@@ -429,36 +492,77 @@ def model() -> None:
     for i, (who, m) in enumerate(pairs):
         spec = f"{who}/{m}"
         price = pricing.find(spec)
-        cost = f"in {price.input}/out {price.output} 每百万" if price else "不在价格表，账本按 0 记"
+        cost = (
+            tr("in {v0}/out {v1} 每百万", v0=price.input, v1=price.output)
+            if price
+            else tr("不在价格表，账本按 0 记")
+        )
         rows.append(
             f"{m:<26} {DIM}{who:<12} {cost}{RESET}"
-            + (f"{GREEN} (当前){RESET}" if spec == now else "")
+            + (tr("{GREEN} (当前){RESET}", GREEN=GREEN, RESET=RESET) if spec == now else "")
         )
         if spec == now:
             current = i
     who, model = pairs[choose(rows, current)]
     use_model(who, model)
-    typer.echo(f"{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}")
+    report(
+        tr(
+            "{GREEN}已启用 {model}（{who}），下一句开始生效{RESET}",
+            GREEN=GREEN,
+            model=model,
+            who=who,
+            RESET=RESET,
+        )
+    )
 
 
-def refresh(name: str, saved_models: list[str]) -> None:
-    typer.echo(f"{DIM}正在读取 kaipi 在线模型与价格目录…{RESET}")
+def refresh(
+    name: str, saved_models: list[str], *, report: Callable[[str], None] = typer.echo
+) -> None:
+    typer.echo(tr("{DIM}正在读取 kaipi 在线模型与价格目录…{RESET}", DIM=DIM, RESET=RESET))
     try:
         prices = catalog.fetch(name)
     except (OSError, ValueError, httpx.HTTPError):
-        typer.echo(f"{RED}刷新失败，原配置和价格已保留；请稍后重试{RESET}")
+        report(tr("{RED}刷新失败，原配置和价格已保留；请稍后重试{RESET}", RED=RED, RESET=RESET))
         return
     ids = list(dict.fromkeys([*saved_models, *catalog.model_ids(prices)]))
     added = [m for m in ids if m not in saved_models]
-    typer.echo(f"{BOLD}{name} · 目录内 {len(prices)} 个模型 · 新增 {len(added)} 个{RESET}")
+    typer.echo(
+        tr(
+            "{BOLD}{name} · 目录内 {v2} 个模型 · 新增 {v3} 个{RESET}",
+            BOLD=BOLD,
+            name=name,
+            v2=len(prices),
+            v3=len(added),
+            RESET=RESET,
+        )
+    )
     for key, price in prices.items():
         model_id = key.removeprefix(f"{price.provider}/")
-        typer.echo(f"  {model_id}  {DIM}in {price.input}/out {price.output} 每百万{RESET}")
-    typer.echo(f"{DIM}保留自定义模型和价格；保存后可在 /model 中选择{RESET}")
-    prompt("回车保存刷新结果；Esc 取消", default="", show_default=False)
+        typer.echo(
+            tr(
+                "  {model_id}  {DIM}in {v2}/out {v3} 每百万{RESET}",
+                model_id=model_id,
+                DIM=DIM,
+                v2=price.input,
+                v3=price.output,
+                RESET=RESET,
+            )
+        )
+    typer.echo(
+        tr("{DIM}保留自定义模型和价格；保存后可在 /model 中选择{RESET}", DIM=DIM, RESET=RESET)
+    )
+    prompt(tr("回车保存刷新结果；Esc 取消"), default="", show_default=False)
     try:
         catalog.save(name, ids, prices)
     except OSError:
-        typer.echo(f"{RED}保存失败，原配置和价格已保留{RESET}")
+        report(tr("{RED}保存失败，原配置和价格已保留{RESET}", RED=RED, RESET=RESET))
         return
-    typer.echo(f"{GREEN}{name} 模型与价格已刷新，/model 可立即使用{RESET}")
+    report(
+        tr(
+            "{GREEN}{name} 模型与价格已刷新，/model 可立即使用{RESET}",
+            GREEN=GREEN,
+            name=name,
+            RESET=RESET,
+        )
+    )

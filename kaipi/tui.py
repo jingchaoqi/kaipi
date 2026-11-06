@@ -41,12 +41,29 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, attachments, cli, context, graph, ledger, update
+from kaipi import agent, attachments, cli, command_ui, context, graph, ledger, update
+from kaipi.i18n import tr
 from kaipi.store import kaipi_dir
 
 FPS = 60
 FADE_SECONDS = 0.5
 IDLE_COLOR = (112, 122, 130)
+PHASES = (
+    "就绪",
+    "准备中",
+    "等待模型",
+    "执行命令",
+    "处理结果",
+    "等待重试",
+    "整理回答",
+    "整理结果",
+    "生成标题",
+    "正在停止",
+    "已完成",
+    "已停止",
+    "未完成",
+)
+PHASE_WIDTH = 8  # Chinese uses four full-width characters; English is measured at render time.
 
 
 def markdown(text: str, width: int, *, color: bool = True, indent: int = 0) -> str:
@@ -86,19 +103,19 @@ def command_summary(command: str) -> str:
     """An action label when the model supplied no explanation, not invented reasoning."""
     program = command.strip().split(maxsplit=1)[0] if command.strip() else ""
     if program in {"cat", "sed", "head", "tail", "rg", "grep", "find", "ls", "pwd", "wc"}:
-        return "查看项目文件与代码"
+        return tr("查看项目文件与代码")
     if program in {"pytest", "ruff", "mypy", "uv", "python", "python3", "npm", "pnpm", "make"}:
-        return "运行项目命令与检查"
+        return tr("运行项目命令与检查")
     if program == "git":
-        return "执行 Git 操作"
-    return "执行命令"
+        return tr("执行 Git 操作")
+    return tr("执行命令")
 
 
 def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
     """Browse the same tree for /tree, /go and /rewind; only Enter commits a choice."""
     rows = cli.tree_rows(s, compact=True, live_only=not rewind)
     if not rows:
-        print("还没有可选择的节点")
+        print(tr("还没有可选择的节点"))
         return None
     st = s.log.state
     ids = [nid for nid, _ in rows]
@@ -167,14 +184,16 @@ def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
         width = max(1, get_app().output.get_size().columns - 1)
         own = ledger.fmt(ledger.own_tokens(st, n.id))
         cost = s.pricing.price(n.model).cost(n.usage)
-        grafts = ", ".join(s.name(g.src_id) for g in n.grafts) or "无"
-        role = "主线" if n.id == trunk else "探索分支：下一句从此分叉"
-        action = "选择后预览文件并确认回退方式" if rewind else role
+        grafts = ", ".join(s.name(g.src_id) for g in n.grafts) or tr("无")
+        role = tr("主线") if n.id == trunk else tr("探索分支：下一句从此分叉")
+        action = tr("选择后预览文件并确认回退方式") if rewind else role
         return "\n".join(
             short_line(line, width)
             for line in [
                 f"{s.name(n.id)} · {context.user_input(n)}",
-                f"{own} tokens · ${cost:.4f} · 嫁接：{grafts}",
+                tr(
+                    "{own} tokens · ${cost:.4f} · 嫁接：{grafts}", own=own, cost=cost, grafts=grafts
+                ),
                 action,
             ]
         )
@@ -190,16 +209,16 @@ def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
         layout=Layout(
             HSplit(
                 [
-                    Label("回退到节点" if rewind else "会话树 · 选择继续的位置"),
+                    Label(tr("回退到节点") if rewind else tr("会话树 · 选择继续的位置")),
                     Window(
                         control, height=Dimension(max=10), dont_extend_height=True, cursorline=True
                     ),
                     Window(height=1),
                     Label(details),
                     Label(
-                        "↑↓ 浏览 · ←父节点 →子节点 · Enter "
-                        + ("选择" if rewind else "从此继续")
-                        + " · Esc 取消"
+                        tr("↑↓ 浏览 · ←父节点 →子节点 · Enter ")
+                        + (tr("选择") if rewind else tr("从此继续"))
+                        + tr(" · Esc 取消")
                     ),
                 ]
             ),
@@ -223,7 +242,7 @@ def pick_session(s: cli.Session) -> str | None:
     """An inline, scrolling session menu; opening or cancelling it changes nothing."""
     rows = cli.session_rows(s.cwd, s.log.path.name)
     if not rows:
-        print("这个目录里还没有对话")
+        print(tr("这个目录里还没有对话"))
         return None
 
     def label(line: str) -> str:
@@ -254,9 +273,9 @@ def pick_session(s: cli.Session) -> str | None:
         layout=Layout(
             HSplit(
                 [
-                    Label("这个目录里的对话"),
+                    Label(tr("这个目录里的对话")),
                     HSplit([choices], height=Dimension(max=10)),
-                    Label("↑↓ 选择 · Enter 进入 · Esc 取消"),
+                    Label(tr("↑↓ 选择 · Enter 进入 · Esc 取消")),
                 ]
             ),
             focused_element=choices,
@@ -298,8 +317,8 @@ class SlashCompleter(Completer):
                     yield Completion(
                         f"/{name} " if args else f"/{name}",
                         start_position=-len(text),
-                        display=f"/{name} {args}".strip(),
-                        display_meta=what,
+                        display=f"/{name} {tr(args)}".strip(),
+                        display_meta=tr(what),
                     )
             return
         if head == "resume" and " " not in rest.strip():
@@ -317,7 +336,7 @@ class SlashCompleter(Completer):
                     continue
                 sid = state.label(n.id)
                 if sid.lower().startswith(rest.lower()) or n.id.startswith(rest):
-                    tag = "" if n.status == "live" else " [已归档]"
+                    tag = "" if n.status == "live" else tr(" [已归档]")
                     yield Completion(
                         sid,
                         start_position=-len(rest),
@@ -368,7 +387,7 @@ class Terminal:
                 return
             self._pasting = True
             self._cancel_paste = False
-            self.notice = "正在读取附件…"
+            self.notice = tr("正在读取附件…")
 
             async def read() -> None:
                 ok = True
@@ -380,7 +399,7 @@ class Terminal:
                             items, text = await asyncio.to_thread(job)
                             if self._cancel_paste:
                                 paste_jobs.clear()
-                                self.notice = "已取消添加附件"
+                                self.notice = tr("已取消添加附件")
                                 break
                             if items:
                                 buffer = self.session.default_buffer
@@ -390,12 +409,12 @@ class Terminal:
                             elif text:
                                 self.paste_text(text)
                                 if self.notice and not self.notice.endswith(
-                                    " · 回车发送 · 退格移除"
+                                    tr(" · 回车发送 · 退格移除")
                                 ):
                                     failure = self.notice
                                     ok = False
                             else:
-                                failure = "剪贴板为空"
+                                failure = tr("剪贴板为空")
                                 ok = False
                         except (ValueError, OSError) as e:
                             failure = str(e)
@@ -470,7 +489,7 @@ class Terminal:
                 and buffer.text.startswith("/")
                 and not buffer.text.startswith("/explore ")
             ):
-                self.notice = "附件请随问题发送；也可使用 /explore 问题"
+                self.notice = tr("附件请随问题发送；也可使用 /explore 问题")
                 return
             buffer.validate_and_handle()
 
@@ -516,7 +535,7 @@ class Terminal:
                     event.app.exit(exception=KeyboardInterrupt())
                     return
                 self._exit_requested_at = now
-                self.notice = "再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消"
+                self.notice = tr("再按一次 Ctrl+C 退出（3 秒内）；继续输入可取消")
 
                 def expire() -> None:
                     if self._exit_requested_at == now:
@@ -568,7 +587,7 @@ class Terminal:
             chip = f"[{kind}{self._attachment_seq[kind]}]"
             self.attachments[chip] = item
             buffer.insert_text(chip)
-        self.notice = items[-1].name + " · " + items[-1].summary + " · 回车发送 · 退格移除"
+        self.notice = items[-1].name + " · " + items[-1].summary + tr(" · 回车发送 · 退格移除")
 
     def paste_text(self, text: str) -> None:
         self.notice = ""
@@ -610,7 +629,7 @@ class Terminal:
     def cancel_exit_confirmation(self) -> None:
         if self._exit_requested_at is not None:
             self._exit_requested_at = None
-            if self.notice.startswith("再按一次 Ctrl+C"):
+            if self.notice.startswith(tr("再按一次 Ctrl+C")):
                 self.notice = ""
 
     def columns(self) -> int:
@@ -640,7 +659,8 @@ class Terminal:
             if self.started_at
             else 0.0
         )
-        phase = "正在停止" if self.running and self.stop.is_set() else self.phase
+        phase = tr("正在停止" if self.running and self.stop.is_set() else self.phase)
+        phase_width = max(get_cwidth(tr(label)) for label in PHASES)
         if self.running:
             head = (elapsed * 8) % 12
             self._track_colors = []
@@ -679,8 +699,10 @@ class Terminal:
             paint(char, self._text_colors[min(i, len(self._text_colors) - 1)])
             for i, char in enumerate(phase)
         )
-        hint = self.notice or ("Esc 停止" if self.running else "等待输入")
-        reserved = 14 + get_cwidth(phase + f" · {elapsed:.3f}s · ")
+        padding = max(0, phase_width - get_cwidth(phase))
+        shimmer = " " * (padding // 2) + shimmer + " " * (padding - padding // 2)
+        hint = self.notice or (tr("Esc 停止") if self.running else tr("等待输入"))
+        reserved = 14 + phase_width + get_cwidth(f" · {elapsed:.3f}s · ")
         hint = short_line(hint, max(1, width - reserved - 1))
         tail = paint(f" · {elapsed:.3f}s · {hint}", (220, 229, 231))
         activity = f"{track}  {shimmer}{tail}"
@@ -708,7 +730,7 @@ class Terminal:
         else:
             self.phase = {
                 "cmd": "执行命令",
-                "out": "处理命令结果",
+                "out": "处理结果",
                 "wait": "等待重试",
                 "text": "整理回答",
                 "ledger": "整理结果",
@@ -779,7 +801,6 @@ class Terminal:
 
     def echo(self, line: str) -> None:
         if line.startswith("/") and line.split()[0] != "/explore":
-            print(f"{cli.BOLD}{self.label()}{cli.RESET}{line}")
             return
         width = max(1, self.columns() - 1)
         rows: list[str] = []
@@ -904,7 +925,14 @@ class Terminal:
                     if self.done.is_set():
                         break
                     if line:
-                        self.write(f"{cli.DIM}已排队，这一轮结束后执行：{line}{cli.RESET}")
+                        self.write(
+                            tr(
+                                "{v0}已排队，这一轮结束后执行：{line}{v2}",
+                                v0=cli.DIM,
+                                line=line,
+                                v2=cli.RESET,
+                            )
+                        )
         finally:
             if self.finished_at is None:
                 finish()
@@ -953,7 +981,7 @@ def loop(s: cli.Session) -> str:
                 ):
                     if from_queue and t.session.default_buffer.text.strip() != line:
                         draft = t.session.default_buffer.text
-                    print("还有排队消息或附件草稿，请处理完后再输入 /update。")
+                    print(tr("还有排队消息或附件草稿，请处理完后再输入 /update。"))
                     continue
                 if line.split()[0] in ("/canvas", "/cli"):
                     s.save()
@@ -963,7 +991,7 @@ def loop(s: cli.Session) -> str:
                     if isinstance(line, attachments.Input):
                         question = attachments.Input(question, line.attachments)
                     pending = t.turn(question, explore=True) + pending
-                elif not cli.slash(s, line[1:].split()):
+                elif not command_ui.run(s, line[1:].split()):
                     return "quit"
                 elif line.split()[0] == "/new":
                     pending.clear()

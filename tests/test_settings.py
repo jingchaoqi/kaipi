@@ -161,7 +161,7 @@ def test_disable_suppresses_in_flight_notice_and_enable_works_immediately(
     "keys,provider,model",
     [
         ("\x1b[D\x1b[B\x1b[D\x1b", False, False),
-        ("\x1b[D\x1b[C\x1b[B\x1b[D\x1b[A\x1b[C\x1b", True, False),
+        ("\x1b[D\x1b[C\x1b[B\x1b[D\x1b[A\x1b[C\x1b", False, False),
     ],
 )
 def test_statusline_draft_is_saved_once_on_escape(
@@ -188,7 +188,11 @@ def test_statusline_draft_is_saved_once_on_escape(
         cli.statusline()
     assert len(writes) == 1
     assert settings.statusline() == {
-        key: provider if key == "provider" else model if key == "model" else True
+        key: ("on" if provider else "off")
+        if key == "provider"
+        else ("on" if model else "off")
+        if key == "model"
+        else next(iter(settings.STATUSLINE_OPTIONS[key]))
         for key in settings.STATUSLINE_ITEMS
     }
     assert settings.read()["future_preference"] == "keep"
@@ -222,7 +226,73 @@ def test_statusline_failed_save_can_be_retried(monkeypatch: pytest.MonkeyPatch) 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         pipe.send_text("\x1b[D\x1b\x1b")
         configuration.statusline()
-    assert attempts == 2 and settings.statusline()["provider"] is False
+    assert attempts == 2 and settings.statusline()["provider"] == "off"
+
+
+@pytest.mark.parametrize("direction", ["\x1b[C", "\x1b[D"])
+@pytest.mark.parametrize("field", list(settings.STATUSLINE_ITEMS))
+def test_statusline_arrows_cycle_and_wrap(
+    monkeypatch: pytest.MonkeyPatch, field: str, direction: str
+) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    modes = list(settings.STATUSLINE_OPTIONS[field])
+    if direction == "\x1b[D":
+        modes = [modes[0], *reversed(modes[1:])]
+    down = "\x1b[B" * list(settings.STATUSLINE_ITEMS).index(field)
+    for expected in [*modes[1:], modes[0]]:
+        with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+            pipe.send_text(down + direction + "\x1b")
+            configuration.statusline()
+        assert settings.statusline()[field] == expected
+
+
+def test_statusline_reads_legacy_and_invalid_modes() -> None:
+    settings.save(
+        {"statusline": {"provider": True, "model": False, "directory": True, "context": False}}
+    )
+    assert settings.statusline() == {
+        key: "off" if key in ("model", "context") else "full" if key == "directory" else "on"
+        for key in settings.STATUSLINE_ITEMS
+    }
+    settings.save({"statusline": {"directory": [], "context": "compact", "provider": 1}})
+    assert settings.statusline()["directory"] == "full"
+    assert settings.statusline()["context"] == "full"
+    assert settings.statusline()["provider"] == "on"
+
+
+@pytest.mark.parametrize(
+    "field,mode,used,limit,expected",
+    [
+        ("directory", "compact", 0, 0, "project"),
+        ("directory", "off", 0, 0, ""),
+        ("context", "full", 12500, 100000, "上下文 12.5k/100k"),
+        ("context", "percent", 12500, 100000, "上下文 12.5%"),
+        ("context", "percent", 0, 100000, "上下文 0.0%"),
+        ("context", "percent", 125000, 100000, "上下文 125.0%"),
+        ("context", "percent", 12500, 0, "上下文 未知"),
+        ("context", "off", 12500, 100000, ""),
+    ],
+)
+def test_statusline_directory_and_context_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    mode: str,
+    used: int,
+    limit: int,
+    expected: str,
+) -> None:
+    from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+    from prompt_toolkit.formatted_text.utils import fragment_list_to_text
+
+    from kaipi import ledger
+
+    session = cli.Session(tmp_path)
+    session.cwd = tmp_path / "project"
+    monkeypatch.setattr(ledger, "trunk_burden", lambda state: used)
+    monkeypatch.setattr(ledger.Pricing, "price", lambda self, spec: ledger.Price(context=limit))
+    settings.save({"statusline": dict.fromkeys(settings.STATUSLINE_ITEMS, "off") | {field: mode}})
+    assert fragment_list_to_text(to_formatted_text(ANSI(session.status(300)))) == expected
 
 
 @pytest.mark.parametrize("field", list(settings.STATUSLINE_ITEMS))
@@ -246,10 +316,10 @@ def test_statusline_elements_are_independently_visible(
         "model": "example-model",
         "session": "对话名字",
         "directory": str(tmp_path),
-        "context": "context 0.0k",
-        "spent": "spent $0.0000",
-        "saved_tokens": "saved 0.0k/turn",
-        "saved_cost": "saved $0.0000",
+        "context": "上下文 0.0k",
+        "spent": "累计 $0.0000",
+        "saved_tokens": "预计节省 0.0k/轮",
+        "saved_cost": "预计节省 $0.0000",
     }
     assert shown == expected[field]
 

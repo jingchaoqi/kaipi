@@ -123,16 +123,16 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
 
     # slash commands typed on the canvas go through the same verbs
     out = call("/api/command", {"line": "/tree"})["output"]
-    assert "trunk burden" in out and "\x1b" not in out
+    assert "主干上下文" in out and "\x1b" not in out
     assert "\x1b" not in call("/api/command", {"line": "/ledger"})["output"]
     before = canvas.s.log.path.read_bytes()
     status = call("/api/command", {"line": "/status"})["output"]
     assert "会话费用" in status and "上下文" in status and "\x1b" not in status
     assert canvas.s.log.path.read_bytes() == before
     # a verb that would ask on stdin must not wait there with the lock held
-    assert "needs the terminal" in call("/api/command", {"line": "/provider"})["output"]
-    assert "unknown command" in call("/api/command", {"line": "/nope"})["output"]
-    assert call("/api/command", {"line": "/go nope"})["output"].startswith("error:")
+    assert "需要在终端执行" in call("/api/command", {"line": "/provider"})["output"]
+    assert "未知命令" in call("/api/command", {"line": "/nope"})["output"]
+    assert call("/api/command", {"line": "/go nope"})["output"].startswith("错误：")
     assert "用法：/rewind <节点id>" in call("/api/command", {"line": "/rewind"})["output"]
     assert call("/api/archive", {"id": side}) == {"ok": True}
     assert [n["status"] for n in call("/api/state")["nodes"] if n["id"] == side] == ["archived"]
@@ -158,9 +158,9 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
         assert "error" in call(path)
 
     # /explore typed into the canvas runs as a streamed turn, /rewind without a mode explains
-    assert call("/api/command", {"line": "/explore quick look"})["output"] == "exploration started"
+    assert call("/api/command", {"line": "/explore quick look"})["output"] == "已开始探索"
     _wait(canvas)
-    assert "would restore" in call("/api/command", {"line": f"/rewind {merged}"})["output"]
+    assert "将恢复这些文件" in call("/api/command", {"line": f"/rewind {merged}"})["output"]
 
     # busy guard
     canvas.busy = True
@@ -179,10 +179,10 @@ def test_new_on_canvas_preserves_history_and_rejects_switching_while_busy(srv) -
     assert "error" in call("/api/command", {"line": "/new"})
     canvas.busy = False
     assert canvas.s.log.path == previous
-    assert call("/api/command", {"line": "/new nope"})["output"].startswith("error:")
+    assert call("/api/command", {"line": "/new nope"})["output"].startswith("错误：")
     assert canvas.s.log.path == previous
 
-    assert "已开始新对话" in call("/api/command", {"line": "/new"})["output"]
+    assert "已开始新会话" in call("/api/command", {"line": "/new"})["output"]
     state = call("/api/state")
     assert state["session"] != previous.stem and not state["nodes"]
     assert state["leaf"] is None and not state["pending"] and state["cost"] == 0
@@ -198,7 +198,7 @@ def test_new_on_canvas_preserves_history_and_rejects_switching_while_busy(srv) -
 def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     canvas, call, base, token = srv
     q = canvas.hub.subscribe()
-    assert call("/api/command", {"line": "/cli"})["output"].startswith("handing")
+    assert call("/api/command", {"line": "/cli"})["output"].startswith("正在将会话")
     assert canvas.handoff and json.loads(q.get(timeout=1))["type"] == "handoff"
 
     cli.set_lock(tmp_path, "canvas", base)

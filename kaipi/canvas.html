@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{html:ui.locale}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kaipi 画布</title>
+<title>{{html:kaipi 画布}}</title>
 <style>
   :root {
     --bg: #F4F6F2; --panel: #FFFFFF; --ink: #1B2420; --muted: #66716B; --line: #D3DAD5;
@@ -163,40 +163,40 @@
 <body>
 <header>
   <div class="brand">kaipi<small id="sess" class="mono"></small></div>
-  <div class="stat"><b id="model">–</b><span id="where2">模型 · 工作目录</span></div>
-  <div class="stat"><b id="burden">–</b><span>上下文 · 每轮重付</span></div>
-  <div class="stat"><b id="cost">–</b><span>累计花费</span></div>
-  <div class="stat saved" id="savedstat" title=""><b id="saved">–</b><span>累计省下</span></div>
-  <div class="cur">当前 <b id="curid">root</b> <span id="curkind" class="tag">主干</span></div>
+  <div class="stat"><b id="model">–</b><span id="where2">{{html:模型 · 工作目录}}</span></div>
+  <div class="stat"><b id="burden">–</b><span>{{html:上下文 · 每轮重付}}</span></div>
+  <div class="stat"><b id="cost">–</b><span>{{html:累计花费}}</span></div>
+  <div class="stat saved" id="savedstat" title=""><b id="saved">–</b><span>{{html:累计省下}}</span></div>
+  <div class="cur">{{html:当前}} <b id="curid">root</b> <span id="curkind" class="tag">{{html:主干}}</span></div>
   <div class="spacer"></div>
-  <button id="stop" class="danger" hidden title="停止当前回合（这一轮作废，不进上下文，但已花的记账）">停止</button>
-  <button id="fit" title="适应画面">适应画面</button>
-  <button id="handoff" title="把会话交回终端（等同输入 /cli）">移交到终端 /cli</button>
+  <button id="stop" class="danger" hidden title="{{html:停止当前回合（这一轮作废，不进上下文，但已花的记账）}}">{{html:停止}}</button>
+  <button id="fit" title="{{html:适应画面}}">{{html:适应画面}}</button>
+  <button id="handoff" title="{{html:把会话交回终端（等同输入 /cli）}}">{{html:移交到终端 /cli}}</button>
 </header>
 <main>
   <section id="wrap">
     <svg id="svg"><g id="view"><g id="edges"></g><g id="nodes"></g></g></svg>
-    <div id="empty"><b>还没有节点</b><span>在右下角输入第一条任务，它会成为主干的根。</span></div>
-    <div id="tray">拖到这里归档整棵子树</div>
-    <div id="legend"><span><i></i>主干</span><span><i class="e"></i>探索</span><span><i class="g"></i>嫁接</span></div>
+    <div id="empty"><b>{{html:还没有节点}}</b><span>{{html:在右下角输入第一条任务，它会成为主干的根。}}</span></div>
+    <div id="tray">{{html:拖到这里归档整棵子树}}</div>
+    <div id="legend"><span><i></i>{{html:主干}}</span><span><i class="e"></i>{{html:探索}}</span><span><i class="g"></i>{{html:嫁接}}</span></div>
   </section>
   <aside>
     <div id="transcript"></div>
-    <div id="guardbar"><span>探索分支改动了工作树。</span><button id="revert" class="danger">回滚 git checkout -- . &amp;&amp; git clean -fd</button><button id="pinhere">改钉本分支为主干</button></div>
+    <div id="guardbar"><span>{{html:探索分支改动了工作树。}}</span><button id="revert" class="danger">{{html:回滚 git checkout -- . &amp;&amp; git clean -fd}}</button><button id="pinhere">{{html:改钉本分支为主干}}</button></div>
     <div id="composer">
-      <div id="drop"><span class="hint">把画布上的节点拖到这里，嫁接到下一条输入</span></div>
+      <div id="drop"><span class="hint">{{html:把画布上的节点拖到这里，嫁接到下一条输入}}</span></div>
       <div id="delta"></div>
       <div id="attachments"></div>
       <input id="file-input" type="file" multiple hidden>
-      <div id="row"><button id="add-file" title="添加图片、PDF 或文本文件">附件</button><textarea id="input" placeholder="输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）"></textarea><button id="send" class="primary">发送</button></div>
-      <div id="where"><span>下一条输入将挂在 <b id="wherenode" class="mono">root</b> 之下</span><span id="whereex"></span><label id="explab" title="不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）"><input type="checkbox" id="explore"> 作为探索</label><span class="help" title="点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移">操作提示 ?</span></div>
+      <div id="row"><button id="add-file" title="{{html:添加图片、PDF 或文本文件}}">{{html:附件}}</button><textarea id="input" placeholder="{{html:输入任务，或 / 开头的命令（/tree /archive /trunk … /cli）}}"></textarea><button id="send" class="primary">{{html:发送}}</button></div>
+      <div id="where"><span>{{html:下一条输入将挂在}} <b id="wherenode" class="mono">root</b> {{html:之下}}</span><span id="whereex"></span><label id="explab" title="{{html:不延伸主干：主干钉在原地，这条输入开一个只读的探索分支（Alt+Enter）}}"><input type="checkbox" id="explore"> {{html:作为探索}}</label><span class="help" title="{{html:点节点＝跳到那里 · 拖节点到输入框＝嫁接 · 拖到托盘＝归档 · 右键＝更多 · 滚轮缩放，拖空白平移}}">{{html:操作提示 ?}}</span></div>
     </div>
   </aside>
 </main>
 <div id="ghost"></div>
 <div id="menu"></div>
 <div id="rewind" class="modal"><div class="body"></div></div>
-<div id="overlay"><div><b>会话已移交到终端</b><p>回到运行 kaipi 的终端继续对话。这个页面可以关闭。</p></div></div>
+<div id="overlay"><div><b>{{html:会话已移交到终端}}</b><p>{{html:回到运行 kaipi 的终端继续对话。这个页面可以关闭。}}</p></div></div>
 <div id="toast"></div>
 
 <script>
@@ -284,13 +284,13 @@ function render() {
     g.setAttribute('class', cls); g.setAttribute('transform', `translate(${X(p)},${Y(p)})`); g.dataset.id = n.id;
     g.innerHTML = `<rect class="halo" x="-4" y="-4" width="${NW + 8}" height="${NH + 8}"/>
       <rect class="card" width="${NW}" height="${NH}"/>
-      <text class="id" x="12" y="19">${short(n.id)}${{ archived: ' · 已归档', aborted: ' · 已废弃' }[n.status] || ''}</text>
-      <text class="own" x="${NW - 12}" y="19">${n.status === 'aborted' ? '不进上下文' : '+' + fmt(n.own)}</text>
+      <text class="id" x="12" y="19">${short(n.id)}${{ archived: ' {{js:· 已归档}}', aborted: ' {{js:· 已废弃}}' }[n.status] || ''}</text>
+      <text class="own" x="${NW - 12}" y="19">${n.status === 'aborted' ? '{{js:不进上下文}}' : '+' + fmt(n.own)}</text>
       <text x="12" y="41">${label}</text>
       <text class="cost" x="12" y="${NH - 8}">$${(n.cost || 0).toFixed(4)}</text>
       ${n.status === 'aborted' ? `<line class="strike" x1="8" y1="${NH / 2}" x2="${NW - 8}" y2="${NH / 2}"/>` : ''}
-      ${n.id === S.trunk ? `<text class="pin" x="${NW - 26}" y="43" title="主干叶子">📌</text>` : ''}
-      ${n.grafts.length ? `<rect class="dot" x="4" y="${NH - 8}" width="${Math.min(40, 8 * n.grafts.length)}" height="4"><title>${n.grafts.length} 处嫁接</title></rect>` : ''}`;
+      ${n.id === S.trunk ? `<text class="pin" x="${NW - 26}" y="43" title="{{js:主干叶子}}">📌</text>` : ''}
+      ${n.grafts.length ? `<rect class="dot" x="4" y="${NH - 8}" width="${Math.min(40, 8 * n.grafts.length)}" height="4"><title>${n.grafts.length} {{js:处嫁接}}</title></rect>` : ''}`;
     N.appendChild(g);
   }
   $('#empty').style.display = S.nodes.length ? 'none' : 'flex';
@@ -300,21 +300,21 @@ function render() {
   $('#where2').textContent = (bar.cwd || '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, '…/');
   $('#burden').textContent = fmt(S.burden) + (bar.window ? ' / ' + Math.round(bar.window / 1000) + 'k' : '');
   $('#cost').textContent = '$' + S.cost.toFixed(4);
-  const kinds = { exploration: '探索分支未并入主干', graft: '嫁接带结论而非整条分支', interrupt: '打断的回合不进上下文' };
+  const kinds = { exploration: '{{js:探索分支未并入主干}}', graft: '{{js:嫁接带结论而非整条分支}}', interrupt: '{{js:打断的回合不进上下文}}' };
   const saved = bar.saved || {};
   const savedTok = Object.values(saved).reduce((a, x) => a + x.tokens, 0);
   const savedCost = Object.values(saved).reduce((a, x) => a + x.cost, 0);
-  $('#saved').textContent = fmt(savedTok) + '/轮 · $' + savedCost.toFixed(4);
+  $('#saved').textContent = fmt(savedTok) + '{{js:/轮 · }}$' + savedCost.toFixed(4);
   $('#savedstat').title = Object.entries(saved)
     .filter(([, x]) => x.tokens)
-    .map(([k, x]) => `${kinds[k]}：${fmt(x.tokens)}/轮，已省 $${x.cost.toFixed(4)}`)
-    .join('\n') || '还没有产生节省：探索、嫁接、打断都会记在这里';
+    .map(([k, x]) => `${kinds[k]}：${fmt(x.tokens)}{{js:/轮，已省 $}}${x.cost.toFixed(4)}`)
+    .join('\n') || '{{js:还没有产生节省：探索、嫁接、打断都会记在这里}}';
   $('#curid').textContent = short(S.leaf);
   $('#wherenode').textContent = short(S.leaf);
   const ex = isExploration();
-  $('#curkind').textContent = ex ? '探索' : '主干';
+  $('#curkind').textContent = ex ? '{{js:探索}}' : '{{js:主干}}';
   $('#curkind').className = 'tag' + (ex ? ' explore' : '');
-  $('#whereex').innerHTML = ex ? '<span class="tag explore">探索分支：只读，付一次</span>' : '<span class="tag">主干：可写盘，每轮重付</span>';
+  $('#whereex').innerHTML = ex ? '<span class="tag explore">{{js:探索分支：只读，付一次}}</span>' : '<span class="tag">{{js:主干：可写盘，每轮重付}}</span>';
   $('#explab').classList.toggle('off', ex || !S.nodes.length);  // only meaningful on the trunk leaf
   $('#guardbar').classList.toggle('show', S.dirty);
   $('#send').disabled = S.busy;
@@ -371,11 +371,11 @@ document.addEventListener('pointerup', async e => {
   if (!d.moved) {
     const st = byId[d.id].status;
     if (st === 'live') go(d.id);
-    else toast(st === 'aborted' ? '这一轮已被停止作废：可以查看，但不会再进入上下文' : '已归档的节点：右键可恢复');
+    else toast(st === 'aborted' ? '{{js:这一轮已被停止作废：可以查看，但不会再进入上下文}}' : '{{js:已归档的节点：右键可恢复}}');
     return;
   }
   const z = zoneAt(e.clientX, e.clientY);
-  if (z === 'drop' && byId[d.id].status === 'aborted') toast('废弃的一轮不能嫁接：那正是停止时丢掉的东西');
+  if (z === 'drop' && byId[d.id].status === 'aborted') toast('{{js:废弃的一轮不能嫁接：那正是停止时丢掉的东西}}');
   else if (z === 'drop') addGraft(d.id);
   else if (z === 'tray') archive(d.id);
 });
@@ -387,7 +387,7 @@ document.addEventListener('contextmenu', e => {
   const g = e.target.closest('.node'); if (!g) return; e.preventDefault();
   const n = byId[g.dataset.id]; const live = n.status === 'live';
   menu.innerHTML = `<div class="title">${short(n.id)} · ${esc(n.input.slice(0, 24))}</div>
-    ${live ? `<button data-a="go">跳到这里，在其下继续</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入</button><button data-a="pin">钉为主干</button><div class="sep"></div><button data-a="archive" class="danger">归档整棵子树</button>` : n.status === 'aborted' ? `<div class="title">已停止作废 · 不进入上下文，也不能嫁接</div><button data-a="rewind">回退到这里…</button>` : `<button data-a="restore">恢复整棵子树</button><button data-a="rewind">回退到这里…</button><button data-a="graft">嫁接到下一条输入（快照）</button>`}`;
+    ${live ? `<button data-a="go">{{js:跳到这里，在其下继续}}</button><button data-a="rewind">{{js:回退到这里…}}</button><button data-a="graft">{{js:嫁接到下一条输入}}</button><button data-a="pin">{{js:钉为主干}}</button><div class="sep"></div><button data-a="archive" class="danger">{{js:归档整棵子树}}</button>` : n.status === 'aborted' ? `<div class="title">{{js:已停止作废 · 不进入上下文，也不能嫁接}}</div><button data-a="rewind">{{js:回退到这里…}}</button>` : `<button data-a="restore">{{js:恢复整棵子树}}</button><button data-a="rewind">{{js:回退到这里…}}</button><button data-a="graft">{{js:嫁接到下一条输入（快照）}}</button>`}`;
   menu.style.display = 'flex'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
   menu.onclick = ev => { const a = ev.target.dataset.a; menu.style.display = 'none'; if (!a) return; ({ go, graft: addGraft, pin, archive, restore, rewind: rewindDialog })[a](n.id); };
 });
@@ -397,17 +397,17 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { menu.style
 // ---------- actions ----------
 async function act(path, body, okMsg) { try { await api.post(path, body); await refresh(); if (okMsg) toast(okMsg); } catch (e) { toast(e.message); } }
 const go = id => act('/api/go', { id });
-const pin = id => act('/api/pin', { id }, '主干已改钉到 ' + short(id));
-const restore = id => act('/api/restore', { id }, '已恢复');
+const pin = id => act('/api/pin', { id }, '{{js:主干已改钉到}} ' + short(id));
+const restore = id => act('/api/restore', { id }, '{{js:已恢复}}');
 async function archive(id) {
   const n = byId[id]; const sub = S.nodes.filter(m => lineage(m.id).some(x => x.id === id) && m.status === 'live').length;
   const before = S.burden;
   await act('/api/archive', { id });
-  toast(`已归档 ${sub} 个节点（${short(n.id)}）· 主干负担 ${fmt(before)} → ${fmt(S.burden)} · 可在右键菜单恢复`);
+  toast(`{{js:已归档 }}${sub} {{js:个节点（}}${short(n.id)}{{js:）· 主干负担 }}${fmt(before)} → ${fmt(S.burden)} {{js:· 可在右键菜单恢复}}`);
 }
 async function addGraft(id) {
-  if (lineage(S.leaf).some(n => n.id === id)) { toast('这个节点已经在当前血缘里，不用嫁接'); return; }
-  if (pending.some(e => e.src_id === id)) { toast('已在待嫁接列表'); return; }
+  if (lineage(S.leaf).some(n => n.id === id)) { toast('{{js:这个节点已经在当前血缘里，不用嫁接}}'); return; }
+  if (pending.some(e => e.src_id === id)) { toast('{{js:已在待嫁接列表}}'); return; }
   pending.push({ src_id: id, dst_id: '', depth: 'leaf+summary', include_tool_outputs: [] });
   await savePending();
 }
@@ -418,14 +418,14 @@ async function rewindDialog(id) {
   let info; try { info = await api.get('/api/rewind?id=' + id); } catch (e) { toast(e.message); return; }
   const n = byId[id];
   const box = $('#rewind'); box.classList.add('show');
-  box.querySelector('.body').innerHTML = `<b>回退到 ${short(id)} · ${esc(n.input.slice(0, 40))}</b>
-    <p>只回对话 = 光标跳回这里，代码不动。只回代码 = 把之后回合改过的文件写回当时的内容，其它文件（包括你手改的）不动。</p>
-    ${info.tree ? `<div class="files">${info.paths.length ? info.paths.map(esc).join('<br>') : '（之后的回合没有改过文件）'}</div>` : '<div class="files">这个节点没有代码快照（不是 git 仓库），只能回对话。</div>'}
-    <div class="row"><button data-m="both" class="primary" ${info.tree ? '' : 'disabled'}>对话与代码</button><button data-m="conversation">只回对话</button><button data-m="code" ${info.tree && info.paths.length ? '' : 'disabled'}>只回代码</button><button data-m="cancel">取消</button></div>`;
+  box.querySelector('.body').innerHTML = `<b>{{js:回退到 }}${short(id)} · ${esc(n.input.slice(0, 40))}</b>
+    <p>{{js:只回对话 = 光标跳回这里，代码不动。只回代码 = 把之后回合改过的文件写回当时的内容，其它文件（包括你手改的）不动。}}</p>
+    ${info.tree ? `<div class="files">${info.paths.length ? info.paths.map(esc).join('<br>') : '{{js:（之后的回合没有改过文件）}}'}</div>` : '<div class="files">{{js:这个节点没有代码快照（不是 git 仓库），只能回对话。}}</div>'}
+    <div class="row"><button data-m="both" class="primary" ${info.tree ? '' : 'disabled'}>{{js:对话与代码}}</button><button data-m="conversation">{{js:只回对话}}</button><button data-m="code" ${info.tree && info.paths.length ? '' : 'disabled'}>{{js:只回代码}}</button><button data-m="cancel">{{js:取消}}</button></div>`;
   box.onclick = async ev => {
     const m = ev.target.dataset.m; if (!m) return; box.classList.remove('show');
     if (m === 'cancel') return;
-    await act('/api/rewind', { id, mode: m }, m === 'conversation' ? '已跳回 ' + short(id) : `已回退代码到 ${short(id)}（回退前的状态在 refs/kaipi/undo）`);
+    await act('/api/rewind', { id, mode: m }, m === 'conversation' ? '{{js:已跳回}} ' + short(id) : `{{js:已回退代码到 }}${short(id)}{{js:（回退前的状态在 refs/kaipi/undo）}}`);
   };
 }
 
@@ -440,7 +440,7 @@ async function renderChips() {
     const chip = document.createElement('span'); chip.className = 'chip';
     chip.innerHTML = `<span class="lab" title="${esc(n.input)}">${short(n.id)} ${esc(n.input.slice(0, 16))}</span>
       <select><option value="leaf">leaf</option><option value="leaf+summary">leaf+summary</option><option value="branch">branch</option></select>
-      <span class="tools">${e.include_tool_outputs.length ? `+${e.include_tool_outputs.length} 工具输出` : (n.tools.length ? '工具输出' : '')}</span><span class="x" title="移除">×</span>`;
+      <span class="tools">${e.include_tool_outputs.length ? `+${e.include_tool_outputs.length} {{js:工具输出}}` : (n.tools.length ? '{{js:工具输出}}' : '')}</span><span class="x" title="{{js:移除}}">×</span>`;
     chip.querySelector('select').value = e.depth;
     chip.querySelector('select').onchange = ev => { e.depth = ev.target.value; savePending(); };
     chip.querySelector('.x').onclick = () => { pending.splice(i, 1); savePending(); };
@@ -456,14 +456,14 @@ async function renderChips() {
     } catch (err) { parts.push(`${short(n.id)}: ${err.message}`); }
   }
   $('#delta').innerHTML = pending.length
-    ? `${parts.join(' · ')}<br>trunk burden: ${fmt(S.burden)} → <b>${fmt(isExploration() ? S.burden : S.burden + total)}</b> ${isExploration() ? '（嫁接到探索分支，不动主干）' : `(+${fmt(total)})`} · 追加型，缓存前缀不变`
+    ? `${parts.join(' · ')}<br>{{js:主干上下文：}} ${fmt(S.burden)} → <b>${fmt(isExploration() ? S.burden : S.burden + total)}</b> ${isExploration() ? '{{js:（嫁接到探索分支，不动主干）}}' : `(+${fmt(total)})`} {{js:· 追加型，缓存前缀不变}}`
     : '';
 }
 function toolsPopover(chip, e, n) {
   document.querySelectorAll('.pop').forEach(p => p.remove());
-  if (!n.tools.length) { toast('这个节点没有工具调用'); return; }
+  if (!n.tools.length) { toast('{{js:这个节点没有工具调用}}'); return; }
   const pop = document.createElement('div'); pop.className = 'pop';
-  pop.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">勾选要带上的工具输出（默认全部省略）</div>`;
+  pop.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">{{js:勾选要带上的工具输出（默认全部省略）}}</div>`;
   for (const t of n.tools) {  // built as DOM, never interpolated: t.id comes from the model
     const label = document.createElement('label');
     const box = document.createElement('input');
@@ -486,9 +486,9 @@ function renderTranscript() {
   const live = box.querySelector('.live'); box.innerHTML = '';
   for (const n of lineage(S.leaf)) {
     const d = document.createElement('div'); d.className = 'turn' + (opened.has(n.id) ? ' open' : ''); d.dataset.id = n.id;
-    d.innerHTML = `<div class="who"><span>${short(n.id)}</span>${T.has(n.id) ? '' : '<span class="exp">探索</span>'}<span>+${fmt(n.own)}</span>${n.grafts.length ? `<span style="color:var(--graft)">嫁接 ${n.grafts.map(short).join(' ')}</span>` : ''}${n.dropped ? `<span style="color:var(--red)">丢弃 thinking ×${n.dropped}</span>` : ''}</div>
+    d.innerHTML = `<div class="who"><span>${short(n.id)}</span>${T.has(n.id) ? '' : '<span class="exp">{{js:探索}}</span>'}<span>+${fmt(n.own)}</span>${n.grafts.length ? `<span style="color:var(--graft)">{{js:嫁接 }}${n.grafts.map(short).join(' ')}</span>` : ''}${n.dropped ? `<span style="color:var(--red)">{{js:丢弃 thinking ×}}${n.dropped}</span>` : ''}</div>
       <div class="q">${esc(n.input)}</div><div class="a">${esc(n.answer)}</div>
-      ${n.tools.length || n.grafts.length || n.attachments ? `<div class="more">${n.tools.length ? `展开 ${n.tools.length} 条命令与完整记录` : (n.attachments ? '展开附件与完整记录' : '展开完整记录（含嫁接块）')}</div><div class="full"></div>` : ''}`;
+      ${n.tools.length || n.grafts.length || n.attachments ? `<div class="more">${n.tools.length ? `{{js:展开 }}${n.tools.length} {{js:条命令与完整记录}}` : (n.attachments ? '{{js:展开附件与完整记录}}' : '{{js:展开完整记录（含嫁接块）}}')}</div><div class="full"></div>` : ''}`;
     const more = d.querySelector('.more');
     if (more) more.onclick = async () => {
       opened.add(n.id); d.classList.add('open');
@@ -512,15 +512,15 @@ const LINE_CLASS = { user: 'q', assistant: 'a', text: 'a' };
 const OUT_HEAD = 4;   // lines of a command's output shown before it is clicked
 function line(e) {
   if (e.kind === 'image') return /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(e.text)
-    ? `<div class="ln"><img alt="图片附件" style="max-width:100%;max-height:280px" src="${esc(e.text)}"></div>` : '';
-  if (e.kind === 'attachment') return `<details class="ln"><summary>文件附件</summary><pre style="white-space:pre-wrap">${esc(e.text)}</pre></details>`;
+    ? `<div class="ln"><img alt="{{js:图片附件}}" style="max-width:100%;max-height:280px" src="${esc(e.text)}"></div>` : '';
+  if (e.kind === 'attachment') return `<details class="ln"><summary>{{js:文件附件}}</summary><pre style="white-space:pre-wrap">${esc(e.text)}</pre></details>`;
   if (e.kind !== 'out') return `<div class="ln ${LINE_CLASS[e.kind] || e.kind}">${esc(e.text)}</div>`;
   const all = e.text.slice(0, 20000).replace(/\n+$/, '').split('\n');
   if (all.length <= OUT_HEAD) return `<div class="ln out open">${esc(all.join('\n'))}</div>`;
   const head = esc(all.slice(0, OUT_HEAD).join('\n'));
   const rest = esc(all.slice(OUT_HEAD).join('\n'));
   const n = all.length - OUT_HEAD;
-  return `<div class="ln out" title="点击展开或收起">${head}\n<span class="rest">${rest}\n</span><span class="toggle">▸ 展开剩余 ${n} 行</span></div>`;
+  return `<div class="ln out" title="{{js:点击展开或收起}}">${head}\n<span class="rest">${rest}\n</span><span class="toggle">{{js:▸ 展开剩余 }}${n} {{js:行}}</span></div>`;
 }
 // one delegated handler: the transcript is re-rendered often, listeners on each line are not
 $('#transcript').addEventListener('click', e => {
@@ -528,7 +528,7 @@ $('#transcript').addEventListener('click', e => {
   if (!out || !out.querySelector('.toggle')) return;
   const open = out.classList.toggle('open');
   const rest = out.querySelector('.rest').textContent.replace(/\n$/, '').split('\n').length;
-  out.querySelector('.toggle').textContent = open ? '▾ 收起' : `▸ 展开剩余 ${rest} 行`;
+  out.querySelector('.toggle').textContent = open ? '{{js:▾ 收起}}' : `{{js:▸ 展开剩余 }}${rest} {{js:行}}`;
 });
 
 // ---------- composer & streaming ----------
@@ -541,7 +541,7 @@ function renderAttachments() {
   attached.forEach((a, i) => {
     const chip = document.createElement('span'); chip.className = 'chip';
     const label = document.createElement('span'); label.className = 'lab'; label.textContent = a.marker; label.title = `${a.name} · ${a.summary}`;
-    const remove = document.createElement('button'); remove.textContent = '×'; remove.title = '移除附件';
+    const remove = document.createElement('button'); remove.textContent = '×'; remove.title = '{{js:移除附件}}';
     remove.onclick = () => { attached.splice(i, 1); renderAttachments(); };
     chip.append(label, remove); box.append(chip);
   });
@@ -550,18 +550,18 @@ function addFiles(files) {
   readingFiles++;
   attachmentReads = attachmentReads.then(async () => {
     try {
-      if (attached.length + files.length > 8) throw new Error('每条消息最多添加 8 个附件');
-      if (files.some(f => f.size > 20 * 1024 * 1024)) throw new Error('原文件单个最多 20 MiB');
+      if (attached.length + files.length > 8) throw new Error('{{js:每条消息最多添加 8 个附件}}');
+      if (files.some(f => f.size > 20 * 1024 * 1024)) throw new Error('{{js:原文件单个最多 20 MiB}}');
       const batch = await Promise.all(files.map(file => new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onerror = () => reject(new Error('文件读取失败：' + file.name));
+        reader.onerror = () => reject(new Error('{{js:文件读取失败：}}' + file.name));
         reader.onload = () => resolve({name: file.name, data: String(reader.result).split(',')[1]});
         reader.readAsDataURL(file);
       })));
       if (attached.length + batch.length > 8 || [...attached, ...batch].reduce((n, a) => n + a.data.length * .75, 0) > 40 * 1024 * 1024)
-        throw new Error('每条消息最多 8 个附件、原文件总计 40 MiB');
+        throw new Error('{{js:每条消息最多 8 个附件、原文件总计 40 MiB}}');
       const checked = await api.post('/api/attachments', {attachments: batch});
-      if (attached.length + batch.length > 8) throw new Error('每条消息最多 8 个附件');
+      if (attached.length + batch.length > 8) throw new Error('{{js:每条消息最多 8 个附件}}');
       batch.forEach((a, i) => {
         a.summary = checked.attachments[i].summary;
         const kind = checked.attachments[i].kind;
@@ -589,12 +589,12 @@ input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) {
 input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(200, input.scrollHeight) + 'px'; });
 $('#send').onclick = send;
 $('#handoff').onclick = handoff;
-$('#revert').onclick = () => act('/api/reset', {}, '工作树已回滚');
+$('#revert').onclick = () => act('/api/reset', {}, '{{js:工作树已回滚}}');
 $('#pinhere').onclick = () => pin(S.leaf);
 async function send() {
-  if (readingFiles) return toast('附件正在读取，请稍候');
+  if (readingFiles) return toast('{{js:附件正在读取，请稍候}}');
   let text = input.value.trim(); if ((!text && !attached.length) || S.busy || sending) return;
-  if (text.startsWith('/') && text !== '/new' && attached.length) return toast('请将附件随普通问题发送，或勾选“作为探索”');
+  if (text.startsWith('/') && text !== '/new' && attached.length) return toast('{{js:请将附件随普通问题发送，或勾选“作为探索”}}');
   if (text.startsWith('/')) { input.value = ''; return command(text); }
   const batch = attached.slice();
   if (batch.length) text += (text ? '\n' : '请查看附件：') + batch.map(a => a.marker).join(' ');
@@ -624,12 +624,12 @@ function liveBlock(text, explore) {
   notes.length = 0;
   $('#transcript .live')?.remove();
   const d = document.createElement('div'); d.className = 'turn live';
-  d.innerHTML = `<div class="who"><span>正在运行</span>${explore || isExploration() ? '<span class="exp">探索</span>' : ''}</div><div class="q">${esc(text)}</div><div class="stream"></div><div class="thinking">模型思考中</div>`;
+  d.innerHTML = `<div class="who"><span>{{js:正在运行}}</span>${explore || isExploration() ? '<span class="exp">{{js:探索}}</span>' : ''}</div><div class="q">${esc(text)}</div><div class="stream"></div><div class="thinking">{{js:模型思考中}}</div>`;
   $('#transcript').appendChild(d); $('#transcript').scrollTop = $('#transcript').scrollHeight;
 }
 $('#stop').onclick = async () => {
   $('#stop').disabled = true;
-  try { await api.post('/api/stop', {}); } catch (e) { toast('停止失败：' + e.message); }
+  try { await api.post('/api/stop', {}); } catch (e) { toast('{{js:停止失败：}}' + e.message); }
 };
 
 async function handoff() {
@@ -640,16 +640,16 @@ const es = new EventSource(withToken('/api/events'));  // EventSource cannot set
 es.onmessage = ev => {
   const e = JSON.parse(ev.data); const live = $('#transcript .live');
   if (e.type === 'handoff') { $('#overlay').classList.add('show'); es.close(); return; }
-  if (e.type === 'done') { live?.remove(); $('#stop').hidden = true; refresh().then(() => { if (e.dirty) toast('探索分支改动了工作树，请处理', 5000); }); return; }
+  if (e.type === 'done') { live?.remove(); $('#stop').hidden = true; refresh().then(() => { if (e.dirty) toast('{{js:探索分支改动了工作树，请处理}}', 5000); }); return; }
   if (e.type === 'aborted') {
     live?.remove();
     $('#stop').hidden = true;
     $('#stop').disabled = false;
-    sysLine(`已停止：这一轮作废（${e.cost}），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。`);
+    sysLine(`{{js:已停止：这一轮作废（}}${e.cost}{{js:），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。}}`);
     refresh();
     return;
   }
-  if (e.type === 'error') { $('#stop').hidden = true; if (live) live.querySelector('.thinking')?.remove(); sysLine('错误：' + e.text); refresh(); return; }
+  if (e.type === 'error') { $('#stop').hidden = true; if (live) live.querySelector('.thinking')?.remove(); sysLine('{{js:错误：}}' + e.text); refresh(); return; }
   if (!live) return;
   const st = live.querySelector('.stream');
   if (e.type === 'start') { $('#send').disabled = true; $('#stop').hidden = false; return; }
@@ -658,7 +658,7 @@ es.onmessage = ev => {
     $('#transcript').scrollTop = $('#transcript').scrollHeight;
   }
 };
-es.onerror = () => { if (!$('#overlay').classList.contains('show')) toast('与 kaipi 进程的连接断开了；它可能已退出', 6000); };
+es.onerror = () => { if (!$('#overlay').classList.contains('show')) toast('{{js:与 kaipi 进程的连接断开了；它可能已退出}}', 6000); };
 
 refresh();
 </script>

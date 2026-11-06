@@ -7,6 +7,8 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 from zipfile import ZipFile, is_zipfile
 
+from kaipi.i18n import tr
+
 if TYPE_CHECKING:
     from markitdown import MarkItDown
 from openpyxl import load_workbook
@@ -53,12 +55,12 @@ def spreadsheet(raw: bytes) -> str:
         cells = 0
         for sheet in book:
             if (sheet.max_row or 0) * (sheet.max_column or 0) > 50000:
-                raise ValueError("Excel 工作表过大；请选取需要的数据或导出 CSV")
+                raise ValueError(tr("Excel 工作表过大；请选取需要的数据或导出 CSV"))
             lines.append(f"[工作表: {sheet.title}]")
             for index, values in enumerate(sheet.iter_rows(values_only=True), 1):
                 cells += len(values)
                 if cells > 50000 or index > 10000:
-                    raise ValueError("Excel 数据过多；请选取需要的数据或导出 CSV")
+                    raise ValueError(tr("Excel 数据过多；请选取需要的数据或导出 CSV"))
                 if any(value is not None for value in values):
                     lines.append("\t".join("" if value is None else str(value) for value in values))
         return "\n".join(lines)
@@ -71,7 +73,7 @@ def text(name: str, raw: bytes) -> str:
         if is_zipfile(BytesIO(raw)):
             with ZipFile(BytesIO(raw)) as archive:
                 if sum(i.file_size for i in archive.infolist()) > 20 * 1024 * 1024:
-                    raise ValueError("文档解压后过大（最多 20 MiB）")
+                    raise ValueError(tr("文档解压后过大（最多 20 MiB）"))
                 # Inspect container contents, not the supplied filename.
                 if "xl/workbook.xml" in archive.namelist():
                     return spreadsheet(raw)
@@ -91,4 +93,6 @@ def text(name: str, raw: bytes) -> str:
         raise
     except Exception as e:
         # Converter failures are user file errors; retain the draft and avoid a traceback.
-        raise ValueError(f"无法解析附件：{name}；文件可能损坏、加密或缺少对应的解码能力") from e
+        raise ValueError(
+            tr("无法解析附件：{name}；文件可能损坏、加密或缺少对应的解码能力", name=name)
+        ) from e
