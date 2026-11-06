@@ -139,7 +139,7 @@ def test_a_project_file_cannot_redirect_credentials(
     # and the model it names is now unbuildable rather than silently pointed at the attacker
     from kaipi import providers as provs
 
-    with pytest.raises(ValueError, match="unknown provider"):
+    with pytest.raises(ValueError, match="未知提供商"):
         provs.build(
             "evil",
             {k: provs.ProviderConfig(**v) for k, v in pricing.providers.items()},

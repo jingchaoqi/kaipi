@@ -137,7 +137,7 @@ def test_refresh_updates_catalog_and_model_list(configured: None, online: None) 
     assert "deepseek" not in pricing.providers
     assert providers.auth_file().stat().st_mode & 0o777 == 0o600
     result = CliRunner().invoke(cli.app, ["model"], input="3\n")
-    assert "deepseek-new" in result.output and "0.5/out 2.0" in result.output
+    assert "deepseek-new" in result.output and "输入 0.5/输出 2.0" in result.output
     assert providers.active_model() == "deepseek-anthropic/deepseek-new"
 
 

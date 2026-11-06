@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, Field
 
+from kaipi.i18n import tr
 from kaipi.model import Message, Usage
 
 BASH_TOOL_DESCRIPTION = (
@@ -269,13 +270,15 @@ def build(
     if name is None:
         name, _, model = spec.partition("/")
         if not model:
-            raise ValueError(f"{spec}: not in pricing.toml; use <provider>/<model>")
+            raise ValueError(tr("{spec} 不在价格表中，请使用 <provider>/<model>", spec=spec))
     elif model.startswith(f"{name}/"):  # a pricing entry keyed as <provider>/<model id>
         model = model[len(name) + 1 :]
     known = {**BUILTIN, **providers}
     cfg = known.get(name)
     if cfg is None:
-        raise ValueError(f"unknown provider {name!r}; known: {', '.join(known)}")
+        raise ValueError(
+            tr("未知提供商 {name}；可选：{known}", name=repr(name), known=", ".join(known))
+        )
     # Precedence: the environment (a deliberate one-off), then `/provider`'s file, then
     # the preset. So an export still overrides a saved key without having to unsave it.
     saved: dict[str, str] = auth().get("providers", {}).get(name, {})
@@ -291,8 +294,11 @@ def build(
     if cfg.needs_key and cfg.api_key_env and not key:
         # A sentence the user can act on, rather than a 401 from the vendor five seconds later.
         raise ValueError(
-            f"{name} 还没有 API key。运行 `kaipi provider` 配置一次，"
-            f"或者 export {cfg.api_key_env}=..."
+            tr(
+                "{name} 还没有 API key。运行 kaipi provider 配置，或者 export {env}=...",
+                name=name,
+                env=cfg.api_key_env,
+            )
         )
     if cfg.api == "anthropic":
         from kaipi.providers.anthropic import AnthropicProvider

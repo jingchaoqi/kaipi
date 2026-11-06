@@ -234,16 +234,44 @@ canvas and reopens the prompt. Both surfaces call the same verbs; the canvas add
 gestures for them — drag a node onto the input to graft, onto the tray to archive.
 
 Slash completion appears above the input, with up to ten visible rows and scrolling.
+Starting `kaipi` (including `-c`/`-r`) or `kaipi canvas` clears the terminal display and
+scrollback before onboarding or session output. Non-interactive subcommands and piped
+output are not cleared.
 At the idle prompt, Ctrl-C first asks for confirmation; a second press within three
 seconds exits. Editing the input cancels that confirmation. During a turn Ctrl-C still
-stops the turn. Normal session exits print `kaipi -r <full-session-id>` after saving and
-releasing the lock; an empty discarded session instead prints `kaipi` to start again.
+stops the turn. After saving and releasing the lock, normal session exits clear the
+terminal display and scrollback, then show a local summary: session title, working
+directory, total node count (including archived/aborted nodes), cumulative cost and
+`kaipi -r <full-session-id>` to resume. No model is called. Piped output is not cleared;
+an empty discarded session instead prints `kaipi` to start again.
+
+UI copy lives in a small independent translation module and a bundled Chinese/English
+catalog. On a fresh installation, the first greeting and language picker are bilingual;
+the choice is saved before provider/model setup, which uses that language immediately.
+After successful setup, the terminal display and scrollback are cleared before entering
+the session; cancelled or failed setup and piped output are not cleared.
+Existing configured installations without a language preference keep Chinese. `/config`
+can switch the language with either horizontal arrow; changes save immediately and
+apply to subsequent CLI and Canvas rendering. No model request is made for translation.
+Commands, model IDs, paths, node IDs, original errors from external services, user content
+and tool output retain their original text. UI language never alters system prompts,
+request assembly, stored payloads, attachment content or session titles. Chinese UI uses
+consistent session/trunk/cost terminology; estimated savings remain labelled estimates.
+Status phases keep a centered fixed-width slot: eight terminal cells in Chinese and the
+longest translated phase in English. The catalog is checked for missing entries and
+matching interpolation parameters. Canvas expands only explicitly marked static UI copy
+with context-appropriate escaping; conversation content is never passed to translation.
 
 `/statusline` (also `kaipi statusline`) selects which bottom-line elements are visible:
 provider, model, session title, working directory, context usage, accumulated cost,
 estimated token savings and estimated cost savings. All default to visible. Up/Down
-selects an item; Left disables it and Right enables it in a local draft. Esc atomically
-saves these preferences in the user settings file and returns; Ctrl-C/Ctrl-D cancels the
+selects an item; Left/Right cycles backward/forward through its options in a local draft.
+Directory options are full (existing path display), compact (last path component only)
+and off. Context options are full (existing usage display), percent (the same usage
+divided by the selected model's window, with one decimal place) and off. An unknown
+window is shown as unknown, never as zero percent. Other items cycle between on and off.
+Legacy boolean settings retain their meaning: true becomes full/on, false becomes off.
+Esc atomically saves these preferences in the user settings file and returns; Ctrl-C/Ctrl-D cancels the
 draft. A failed save keeps the panel open. Returning refreshes the bar immediately,
 without altering ledger calculations, `/status` details or the activity/elapsed-time row.
 The line keeps its existing space even when all elements are hidden to avoid layout jumps.
@@ -284,7 +312,9 @@ During a terminal turn, a comet and a text shimmer animate at a target 60 FPS in
 dedicated activity row. Its phase follows transient hooks (waiting for the model,
 executing a command, waiting to retry) and the stop flag; these are UI state, never
 session events. The ledger row refreshes separately, and the animation timer is off
-at rest. Questions are echoed as full-width background panels with a blank row of
+at rest. Phase labels are centered in a fixed width of four Chinese characters (eight
+terminal cells), so phase changes do not shift the comet, elapsed time or separators.
+Questions are echoed as full-width background panels with a blank row of
 padding above and below; slash commands keep their compact echo. Wrapped questions
 use terminal cell widths, including CJK characters.
 After a turn, the activity row stays visible with its final elapsed time and outcome
@@ -323,6 +353,16 @@ The intent and command rows share a subtle background extending to the terminal
 width minus one; styling resets before the answer, and content still truncates at 120 cells.
 The per-turn usage summary has one blank line above and below it, separating the
 answer from the summary and the next input area's rule.
+
+Interactive slash commands do not echo into the conversation. Query commands (`/help`,
+`/status`, `/version`, `/ledger`, `/raw`, and bare `/trunk`) use a scrollable temporary
+screen, closed with Esc/Ctrl-C. Menus, configuration prompts and rewind previews also
+use the terminal's alternate screen: returning or cancelling restores the conversation
+and its scrollback, with no command or prompt residue. Successful actions retain only a
+compact result; errors remain visible, and `/inspect-context` keeps the exported path.
+`/update` shows progress temporarily and waits for return when no installation starts.
+`/explore`, `/new`, surface switching and session exit retain their own lifecycle.
+Plain/piped commands continue to print ordinary output without alternate-screen controls.
 
 On a TTY, `/tree` and `/go` without arguments open one shared node navigator.
 Tree connectors, node numbers, questions, current position and trunk labels are the

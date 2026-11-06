@@ -10,7 +10,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from kaipi import cli, graph, ledger
+from kaipi import cli, graph, i18n, ledger
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 from kaipi.store import list_sessions
@@ -58,17 +58,17 @@ def test_cli_end_to_end(repo: Path) -> None:
     assert r.invoke(cli.app, ["trunk", "pin", second[-6:]]).exit_code == 0
     assert r.invoke(cli.app, ["go", root[-6:]]).exit_code == 0
     out = r.invoke(cli.app, ["-c"], input="explore\n/quit\n")
-    assert "exploration" in out.output
+    assert "探索" in out.output
     s = cli.Session(repo)
     side = s.leaf or ""
     assert side != root
     out = r.invoke(cli.app, ["tree"])
-    assert out.exit_code == 0 and "explore" in out.output and "trunk burden" in out.output
+    assert out.exit_code == 0 and "explore" in out.output and "主干上下文" in out.output
     # graft the exploration leaf onto the trunk leaf
-    assert "pinned: " + s.name(second) in r.invoke(cli.app, ["trunk"]).output
+    assert "固定：" + s.name(second) in r.invoke(cli.app, ["trunk"]).output
     assert r.invoke(cli.app, ["go", second[-6:]]).exit_code == 0
     out = r.invoke(cli.app, ["graft", side[-6:], "--depth", "leaf"])
-    assert out.exit_code == 0 and "leaf:" in out.output and "trunk burden" in out.output
+    assert out.exit_code == 0 and "leaf:" in out.output and "主干上下文" in out.output
     out = r.invoke(cli.app, ["-c"], input="merge\n/quit\n")
     assert out.exit_code == 0
     s = cli.Session(repo)
@@ -76,14 +76,14 @@ def test_cli_end_to_end(repo: Path) -> None:
     assert "<kaipi:graft" in str(s.log.state.nodes[s.leaf or ""].payload[0])
     # archive the exploration, then restore it
     out = r.invoke(cli.app, ["archive", side[-6:]])
-    assert out.exit_code == 0 and "archived 1 node" in out.output and "append-only" in out.output
+    assert out.exit_code == 0 and "1 个节点" in out.output and "仅追加" in out.output
     out = r.invoke(cli.app, ["ledger"])
-    assert out.exit_code == 0 and "explorations" in out.output and "archived" in out.output
+    assert out.exit_code == 0 and "探索分支" in out.output and "已归档" in out.output
     assert r.invoke(cli.app, ["restore", side[-6:]]).exit_code == 0
     out = r.invoke(cli.app, ["trunk", "pin", side[-6:]])
-    assert out.exit_code == 0 and "trunk pinned" in out.output
-    assert "cursor moved to" in out.output and cli.Session(repo).leaf == side
-    assert "pinned: " + s.name(side) in r.invoke(cli.app, ["trunk"]).output
+    assert out.exit_code == 0 and "主干已固定" in out.output
+    assert "当前位置已移到" in out.output and cli.Session(repo).leaf == side
+    assert "固定：" + s.name(side) in r.invoke(cli.app, ["trunk"]).output
     assert r.invoke(cli.app, ["sessions"]).output.count("轮") == 1
 
 
@@ -109,8 +109,8 @@ def test_handoff_between_surfaces(repo: Path, monkeypatch: pytest.MonkeyPatch) -
     out = r.invoke(cli.app, ["-c"], input="hello\n/canvas\n/quit\n")
     assert out.exit_code == 0, out.output
     assert calls == ["canvas"]
-    assert "canvas opened in your browser" in out.output
-    assert "back in this terminal" in out.output
+    assert "画布已在浏览器打开" in out.output
+    assert "会话已回到当前终端" in out.output
     assert not (repo / ".kaipi" / "lock.json").exists()  # released on exit
     # `kaipi canvas` starts on the canvas, then drops into the CLI when it comes back
     out = r.invoke(cli.app, ["canvas"], input="/quit\n")
@@ -127,7 +127,7 @@ def test_refuses_when_open_elsewhere(repo: Path) -> None:
     )
     try:
         out = CliRunner().invoke(cli.app, ["go", "x"])
-        assert out.exit_code == 1 and "open in the canvas" in out.output
+        assert out.exit_code == 1 and "会话正在画布" in out.output
         assert CliRunner().invoke(cli.app, ["tree"]).exit_code == 0  # read-only still fine
     finally:
         cli.release_lock(repo)
@@ -140,7 +140,7 @@ def test_explore_from_trunk_leaf(repo: Path) -> None:
     s = cli.Session(repo)
     root = [n for n in s.log.state.nodes.values() if n.parent_id is None][0].id
     assert s.log.state.trunk_pin == root and s.leaf != root
-    assert "exploration" in out.output
+    assert "探索" in out.output
 
 
 def test_rewind_slash_prompt(repo: Path) -> None:
@@ -151,16 +151,16 @@ def test_rewind_slash_prompt(repo: Path) -> None:
     # not a git repo: `both` fails on the code half, `conversation` works
     out = r.invoke(cli.app, ["-c"], input=f"/rewind {root[-6:]}\nconversation\n/quit\n")
     assert out.exit_code == 0, out.output
-    assert "files a code rewind to N1 would restore: (none)" in out.output
+    assert "回退代码到 N1 将恢复这些文件：无" in out.output
     out = r.invoke(
         cli.app, ["-c"], input="/go\n\n/tree\n/quit\n"
     )  # cancel the plain-mode node prompt
     assert (
-        out.exit_code == 0 and "目标节点（回车取消）" in out.output and "trunk burden" in out.output
+        out.exit_code == 0 and "目标节点（回车取消）" in out.output and "主干上下文" in out.output
     )
     assert cli.Session(repo).leaf == root
     out = r.invoke(cli.app, ["rewind", root[-6:], "--mode", "code"])
-    assert out.exit_code != 0 and "no snapshot" in out.output
+    assert out.exit_code != 0 and "没有代码快照" in out.output
 
 
 @pytest.mark.parametrize(
@@ -229,7 +229,7 @@ def test_tree_navigator_directions_and_cancel(
     assert s.leaf == leaf and s.log.path.read_text() == before
     compact = "\n".join(line for _, line in cli.tree_rows(s, compact=True))
     assert "├─" in compact and "└─" in compact
-    assert "当前" in compact and "主线" in compact
+    assert "当前" in compact and "主干" in compact
     assert "$" not in compact and "tokens" not in compact
 
 
@@ -302,13 +302,15 @@ def test_rewind_without_id_selects_then_rewinds(
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
+    from kaipi import configuration
+
     CliRunner().invoke(cli.app, ["-c"], input="one\ntwo\n/quit\n")
     s = cli.Session(repo)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("KAIPI_PLAIN", raising=False)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    monkeypatch.setattr(typer, "prompt", lambda *args, **kwargs: "conversation")
+    monkeypatch.setattr(configuration, "prompt", lambda *args, **kwargs: "conversation")
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         pipe.send_text("\x1b[A\r")
         assert cli.slash(s, ["rewind"])
@@ -348,7 +350,7 @@ def test_rewind_both_refuses_archived_target(repo: Path) -> None:
     two = s.leaf or ""
     r.invoke(cli.app, ["archive", two[-6:]])
     out = r.invoke(cli.app, ["rewind", two[-6:], "--mode", "both"])
-    assert out.exit_code != 0 and "not live" in out.output
+    assert out.exit_code != 0 and "已归档或废弃" in out.output
 
 
 def test_kaipi_dir_ignores_itself(repo: Path) -> None:
@@ -368,11 +370,11 @@ def test_read_only_commands_do_not_create_a_session(repo: Path) -> None:
     r = CliRunner()
     for cmd in (["tree"], ["ledger"], ["trunk"]):
         out = r.invoke(cli.app, cmd)
-        assert out.exit_code == 0 and "no session in this directory yet" in out.output
+        assert out.exit_code == 0 and "这个目录还没有会话" in out.output
     assert not (repo / ".kaipi" / "sessions").exists()
     assert r.invoke(cli.app, ["sessions"]).output == ""
     r.invoke(cli.app, ["-c"], input="one\n/quit\n")  # now there is one
-    assert "trunk burden" in r.invoke(cli.app, ["tree"]).output
+    assert "主干上下文" in r.invoke(cli.app, ["tree"]).output
 
 
 def test_the_documented_uninstall_leaves_nothing_behind(
@@ -452,8 +454,8 @@ def test_switching_the_model_takes_effect_on_the_next_turn(
 @pytest.mark.skipif(not hasattr(__import__("os"), "openpty"), reason="needs a pty")
 def test_the_tty_surface_keeps_input_and_status_at_the_bottom(repo: Path) -> None:
     """On a real terminal the loop is prompt_toolkit's: a prompt with the status bar under
-    it. Drive it through a pty: the bar renders, a slash command runs above it, /quit ends
-    it. No turn: the child is a real process that cannot see this test's fake provider."""
+    it. Drive it through a pty: a query opens temporarily, Esc restores the prompt, and
+    /quit ends it. The child is a real process that cannot see this test's fake provider."""
     import fcntl
     import os
     import select
@@ -490,14 +492,19 @@ def test_the_tty_surface_keeps_input_and_status_at_the_bottom(repo: Path) -> Non
         return buf.decode(errors="replace")
 
     try:
-        first = read_until("spent")  # the bar is drawn after the prompt line
-        assert "root>" in first and "context" in first, "input above, status bar below"
+        first = read_until("累计")  # the bar is drawn after the prompt line
+        assert "root>" in first and "上下文" in first, "input above, status bar below"
         os.write(master, b"/trunk\r")
-        assert "trunk" in read_until("spent", timeout=10)
+        panel = read_until("Esc", timeout=10)
+        assert "主干" in panel and "\x1b[?1049h" in panel
+        os.write(master, b"\x1b")
+        restored = read_until("累计", timeout=10)
+        assert "\x1b[?1049l" in restored and "root>" in restored
+        assert "主干" not in restored.split("\x1b[?1049l")[-1]
         previous = list_sessions(repo)
         os.write(master, b"/new\r")
-        fresh = read_until("spent", timeout=10)
-        assert "\x1b[3J" in fresh and "已开始新对话" in fresh and "root>" in fresh
+        fresh = read_until("累计", timeout=10)
+        assert "\x1b[3J" in fresh and "已开始新会话" in fresh and "root>" in fresh
         assert len(list_sessions(repo)) == 1 and list_sessions(repo) != previous
         os.write(master, b"/quit\r")
         read_until("\x00", timeout=5)  # drain until the child closes the pty
@@ -511,7 +518,7 @@ def test_help_lists_every_command(repo: Path) -> None:
     out = CliRunner().invoke(cli.app, ["-c"], input="/help\n/quit\n")
     assert out.exit_code == 0
     for name, _args, what in cli.COMMANDS:
-        assert f"/{name}" in out.output and what in out.output
+        assert f"/{name}" in out.output and i18n.tr(what) in out.output
 
 
 def test_status_reports_cursor_context_and_selected_model_without_mutating_or_calling_api(
@@ -544,7 +551,7 @@ def test_status_reports_cursor_context_and_selected_model_without_mutating_or_ca
     assert "1,200" not in fields["上下文"] and "待嫁接内容未计入" in "\n".join(lines)
     assert fields["待嫁接"] == "1 个节点"
     assert "输入 1,500" in fields["累计用量"]
-    assert fields["会话费用"] == f"${ledger.total_cost(s.log.state, s.pricing):.4f}（价格表估算）"
+    assert fields["会话费用"] == f"${ledger.total_cost(s.log.state, s.pricing):.4f} (价格表估算)"
     assert s.log.path.read_bytes() == log and s.cursor_path.read_bytes() == cursor
 
 
@@ -803,6 +810,58 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
             assert fragment_list_to_text(to_formatted_text(terminal.toolbar())) == idle
 
 
+@pytest.mark.parametrize("width", [40, 80])
+@pytest.mark.parametrize("running", [False, True])
+def test_activity_phase_changes_keep_separators_fixed_and_labels_centered(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, width: int, running: bool
+) -> None:
+    import time
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+    from prompt_toolkit.utils import get_cwidth
+
+    from kaipi import tui
+
+    monkeypatch.setattr(time, "monotonic", lambda: 10.0)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        terminal = tui.Terminal(cli.Session(repo))
+        monkeypatch.setattr(terminal, "columns", lambda: width)
+        terminal.running = running
+        terminal.started_at = 8.75
+        positions = []
+        for phase in (
+            "就绪",
+            "准备中",
+            "等待模型",
+            "执行命令",
+            "处理结果",
+            "等待重试",
+            "整理回答",
+            "整理结果",
+            "生成标题",
+            "正在停止",
+            "已完成",
+            "已停止",
+            "未完成",
+        ):
+            terminal.phase = phase
+            activity = fragment_list_to_text(to_formatted_text(terminal.toolbar())).splitlines()[1]
+            label = activity[14:].split(" · ")[0]
+            assert label.strip() == phase
+            assert get_cwidth(label) == 8
+            left, right = len(label) - len(label.lstrip()), len(label) - len(label.rstrip())
+            assert abs(left - right) <= 1
+            positions.append(
+                [get_cwidth(activity[:i]) for i, char in enumerate(activity) if char == "·"]
+            )
+            assert activity.startswith("•" * 12 + "  ")
+            assert get_cwidth(activity) < width
+        assert len(positions[0]) == 2 and all(p == positions[0] for p in positions)
+
+
 def test_question_panel_renders_background_instead_of_fragment_repr(repo: Path) -> None:
     from io import StringIO
 
@@ -930,7 +989,7 @@ def test_compact_turn_preserves_full_tool_payload(
     assert "先检查项目文件" in shown and "检查完成" in shown
     assert "full tool output" not in shown and "**" not in shown
     lines = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", shown).splitlines()
-    ledger_line = next(i for i, line in enumerate(lines) if "cache read" in line)
+    ledger_line = next(i for i, line in enumerate(lines) if "缓存读取" in line)
     assert not lines[ledger_line - 1].strip() and not lines[ledger_line + 1].strip()
     payload = str(terminal.s.log.state.nodes[nid].payload)
     assert command in terminal.s.log.state.nodes[nid].payload[1]["content"][1]["input"]["command"]
@@ -973,7 +1032,7 @@ def test_new_in_plain_cli_starts_an_independent_conversation(repo: Path) -> None
     from kaipi.store import Log, list_sessions
 
     out = CliRunner().invoke(cli.app, [], input="old question\n/new\nnew question\n/quit\n")
-    assert out.exit_code == 0 and "已开始新对话" in out.output
+    assert out.exit_code == 0 and "已开始新会话" in out.output
     before, after = [Log(path) for path in list_sessions(repo)]
     assert len(before.state.nodes) == len(after.state.nodes) == 1
     node = next(iter(after.state.nodes.values()))
@@ -1040,7 +1099,7 @@ def test_every_kaipi_is_a_fresh_conversation_unless_resumed(repo: Path) -> None:
     out = r.invoke(cli.app, ["sessions"])
     assert "第一条线" in out.output and "second" in out.output
     out = r.invoke(cli.app, ["-c"], input="/resume\n2\n/quit\n")  # 1 is the current one
-    assert "这个目录里的对话" in out.output and "接上" in out.output
+    assert "这个目录里的会话" in out.output and "接上" in out.output
 
 
 def test_nodes_are_shown_and_addressed_by_number(repo: Path) -> None:
@@ -1073,7 +1132,7 @@ def test_a_deep_working_directory_does_not_push_the_numbers_off_the_bar(repo: Pa
     for width in (72, 80, 100, 120, 200):
         bar = plain(width)
         assert len(bar) <= width, f"the bar overflows {width} columns: {bar}"
-        for part in ("context", "spent", "saved"):
+        for part in ("上下文", "累计", "预计节省"):
             assert part in bar, f"{part} was pushed off a {width}-column bar"
 
     assert plain(120).count("…/") == 1, "the head of the path is elided, not the tail"
@@ -1457,12 +1516,100 @@ def test_ctrl_c_requires_confirmation_without_losing_draft(
 def test_exit_shows_exact_resumable_session(repo: Path, exit_command: str) -> None:
     result = CliRunner().invoke(cli.app, ["-c"], input="hello\n" + exit_command)
     assert result.exit_code == 0, result.output
-    match = re.search(r"回到这个对话：kaipi -r (\w+)", result.output)
+    match = re.search(r"恢复此会话：\n  kaipi -r (\w+)", result.output)
     assert match is not None
     session_id = match.group(1)
     assert (repo / ".kaipi" / "sessions" / f"{session_id}.jsonl").exists()
     resumed = CliRunner().invoke(cli.app, ["-r", session_id], input="/quit\n")
     assert resumed.exit_code == 0 and f"kaipi -r {session_id}" in resumed.output
+
+
+@pytest.mark.parametrize("tty", [False, True])
+@pytest.mark.parametrize("mode", ["new", "continue", "resume", "canvas"])
+def test_start_clears_terminal_before_onboarding_and_session_output(
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tty: bool,
+    mode: str,
+) -> None:
+    from typer.main import get_command
+
+    session = cli.Session(repo)
+    Builder(session.log).node(None, "existing conversation")
+    session.save()
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
+    monkeypatch.setattr(cli, "onboard", lambda: typer.echo("onboarding"))
+    monkeypatch.setattr(cli, "run_surfaces", lambda s, surface: typer.echo(f"opened {surface}"))
+    if mode == "canvas":
+        cli.canvas()
+    else:
+        cli.main(
+            typer.Context(get_command(cli.app)),
+            cont=mode == "continue",
+            resume=session.log.path.stem if mode == "resume" else None,
+        )
+    output = capsys.readouterr().out
+    clear = "\033[2J\033[3J\033[H"
+    assert output.count(clear) == int(tty)
+    if tty:
+        assert output.startswith(clear)
+    assert output.endswith("opened canvas\n" if mode == "canvas" else "opened cli\n")
+    if mode != "canvas":
+        assert output.index("onboarding") < output.index("opened cli")
+
+
+@pytest.mark.parametrize("tty", [False, True])
+@pytest.mark.parametrize("empty", [False, True])
+def test_exit_clears_terminal_and_shows_local_summary(
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tty: bool,
+    empty: bool,
+) -> None:
+    from kaipi.model import NodeArchived, SessionRenamed
+
+    session = cli.Session(repo)
+    if not empty:
+        builder = Builder(session.log)
+        root = builder.node(None, "first question")
+        session.leaf = builder.node(root, "current branch")
+        side = builder.node(root, "side branch")
+        session.log.append(NodeArchived(ids=[side]))
+        session.log.append(SessionRenamed(name="登录验证修复"))
+        session.pricing.models["fake"] = ledger.Price(input=1, output=2)
+    before = session.log.path.read_bytes()
+
+    def quit(s: cli.Session) -> str:
+        cli.set_lock(repo, "cli")
+        typer.echo("old session display")
+        return "quit"
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Exit summary must not call a model")
+
+    monkeypatch.setattr(cli, "interactive", quit)
+    monkeypatch.setattr(session, "_build", forbidden)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
+    cli.run_surfaces(session, "cli")
+    output = capsys.readouterr().out
+    clear = "\033[2J\033[3J\033[H"
+    assert (clear in output) == tty
+    if tty:
+        assert (
+            output.index("old session display") < output.index(clear) < output.index("已关闭会话")
+        )
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output)
+    if empty:
+        assert "重新开始：kaipi" in plain and "kaipi -r" not in plain
+        assert not session.log.path.exists()
+    else:
+        assert f"会话详情：\n  登录验证修复 | {repo} | 3 个节点 | $0.0004" in plain
+        assert f"恢复此会话：\n  kaipi -r {session.log.path.stem}" in plain
+        assert session.log.path.read_bytes() == before
+        assert cli.Session(repo, resume=session.log.path.stem).leaf == session.leaf
+    assert not cli._lock_path(repo).exists()
 
 
 def test_plain_ctrl_c_confirmation_and_resume_hint(

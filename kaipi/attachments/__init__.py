@@ -16,6 +16,8 @@ from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel, ConfigDict
 
+from kaipi.i18n import attachment_summary, tr
+
 from .parsing import MAX_TEXT as MAX_TEXT
 from .parsing import TAG as TAG
 from .parsing import parse as parse
@@ -34,7 +36,7 @@ class Attachment(BaseModel):
     @classmethod
     def read(cls, path: Path) -> Attachment:
         if not path.is_file():
-            raise ValueError(f"文件不存在或不是普通文件：{path.name}")
+            raise ValueError(tr("文件不存在或不是普通文件：{name}", name=path.name))
         with path.open("rb") as stream:
             raw = stream.read(MAX_INPUT + 1)
         item = cls(name=path.name, data=base64.b64encode(raw).decode())
@@ -44,13 +46,13 @@ class Attachment(BaseModel):
     @cached_property
     def _raw(self) -> bytes:
         if len(self.data) > (MAX_INPUT + 2) // 3 * 4:
-            raise ValueError(f"附件过大（原文件单个最多 20 MiB）：{self.name}")
+            raise ValueError(tr("附件过大（原文件单个最多 20 MiB）：{name}", name=self.name))
         try:
             raw = base64.b64decode(self.data, validate=True)
         except ValueError:
-            raise ValueError("附件编码无效") from None
+            raise ValueError(tr("附件编码无效")) from None
         if len(raw) > MAX_INPUT:
-            raise ValueError(f"附件过大（原文件单个最多 20 MiB）：{self.name}")
+            raise ValueError(tr("附件过大（原文件单个最多 20 MiB）：{name}", name=self.name))
         return raw
 
     def raw(self) -> bytes:
@@ -62,7 +64,7 @@ class Attachment(BaseModel):
 
     @property
     def summary(self) -> str:
-        return self._content[1]
+        return attachment_summary(self._content[1])
 
     def blocks(self) -> list[dict[str, Any]]:
         return deepcopy(self._content[0])
@@ -81,15 +83,15 @@ class Attachment(BaseModel):
 
 def validate(items: list[Attachment]) -> list[dict[str, Any]]:
     if len(items) > MAX_FILES:
-        raise ValueError("每条消息最多添加 8 个附件")
+        raise ValueError(tr("每条消息最多添加 8 个附件"))
     if sum(len(item.raw()) for item in items) > MAX_INPUT_TOTAL:
-        raise ValueError("原始附件总大小最多 40 MiB")
+        raise ValueError(tr("原始附件总大小最多 40 MiB"))
     blocks = [block for item in items for block in item.blocks()]
     if sum(block["type"] == "image" for block in blocks) > 16:
-        raise ValueError("每条消息转换后最多 16 张图片，请减少附件或帧数")
+        raise ValueError(tr("每条消息转换后最多 16 张图片，请减少附件或帧数"))
     binary = sum(len(base64.b64decode(b["source"]["data"])) for b in blocks if "source" in b)
     if binary > MAX_TOTAL:
-        raise ValueError("转换后的附件总大小最多 10 MiB")
+        raise ValueError(tr("转换后的附件总大小最多 10 MiB"))
     return blocks
 
 
@@ -162,7 +164,7 @@ if (urls && !urls.isNil() && urls.count > 0) {
             if result.get("paths"):
                 paths = pasted_paths("\n".join(shlex.quote(p) for p in result["paths"]))
                 if not paths:
-                    raise ValueError("剪贴板中的文件已不可用")
+                    raise ValueError(tr("剪贴板中的文件已不可用"))
                 return [Attachment.read(p) for p in paths], ""
             if result.get("image"):
                 return [Attachment(name="剪贴板截图.png", data=result["image"])], ""
@@ -196,7 +198,7 @@ if (urls && !urls.isNil() && urls.count > 0) {
                 text = "\n".join(line for line in text.splitlines() if not line.startswith("#"))
             return [], text
     except (subprocess.SubprocessError, OSError, ValueError) as e:
-        raise ValueError("读取剪贴板失败，请粘贴或拖入文件路径") from e
+        raise ValueError(tr("读取剪贴板失败，请粘贴或拖入文件路径")) from e
     raise ValueError(
-        "当前环境无法读取系统剪贴板；请粘贴文件路径（Linux 可安装 wl-clipboard 或 xclip）"
+        tr("当前环境无法读取系统剪贴板；请粘贴文件路径（Linux 可安装 wl-clipboard 或 xclip）")
     )

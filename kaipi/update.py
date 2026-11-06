@@ -21,6 +21,7 @@ import httpx
 from packaging.version import Version
 
 from kaipi import settings
+from kaipi.i18n import tr
 
 REPO = "https://github.com/jingchaoqi/kaipi"
 API = "https://api.github.com/repos/jingchaoqi/kaipi/releases/latest"
@@ -68,7 +69,9 @@ class Release:
         return Version(self.tag) > Version(current())
 
     def describe(self) -> str:
-        return f"当前版本 {current()} → 最新版本 {self.tag}\n更新内容：{self.url}"
+        return tr(
+            "当前版本 {v0} → 最新版本 {v1}\n更新内容：{v2}", v0=current(), v1=self.tag, v2=self.url
+        )
 
 
 def check(*, force: bool = False) -> Release | None:
@@ -115,7 +118,9 @@ def background(emit: Callable[[str], None]) -> None:
                 and release.newer
                 and cache.get("notified") != release.tag
             ):
-                emit(f"发现新版！{release.describe()}\n输入 /update 更新，并接回当前会话。")
+                emit(
+                    tr("发现新版！{v0}\n输入 /update 更新，并接回当前会话。", v0=release.describe())
+                )
                 cache["notified"] = release.tag
                 _save_cache(cache)
         except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError):
@@ -140,8 +145,12 @@ def installation() -> tuple[str, Path]:
     except (OSError, ValueError, KeyError, StopIteration, TypeError):
         pass
     raise ValueError(
-        "当前不是可识别的 uv tool 安装，暂不自动替换。源码安装请在源码目录手动更新并运行 uv sync；"
-        f"其他安装方式请从 {REPO}/releases/latest 下载新版安装包。"
+        tr(
+            "当前不是可识别的 uv tool 安装，暂不自动替换。"
+            "源码安装请在源码目录手动更新并运行 uv sync；"
+            "其他安装方式请从 {REPO}/releases/latest 下载新版安装包。",
+            REPO=REPO,
+        )
     )
 
 
@@ -159,20 +168,22 @@ class Ready(Exception):
 
 
 def prepare(emit: Callable[[str], None] = print) -> Plan | None:
-    emit(f"当前版本 {current()}，正在检查新版…")
+    emit(tr("当前版本 {v0}，正在检查新版…", v0=current()))
     try:
         release = check(force=True)
     except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError) as e:
-        raise ValueError(f"暂时无法检查更新，请稍后再试。也可访问 {REPO}/releases/latest") from e
+        raise ValueError(
+            tr("暂时无法检查更新，请稍后再试。也可访问 {REPO}/releases/latest", REPO=REPO)
+        ) from e
     if release is None:
-        emit(f"暂未找到正式版本。请查看 {REPO}/releases")
+        emit(tr("暂未找到正式版本。请查看 {REPO}/releases", REPO=REPO))
         return None
     emit(release.describe())
     if not release.newer:
         emit(
-            "已是最新正式版，无需更新。"
+            tr("已是最新正式版，无需更新。")
             if Version(release.tag) == Version(current())
-            else "当前版本不低于最新正式版，无需更新。"
+            else tr("当前版本不低于最新正式版，无需更新。")
         )
         return None
     uv, executable = installation()
@@ -182,8 +193,8 @@ def prepare(emit: Callable[[str], None] = print) -> Plan | None:
         # Only release assets belonging to this repository may become executable code.
         urls = [release.assets[key] for key in (name, "SHA256SUMS")]
         if any(not url.startswith(f"{REPO}/releases/download/{release.tag}/") for url in urls):
-            raise ValueError("安装包地址不属于 kaipi Release")
-        emit("正在下载并校验安装包；完成前不会退出当前会话…")
+            raise ValueError(tr("安装包地址不属于 kaipi Release"))
+        emit(tr("正在下载并校验安装包；完成前不会退出当前会话…"))
         with httpx.Client(timeout=30, follow_redirects=True) as client:
             checksum = client.get(urls[1])
             checksum.raise_for_status()
@@ -193,11 +204,11 @@ def prepare(emit: Callable[[str], None] = print) -> Plan | None:
                 if len(parts := line.split()) == 2 and parts[1].lstrip("*") == name
             ]
             if len(hashes) != 1:
-                raise ValueError("缺少唯一的安装包校验值")
+                raise ValueError(tr("缺少唯一的安装包校验值"))
             response = client.get(urls[0])
             response.raise_for_status()
             if hashlib.sha256(response.content).hexdigest() != hashes[0]:
-                raise ValueError("安装包 SHA-256 校验失败")
+                raise ValueError(tr("安装包 SHA-256 校验失败"))
         cache_dir().mkdir(parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix="update-", dir=cache_dir()))
         wheel = directory / name
@@ -207,29 +218,30 @@ def prepare(emit: Callable[[str], None] = print) -> Plan | None:
         if directory:
             shutil.rmtree(directory, ignore_errors=True)
         raise ValueError(
-            f"下载或校验未完成，尚未替换程序，可稍后重试。版本说明：{release.url}"
+            tr("下载或校验未完成，尚未替换程序，可稍后重试。版本说明：{v0}", v0=release.url)
         ) from e
 
 
 # This worker imports only stdlib, before uv replaces the running installation.
 # Keep the verified wheel: uv records its path as the tool's installation source.
 WORKER = """
-import os, shlex, subprocess, sys
-uv, wheel, executable, tag, resume, tools = sys.argv[1:]
+import json, os, shlex, subprocess, sys
+uv, wheel, executable, tag, resume, tools, messages = sys.argv[1:]
+messages = json.loads(messages)
 os.environ['UV_TOOL_DIR'] = tools
 os.environ['UV_TOOL_BIN_DIR'] = os.path.dirname(executable)
 command = [uv, 'tool', 'install', '--quiet', '--force', wheel]
-print('正在安装 ' + tag + '，请稍候…', flush=True)
+print(messages[0], flush=True)
 try:
     result = subprocess.run(command, cwd=os.path.dirname(wheel)).returncode
 except OSError:
     result = 1
 if result:
-    print('更新未完成，已保存的会话和配置不受影响。可重试：', shlex.join(command), flush=True)
+    print(messages[1], shlex.join(command), flush=True)
     if resume:
-        print('安装成功后继续会话：', shlex.join([executable, '-r', resume]), flush=True)
+        print(messages[2], shlex.join([executable, '-r', resume]), flush=True)
     sys.exit(result)
-print('已更新至 ' + tag + ('，正在接回原会话。' if resume else '。'), flush=True)
+print(messages[3] + (' ' + messages[4] if resume else ''), flush=True)
 if resume:
     os.execv(executable, [executable, '-r', resume])
 """
@@ -251,5 +263,14 @@ def install(plan: Plan, *, resume: str = "") -> None:
             plan.tag,
             resume,
             str(Path(sys.prefix).parent),
+            json.dumps(
+                [
+                    tr("正在安装 {tag}，请稍候…", tag=plan.tag),
+                    tr("更新未完成，会话和配置已保留。可重试："),
+                    tr("安装成功后继续会话："),
+                    tr("已更新至 {tag}。", tag=plan.tag),
+                    tr("正在接回原会话。"),
+                ]
+            ),
         ],
     )
