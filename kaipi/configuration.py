@@ -20,11 +20,11 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
-from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.validation import Validator
 from prompt_toolkit.widgets import Label, RadioList
 
 from kaipi import catalog, i18n, ledger, settings, update
+from kaipi.display import columns
 from kaipi.i18n import tr
 
 GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
@@ -37,16 +37,16 @@ def statusline() -> None:
     values = settings.statusline()
     notice = tr("选择底部状态行要显示的元素")
 
-    def label(key: str, title: str) -> str:
-        title = tr(title)
-        return (
-            title
-            + " " * max(2, 26 - get_cwidth(title))
-            + tr(settings.STATUSLINE_OPTIONS[key][values[key]])
-        )
+    def label(index: int) -> str:
+        return columns(
+            [
+                (tr(title), tr(settings.STATUSLINE_OPTIONS[key][values[key]]))
+                for key, title in settings.STATUSLINE_ITEMS.items()
+            ]
+        )[index]
 
     choices = RadioList(
-        [(key, partial(label, key, title)) for key, title in settings.STATUSLINE_ITEMS.items()],
+        [(key, partial(label, i)) for i, key in enumerate(settings.STATUSLINE_ITEMS)],
         select_on_focus=True,
         open_character="",
         select_character="▸",
@@ -106,17 +106,19 @@ def config() -> None:
         typer.echo(tr("请在交互终端中运行 kaipi config，或在对话中使用 /config"))
         return
     notice = "修改立即保存并生效"
+
+    def label(index: int) -> str:
+        return columns(
+            [
+                (tr("每日自动检查更新"), tr("开") if settings.auto_check_updates() else tr("关")),
+                (tr("语言"), i18n.LANGUAGES[i18n.language()]),
+            ]
+        )[index]
+
     choices = RadioList(
         [
-            (
-                "auto_check_updates",
-                lambda: (
-                    tr("每日自动检查更新")
-                    + "      "
-                    + (tr("开") if settings.auto_check_updates() else tr("关"))
-                ),
-            ),
-            ("language", lambda: tr("语言") + "      " + i18n.LANGUAGES[i18n.language()]),
+            ("auto_check_updates", partial(label, 0)),
+            ("language", partial(label, 1)),
         ],
         select_on_focus=True,
         open_character="",
@@ -364,9 +366,17 @@ def provider(*, report: Callable[[str], None] = typer.echo) -> None:
     done = current.get("providers", {})
     if done:
         typer.echo(tr("{BOLD}已配置的提供商{RESET}", BOLD=BOLD, RESET=RESET))
-        for n, saved in done.items():
-            models = ", ".join(saved.get("models", [])) or tr("(还没填模型)")
-            typer.echo(f"   · {n:<22} {DIM}{saved.get('base_url', '')}  {models}{RESET}")
+        for row in columns(
+            [
+                (
+                    n,
+                    f"{DIM}{saved.get('base_url', '')}{RESET}",
+                    f"{DIM}{', '.join(saved.get('models', [])) or tr('(还没填模型)')}{RESET}",
+                )
+                for n, saved in done.items()
+            ]
+        ):
+            typer.echo(f"   · {row}")
         typer.echo(
             tr(
                 "{DIM}下面选一个即可新增或修改；切换用哪个模型是 /model 的事{RESET}",
@@ -379,10 +389,10 @@ def provider(*, report: Callable[[str], None] = typer.echo) -> None:
     rows = []
     for n in names:
         cfg = BUILTIN[n]
-        mark = tr(" (已配置)") if n in done else ""
+        mark = tr(" (已配置)").strip() if n in done else ""
         url = cfg.base_url or tr("(官方默认)")
-        rows.append(f"{n:<22} {DIM}{cfg.api:<17} {url}{RESET}{mark}")
-    name = names[choose_provider(rows)]
+        rows.append((n, f"{DIM}{cfg.api}{RESET}", f"{DIM}{url}{RESET}", mark))
+    name = names[choose_provider(columns(rows))]
     cfg = BUILTIN[name]
 
     saved = done.get(name, {})
@@ -497,13 +507,11 @@ def model(*, report: Callable[[str], None] = typer.echo) -> None:
             if price
             else tr("不在价格表，账本按 0 记")
         )
-        rows.append(
-            f"{m:<26} {DIM}{who:<12} {cost}{RESET}"
-            + (tr("{GREEN} (当前){RESET}", GREEN=GREEN, RESET=RESET) if spec == now else "")
-        )
+        mark = f"{GREEN}{tr(' (当前)').strip()}{RESET}" if spec == now else ""
+        rows.append((m, f"{DIM}{who}{RESET}", f"{DIM}{cost}{RESET}", mark))
         if spec == now:
             current = i
-    who, model = pairs[choose(rows, current)]
+    who, model = pairs[choose(columns(rows), current)]
     use_model(who, model)
     report(
         tr(
@@ -537,18 +545,16 @@ def refresh(
             RESET=RESET,
         )
     )
-    for key, price in prices.items():
-        model_id = key.removeprefix(f"{price.provider}/")
-        typer.echo(
-            tr(
-                "  {model_id}  {DIM}in {v2}/out {v3} 每百万{RESET}",
-                model_id=model_id,
-                DIM=DIM,
-                v2=price.input,
-                v3=price.output,
-                RESET=RESET,
+    for row in columns(
+        [
+            (
+                key.removeprefix(f"{price.provider}/"),
+                DIM + tr("in {v0}/out {v1} 每百万", v0=price.input, v1=price.output) + RESET,
             )
-        )
+            for key, price in prices.items()
+        ]
+    ):
+        typer.echo(f"  {row}")
     typer.echo(
         tr("{DIM}保留自定义模型和价格；保存后可在 /model 中选择{RESET}", DIM=DIM, RESET=RESET)
     )
