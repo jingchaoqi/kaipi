@@ -457,6 +457,11 @@ row, Enter resumes it, and Esc cancels without changes. The menu scrolls within 
 retains title, short ID, time and turn count, and truncates long rows to terminal width.
 Plain/piped input retains the numbered fallback; `/resume <id>` still works directly.
 
+Resuming (including after `/update`) replays the saved root-to-cursor transcript without
+model calls or tool execution. Each turn includes its saved usage and cost at the loaded
+prices, its current trunk/branch classification, and its own recorded context size rather
+than the latest trunk's burden. Replay does not write events or add usage to the ledger.
+
 `/new` saves the current cursor, creates a fresh log with the selected model and a new
 snapshot of project instructions, and enters it in place. The old nonempty log remains
 available through `/resume`; an empty abandoned log is removed. No workspace files are

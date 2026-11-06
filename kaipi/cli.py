@@ -379,6 +379,24 @@ class Session:
     def burden_line(self) -> str:
         return tr("trunk burden: {v0}", v0=ledger.fmt(ledger.trunk_burden(self.log.state)))
 
+    def turn_line(self, node_id: str, *, exploration: bool | None = None) -> str:
+        """Format a turn's saved usage; replay shows its own context, not today's trunk."""
+        n = self.log.state.nodes[node_id]
+        replay = exploration is None
+        if replay:
+            exploration = not graph.on_trunk(self.log.state, node_id)
+        return tr(
+            "[{v0} {kind}] ${cost:.4f}  cache read {v3}/{v4}  {v5}",
+            v0=self.name(node_id),
+            kind=tr("ui.exploration" if exploration else "ui.trunk"),
+            cost=self.pricing.price(n.model).cost(n.usage),
+            v3=ledger.fmt(n.usage.cache_read),
+            v4=ledger.fmt(n.usage.context),
+            v5=tr("context {window}", window=ledger.fmt(n.context_tokens))
+            if replay
+            else self.burden_line(),
+        )
+
     def status(self, width: int = 120) -> str:
         """The bar both surfaces show: where you are, what you are using, what it has cost
         and what the shape of the session has saved. Everything but the path is a number
@@ -1102,20 +1120,7 @@ def run_input(
             s.log.append(titles.generate(str(text), s.cheap))
         except Exception:  # noqa: BLE001 - optional metadata must never fail a completed turn
             pass
-    cost = s.pricing.price(n.model).cost(n.usage)
-    kind = tr("ui.exploration" if exploration else "ui.trunk")
-    hook(
-        "ledger",
-        tr(
-            "[{v0} {kind}] ${cost:.4f}  cache read {v3}/{v4}  {v5}",
-            v0=s.name(nid),
-            kind=kind,
-            cost=cost,
-            v3=ledger.fmt(n.usage.cache_read),
-            v4=ledger.fmt(n.usage.context),
-            v5=s.burden_line(),
-        ),
-    )
+    hook("ledger", s.turn_line(nid, exploration=exploration))
     return nid, n.guard_dirty
 
 

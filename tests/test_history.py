@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -11,9 +12,9 @@ from prompt_toolkit.application import create_app_session
 from prompt_toolkit.output import DummyOutput
 from typer.testing import CliRunner
 
-from kaipi import cli, context, history, ledger, tui
+from kaipi import cli, context, history, ledger, settings, tui, update
 from kaipi.attachments import TAG as ATTACHMENT_TAG
-from kaipi.model import NodeCompleted, TrunkPinned
+from kaipi.model import NodeCompleted, TrunkPinned, Usage
 from kaipi.store import Log
 from tests.conftest import Builder
 
@@ -54,16 +55,53 @@ def test_replay_is_read_only_and_follows_the_saved_branch(session: cli.Session) 
     assert events == [
         ("root>", "first question"),
         ("text", "**first answer**"),
-        ("ledger", "[N1]"),
+        ("ledger", "[N1 主干] $0.0000  缓存读取 0.0k/0.1k  上下文 0.1k"),
         ("N1>", "second question [image1]"),
         ("cmd", "touch must-not-run"),
         ("text", "```python\nprint('restored answer')\n```"),
-        ("ledger", "[N2]"),
+        ("ledger", "[N2 主干] $0.0000  缓存读取 0.0k/0.1k  上下文 0.1k"),
     ]
     assert not (session.cwd / "must-not-run").exists()
     assert session.log.state == state
     assert (session.log.path.read_bytes(), session.cursor_path.read_bytes()) == before
     assert ledger.report(session.log.state, session.pricing).usage == usage
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("branch", [False, True])
+def test_replay_summary_uses_each_nodes_saved_usage(
+    session: cli.Session, language: str, branch: bool
+) -> None:
+    settings.save({"language": language})
+    node = session.log.state.nodes[session.leaf or ""]
+    session.log.append(
+        NodeCompleted(
+            id=node.id,
+            payload=node.payload,
+            usage=Usage(input_uncached=300, cache_read=1200, output=200),
+            context_tokens=750,
+        )
+    )
+    if branch:
+        session.log.append(TrunkPinned(node_id=node.parent_id))
+    session.pricing.models["fake"] = ledger.Price(input=2, cache_read=0.5, output=6)
+    before = session.log.path.read_bytes()
+    events: list[tuple[str, str]] = []
+    history.replay(session, lambda *_: None, lambda kind, text: events.append((kind, text)))
+    summaries = [text for kind, text in events if kind == "ledger"]
+    kind = (
+        ("探索" if branch else "主干")
+        if language == "zh"
+        else ("exploration" if branch else "trunk")
+    )
+    details = (
+        "缓存读取 1.2k/1.5k  上下文 0.8k"
+        if language == "zh"
+        else "cache read 1.2k/1.5k  context 0.8k"
+    )
+    assert summaries[-1] == f"[N2 {kind}] $0.0024  {details}"
+    assert "$0.0003" in summaries[0] and summaries[0].endswith("0.1k")
+    assert session.log.path.read_bytes() == before
 
 
 @pytest.mark.parametrize("args", [["-c"], ["-r"]])
@@ -166,7 +204,7 @@ def test_legacy_session_payloads_can_be_replayed(
 
 
 @pytest.mark.skipif(not hasattr(os, "openpty"), reason="requires a terminal")
-@pytest.mark.parametrize("option", ["-r", "-c"])
+@pytest.mark.parametrize("option", ["-r", "-c", "update"])
 def test_real_terminal_resume_shows_transcript_before_input(
     session: cli.Session, option: str
 ) -> None:
@@ -179,9 +217,30 @@ def test_real_terminal_resume_shows_transcript_before_input(
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     args = [option, session.log.path.stem] if option == "-r" else [option]
+    command = [sys.executable, "-c", "from kaipi.cli import app; app()", *args]
+    if option == "update":
+        installer, executable = session.cwd / "fake-uv", session.cwd / "kaipi"
+        installer.write_text(f"#!{sys.executable}\n")
+        executable.write_text(f"#!{sys.executable}\nfrom kaipi.cli import app\napp()\n")
+        installer.chmod(0o755)
+        executable.chmod(0o755)
+        command = [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            update.WORKER,
+            str(installer),
+            str(session.cwd / "wheel.whl"),
+            str(executable),
+            "v0.1.5",
+            session.log.path.stem,
+            str(session.cwd / "tools"),
+            json.dumps([""] * 5),
+        ]
     before = session.log.path.read_bytes()
     child = subprocess.Popen(
-        [sys.executable, "-c", "from kaipi.cli import app; app()", *args],
+        command,
         stdin=slave,
         stdout=slave,
         stderr=slave,
@@ -204,6 +263,9 @@ def test_real_terminal_resume_shows_transcript_before_input(
         assert rendered.index("restored answer") < rendered.index("N2>")
         assert "other branch question" not in rendered
         assert "private guard" not in rendered and "hidden tool output" not in rendered
+        assert "[N1 主干] $0.0000  缓存读取 0.0k/0.1k" in rendered
+        assert "[N2 主干] $0.0000  缓存读取 0.0k/0.1k" in rendered
+        assert "[N1]" not in rendered and "[N2]" not in rendered
         os.write(master, b"/quit\r")
         child.wait(timeout=5)
         assert child.returncode == 0

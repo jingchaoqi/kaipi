@@ -31,4 +31,4 @@ def replay(
                     emit("text", block["text"])
                 elif block.get("type") == "tool_use":
                     emit("cmd", str(block.get("input", {}).get("command", "")))
-        emit("ledger", f"[{session.name(node.id)}]")
+        emit("ledger", session.turn_line(node.id))
