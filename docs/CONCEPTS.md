@@ -390,6 +390,13 @@ the tree and ask for a node instead. An empty session has no selectable target.
 A lock file (`.kaipi/lock.json`, pid + surface) refuses a second mutating `kaipi` in the
 same directory while a surface is open.
 
+Entering an existing CLI session (`-r`, `-c`, `/resume`, or returning from Canvas)
+replays the stored root-to-cursor conversation before showing the input prompt.
+Questions, compact tool calls and Markdown answers use the normal terminal rendering;
+other branches, injected context blocks, thinking and attachment bodies are omitted.
+Replay is display-only: it makes no model calls, executes no tools and appends no events
+or usage. Switching sessions replaces the previous transcript instead of mixing them.
+
 Every `kaipi` is a fresh conversation. An old one is picked up on purpose - `-c` for the
 latest, `-r <id>` for a given one, `/resume` inside a session - never by accident. A
 conversation can be named (`/rename`); the name is an event in its own log, so it folds

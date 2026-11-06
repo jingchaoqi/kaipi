@@ -41,7 +41,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, attachments, cli, command_ui, context, graph, ledger, update
+from kaipi import agent, attachments, cli, command_ui, context, graph, history, ledger, update
 from kaipi.i18n import tr
 from kaipi.store import kaipi_dir
 
@@ -799,13 +799,24 @@ class Terminal:
                 end="",
             )
 
-    def echo(self, line: str) -> None:
-        if line.startswith("/") and line.split()[0] != "/explore":
+    def replay(self) -> None:
+        def question(node: str, text: str) -> None:
+            self._intent = ""
+            self._tool_section = False
+            self.echo(text, label=f"{node}> ")
+
+        history.replay(self.s, question, self.hook)
+        self.phase = "就绪"
+        self._intent = ""
+        self._tool_section = False
+
+    def echo(self, line: str, *, label: str | None = None) -> None:
+        if label is None and line.startswith("/") and line.split()[0] != "/explore":
             return
         width = max(1, self.columns() - 1)
         rows: list[str] = []
         row, used = "", 0
-        for char in (f"  {self.label()}{line}  ").expandtabs(4):
+        for char in (f"  {label if label is not None else self.label()}{line}  ").expandtabs(4):
             size = get_cwidth(char)
             if char == "\n" or used + size > width:
                 rows.append(row + " " * (width - used))
@@ -955,6 +966,8 @@ class Terminal:
 def loop(s: cli.Session) -> str:
     """The tty loop. Returns "canvas" when the user hands the session to the canvas."""
     t = Terminal(s)
+    if s.leaf:
+        t.replay()
     update.background(lambda text: print(f"\n{cli.DIM}{text}{cli.RESET}\n"))
     pending: list[str] = []
     draft = ""
@@ -973,6 +986,7 @@ def loop(s: cli.Session) -> str:
             continue
         try:
             if line.startswith("/"):
+                previous = s.log.path
                 if line.split()[0] == "/update" and (
                     pending
                     or t.attachments
@@ -996,6 +1010,10 @@ def loop(s: cli.Session) -> str:
                 elif line.split()[0] == "/new":
                     pending.clear()
                     t = Terminal(s)
+                elif s.log.path != previous:
+                    cli.clear_terminal()
+                    t = Terminal(s)
+                    t.replay()
                 elif line.split()[0] == "/statusline":
                     t._bar_at = 0.0
             else:

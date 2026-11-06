@@ -22,6 +22,7 @@ from kaipi import (
     context,
     graph,
     guard,
+    history,
     i18n,
     ledger,
     providers,
@@ -1293,6 +1294,7 @@ def interactive(s: Session) -> str:
     except ImportError:
         pass
     typer.echo(f"kaipi  {s.status()}")
+    history.replay(s, lambda node, text: typer.echo(f"{node}> {text}"), print_hook)
     exit_requested: float | None = None
     while True:
         try:
@@ -1311,11 +1313,14 @@ def interactive(s: Session) -> str:
             continue
         try:
             if line.startswith("/"):
+                previous = s.log.path
                 if line.split()[0] in ("/canvas", "/cli"):
                     s.save()
                     return "canvas"
                 if not slash(s, line[1:].split()):
                     return "quit"
+                if s.log.path != previous:
+                    history.replay(s, lambda node, text: typer.echo(f"{node}> {text}"), print_hook)
             else:
                 cli_turn(s, line)
         except (typer.BadParameter, ValueError) as e:
@@ -1332,6 +1337,7 @@ def run_surfaces(s: Session, surface: str) -> None:
         while True:
             if surface == "canvas":
                 url = serve(s, int(os.environ.get("KAIPI_PORT", "0")))
+                clear_terminal()
                 typer.echo(tr("canvas at {url} closed; session is back in this terminal", url=url))
                 surface = "cli"
             else:
