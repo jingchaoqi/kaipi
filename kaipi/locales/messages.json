@@ -1942,5 +1942,13 @@
   "Esc 或回车返回": {
     "zh": "Esc 或回车返回",
     "en": "Esc or Enter to return"
+  },
+  "画布已关闭，请在终端继续此会话": {
+    "zh": "画布已关闭，请在终端继续此会话",
+    "en": "Canvas is closed; continue this session in the terminal"
+  },
+  "会话位置已变化，请重新发送": {
+    "zh": "会话位置已变化，请重新发送",
+    "en": "The session position changed; please send again"
   }
 }

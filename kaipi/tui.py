@@ -41,7 +41,19 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-from kaipi import agent, attachments, cli, command_ui, context, graph, history, ledger, update
+from kaipi import (
+    agent,
+    attachments,
+    cli,
+    command_ui,
+    context,
+    core,
+    graph,
+    history,
+    ledger,
+    update,
+    views,
+)
 from kaipi.i18n import tr
 from kaipi.store import kaipi_dir
 
@@ -111,9 +123,9 @@ def command_summary(command: str) -> str:
     return tr("执行命令")
 
 
-def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
+def pick_node(s: core.Session, *, rewind: bool = False) -> str | None:
     """Browse the same tree for /tree, /go and /rewind; only Enter commits a choice."""
-    rows = cli.tree_rows(s, compact=True, live_only=not rewind)
+    rows = views.tree_rows(s, compact=True, live_only=not rewind)
     if not rows:
         print(tr("还没有可选择的节点"))
         return None
@@ -234,13 +246,13 @@ def pick_node(s: cli.Session, *, rewind: bool = False) -> str | None:
         return None
 
 
-def pick_rewind(s: cli.Session) -> str | None:
+def pick_rewind(s: core.Session) -> str | None:
     return pick_node(s, rewind=True)
 
 
-def pick_session(s: cli.Session) -> str | None:
+def pick_session(s: core.Session) -> str | None:
     """An inline, scrolling session menu; opening or cancelling it changes nothing."""
-    rows = cli.session_rows(s.cwd, s.log.path.name)
+    rows = views.session_rows(s.cwd, s.log.path.name)
     if not rows:
         print(tr("这个目录里还没有对话"))
         return None
@@ -296,7 +308,7 @@ class SlashCompleter(Completer):
     node-taking command followed by a space: the live nodes, newest first, each with the
     question that opened it, so an id is picked by what it was about rather than remembered."""
 
-    def __init__(self, s: cli.Session) -> None:
+    def __init__(self, s: core.Session) -> None:
         self.s = s
 
     def get_completions(
@@ -308,9 +320,9 @@ class SlashCompleter(Completer):
         head, _, rest = text[1:].partition(" ")
         if not _:  # still typing the command itself
             commands = (
-                sorted(cli.COMMANDS, key=lambda command: command[0] != "help")
+                sorted(views.COMMANDS, key=lambda command: command[0] != "help")
                 if text == "/"
-                else cli.COMMANDS
+                else views.COMMANDS
             )
             for name, args, what in commands:
                 if name.startswith(head):
@@ -322,14 +334,14 @@ class SlashCompleter(Completer):
                     )
             return
         if head == "resume" and " " not in rest.strip():
-            for p, line in cli.session_rows(self.s.cwd, self.s.log.path.name):
-                sid = cli.short(p.stem)
+            for p, line in views.session_rows(self.s.cwd, self.s.log.path.name):
+                sid = views.short(p.stem)
                 if sid.startswith(rest) or p.stem.startswith(rest):
                     yield Completion(
                         sid, start_position=-len(rest), display=sid, display_meta=line[8:]
                     )
             return
-        if head in cli.NODE_ARG and " " not in rest.strip():
+        if head in views.NODE_ARG and " " not in rest.strip():
             state = self.s.log.state
             for n in sorted(state.nodes.values(), key=lambda n: n.seq, reverse=True):
                 if n.status not in ("live", "archived"):
@@ -346,7 +358,7 @@ class SlashCompleter(Completer):
 
 
 class Terminal:
-    def __init__(self, s: cli.Session) -> None:
+    def __init__(self, s: core.Session) -> None:
         self.s = s
         self.running = False
         self.phase = "就绪"
@@ -652,7 +664,7 @@ class Terminal:
         # The ledger folds are much slower than drawing a frame. Keep their refresh
         # separate from the animation, and always refresh after a turn or resize.
         if not self._bar_at or now - self._bar_at >= 0.5 or width != self._bar_width:
-            self._bar = self.s.status(width)
+            self._bar = views.status(self.s, width)
             self._bar_at, self._bar_width = now, width
         elapsed = (
             max(0.0, (self.finished_at if self.finished_at is not None else now) - self.started_at)
@@ -963,7 +975,7 @@ class Terminal:
         return queued
 
 
-def loop(s: cli.Session) -> str:
+def loop(s: core.Session) -> str:
     """The tty loop. Returns "canvas" when the user hands the session to the canvas."""
     t = Terminal(s)
     if s.leaf:
@@ -998,7 +1010,6 @@ def loop(s: cli.Session) -> str:
                     print(tr("还有排队消息或附件草稿，请处理完后再输入 /update。"))
                     continue
                 if line.split()[0] in ("/canvas", "/cli"):
-                    s.save()
                     return "canvas"
                 if line.split()[0] == "/explore":
                     question = line[len("/explore") :].strip()
@@ -1022,4 +1033,3 @@ def loop(s: cli.Session) -> str:
             return "quit"
         except (typer.BadParameter, ValueError) as e:
             print(f"{cli.RED}{e}{cli.RESET}")
-        s.save()

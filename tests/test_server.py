@@ -5,11 +5,13 @@ import os
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from kaipi import cli, server
+from kaipi import attachments, core, server
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 from tests.test_cli import Echo
@@ -40,8 +42,8 @@ class SlowEcho(Echo):
 @pytest.fixture
 def srv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli.Session, "_build", lambda self, model: Echo())
-    s = cli.Session(tmp_path)
+    monkeypatch.setattr(core.Session, "_build", lambda self, model: Echo())
+    s = core.Session(tmp_path)
     canvas = server.Canvas(s, server.Hub())
     httpd = server.KaipiServer(canvas, 0)
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -163,9 +165,11 @@ def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
     assert "将恢复这些文件" in call("/api/command", {"line": f"/rewind {merged}"})["output"]
 
     # busy guard
-    canvas.busy = True
+    canvas.s.claim()
     assert "error" in call("/api/turn", {"text": "x"})
-    canvas.busy = False
+    assert "error" in call("/api/handoff", {}) and not canvas.handoff
+    assert "error" in call("/api/pending", {"edges": []})
+    canvas.s.idle.set()
 
 
 def test_new_on_canvas_preserves_history_and_rejects_switching_while_busy(srv) -> None:  # type: ignore[no-untyped-def]
@@ -175,9 +179,9 @@ def test_new_on_canvas_preserves_history_and_rejects_switching_while_busy(srv) -
     previous = canvas.s.log.path
     payload = previous.read_bytes()
     canvas.s.pending = [ReferenceEdge(src_id=canvas.s.leaf or "", dst_id="")]
-    canvas.busy = True
+    canvas.s.claim()
     assert "error" in call("/api/command", {"line": "/new"})
-    canvas.busy = False
+    canvas.s.idle.set()
     assert canvas.s.log.path == previous
     assert call("/api/command", {"line": "/new nope"})["output"].startswith("错误：")
     assert canvas.s.log.path == previous
@@ -201,12 +205,12 @@ def test_handoff_and_lock(srv, tmp_path: Path) -> None:  # type: ignore[no-untyp
     assert call("/api/command", {"line": "/cli"})["output"].startswith("正在将会话")
     assert canvas.handoff and json.loads(q.get(timeout=1))["type"] == "handoff"
 
-    cli.set_lock(tmp_path, "canvas", base)
-    holder = cli.lock_holder(tmp_path)
+    core.set_lock(tmp_path, "canvas", base)
+    holder = core.lock_holder(tmp_path)
     assert holder is None  # our own pid never blocks us
     (tmp_path / ".kaipi" / "lock.json").write_text(json.dumps({"pid": 2**22, "surface": "cli"}))
-    assert cli.lock_holder(tmp_path) is None  # dead pid is ignored
-    cli.release_lock(tmp_path)
+    assert core.lock_holder(tmp_path) is None  # dead pid is ignored
+    core.release_lock(tmp_path)
     assert not (tmp_path / ".kaipi" / "lock.json").exists()
 
 
@@ -297,6 +301,38 @@ def test_curl_cli_handoff_stops_the_server(srv) -> None:  # type: ignore[no-unty
     assert stopped == [True] and canvas.handoff
 
 
+def test_closed_canvas_rejects_all_writes_including_stop(srv) -> None:  # type: ignore[no-untyped-def]
+    canvas, call, base, token = srv
+    assert call("/api/handoff", {}) == {"ok": True}
+    before = canvas.s.log.path.read_bytes(), canvas.s.cursor_path.read_bytes()
+    canvas.s.claim()  # the CLI has taken over; the old browser must not stop its turn
+    try:
+        for path, body in (
+            ("/api/turn", {"text": "late"}),
+            ("/api/command", {"line": "/rename late"}),
+            ("/api/command", {"line": "/new"}),
+            ("/api/stop", {}),
+            ("/api/handoff", {}),
+            ("/api/go", {"id": "N1"}),
+            ("/api/pending", {"edges": []}),
+            ("/api/reset", {}),
+            ("/api/attachments", {"attachments": []}),
+        ):
+            req = urllib.request.Request(
+                base + path,
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", "X-Kaipi-Token": token},
+            )
+            with pytest.raises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(req)
+            assert error.value.code == 410
+            assert "画布已关闭" in json.loads(error.value.read())["error"]
+        assert not canvas.s.stopping.is_set()
+        assert before == (canvas.s.log.path.read_bytes(), canvas.s.cursor_path.read_bytes())
+    finally:
+        canvas.s.idle.set()
+
+
 @pytest.mark.parametrize(
     "model", ["claude-opus-5", "gpt-5.6-terra", "gemini-3.7-flash", "deepseek-v4-flash"]
 )
@@ -355,7 +391,7 @@ def test_canvas_accepts_attachment_snapshots_and_rejects_invalid_data(srv, monke
                 usage=Usage(),
             )
 
-    monkeypatch.setattr(cli.Session, "_build", lambda self, model: Inspect())
+    monkeypatch.setattr(core.Session, "_build", lambda self, model: Inspect())
     before = canvas.s.log.path.read_bytes()
     metadata = call(
         "/api/attachments",
@@ -364,6 +400,7 @@ def test_canvas_accepts_attachment_snapshots_and_rejects_invalid_data(srv, monke
     assert metadata["kind"] == "image" and metadata["name"] == "image.png"
     assert set(metadata) == {"name", "summary", "kind"}, "draft markers need no thumbnail payload"
     assert canvas.s.log.path.read_bytes() == before
+
     call(
         "/api/turn",
         {
@@ -382,3 +419,78 @@ def test_canvas_accepts_attachment_snapshots_and_rejects_invalid_data(srv, monke
     response = call("/api/turn", {"text": "bad", "attachments": [{"name": "bad", "data": "!!!"}]})
     assert "error" in response and not canvas.busy
     assert canvas.s.log.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("phase", ["parse", "response"])
+def test_slow_attachment_request_does_not_block_stop(srv, monkeypatch, phase: str) -> None:  # type: ignore[no-untyped-def]
+    canvas, call, _, _ = srv
+    entered, release = threading.Event(), threading.Event()
+    send = server.Handler._json
+
+    def pause(*args: object) -> None:
+        entered.set()
+        assert release.wait(5)
+
+    def slow_response(handler: server.Handler, obj: Any, status: int = 200) -> None:
+        if handler.path == "/api/attachments":
+            pause()
+        send(handler, obj, status)
+
+    if phase == "parse":
+        monkeypatch.setattr(attachments, "validate", pause)
+    else:
+        monkeypatch.setattr(server.Handler, "_json", slow_response)
+    canvas.s.claim()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        request = pool.submit(call, "/api/attachments", {"attachments": []})
+        try:
+            assert entered.wait(2)
+            assert pool.submit(call, "/api/stop", {}).result(timeout=2) == {"ok": True}
+            assert canvas.s.stopping.is_set()
+        finally:
+            release.set()
+            canvas.s.idle.set()
+        assert request.result(timeout=2) == {"attachments": []}
+
+
+@pytest.mark.parametrize("change", ["new", "go", "handoff"])
+def test_turn_rechecks_session_after_parsing(srv, monkeypatch, change: str) -> None:  # type: ignore[no-untyped-def]
+    canvas, call, _, _ = srv
+    call("/api/turn", {"text": "first"})
+    _wait(canvas)
+    root = canvas.s.leaf
+    call("/api/turn", {"text": "second"})
+    _wait(canvas)
+    log = canvas.s.log
+    before = log.path.read_bytes()
+    entered, release = threading.Event(), threading.Event()
+    parse = core.input_text
+
+    def slow_parse(text: str, items: list[Any]) -> str:
+        entered.set()
+        assert release.wait(5)
+        return parse(text, items)
+
+    monkeypatch.setattr(core, "input_text", slow_parse)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        request = pool.submit(call, "/api/turn", {"text": "stale request"})
+        try:
+            assert entered.wait(2)
+            path, body = {
+                "new": ("/api/command", {"line": "/new"}),
+                "go": ("/api/go", {"id": root}),
+                "handoff": ("/api/handoff", {}),
+            }[change]
+            assert "error" not in pool.submit(call, path, body).result(timeout=2)
+            after_change = log.path.read_bytes()
+        finally:
+            release.set()
+        result = request.result(timeout=2)
+    expected = "画布已关闭" if change == "handoff" else "会话位置已变化"
+    assert expected in result["error"]
+    assert log.path.read_bytes() == after_change
+    assert len(log.state.nodes) == 2 and not canvas.busy
+    if change != "go":
+        assert after_change == before
+    if change == "new":
+        assert not canvas.s.log.state.nodes

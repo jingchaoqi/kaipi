@@ -8,15 +8,14 @@ import queue
 import secrets
 import threading
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import typer
-
-from kaipi import agent, attachments, cli, context, graph, guard, i18n, ledger
+from kaipi import attachments, context, core, i18n, views
 from kaipi.i18n import tr
 from kaipi.model import Node, ReferenceEdge, blocks, text_of
 
@@ -78,172 +77,103 @@ def transcript(n: Node) -> list[dict[str, str]]:
 
 
 # The verbs that take one node id and nothing else.
-ID_VERBS: dict[str, Callable[[cli.Session, str], list[str]]] = {
-    "/api/go": cli.cmd_go,
-    "/api/archive": cli.cmd_archive,
-    "/api/restore": cli.cmd_restore,
-    "/api/pin": cli.cmd_trunk,
+ID_VERBS: dict[str, Callable[[core.Session, str], object]] = {
+    "/api/go": lambda s, ref: s.go(ref),
+    "/api/archive": lambda s, ref: s.set_status(ref, restore=False),
+    "/api/restore": lambda s, ref: s.set_status(ref, restore=True),
+    "/api/pin": lambda s, ref: s.pin(ref),
 }
 
 
+class ClosedError(ValueError):
+    """This client has handed the session off and cannot issue further operations."""
+
+
 class Canvas:
-    """The session as seen by the browser. All mutations go through one lock."""
+    """Browser adapter: core owns execution, state and persistence."""
 
-    def __init__(self, s: cli.Session, hub: Hub) -> None:
-        self.s = s
-        s.ansi = False  # the browser shows what the verbs say as plain text
-        self.hub = hub
-        self.repo = guard.is_repo(s.cwd)  # constant for the session
-        self.lock = threading.RLock()
-        self.busy = False
-        self.stopping = threading.Event()  # set by /api/stop; the turn ends at the next step
-        self.dirty = False
+    def __init__(self, s: core.Session, hub: Hub) -> None:
+        self.s, self.hub = s, hub
         self.handoff = False
-        self.on_handoff: Callable[[], None] = lambda: None  # set by serve(): stops the server
+        self.on_handoff: Callable[[], None] = lambda: None
 
-    def state(self) -> dict[str, Any]:
-        s, st = self.s, self.s.log.state
-        t = graph.trunk(st)
-        nodes = []
-        for n in st.nodes.values():
-            nodes.append(
-                {
-                    "id": n.id,
-                    "label": st.label(n.id),
-                    "parent_id": n.parent_id,
-                    "status": n.status,
-                    "seq": n.seq,
-                    "input": context.user_input(n),
-                    "answer": context.final_answer(n),
-                    "attachments": context.has_attachments(n),
-                    "own": ledger.own_tokens(st, n.id),
-                    "ctx": n.context_tokens,
-                    "tools": [{"id": i, "cmd": c} for i, c in context.tool_calls(n)],
-                    "grafts": [g.src_id for g in n.grafts],
-                    "cost": s.pricing.price(n.model).cost(n.usage),
-                    "dropped": n.dropped_thinking,
-                }
+    @property
+    def busy(self) -> bool:
+        return self.s.busy
+
+    @contextmanager
+    def active(self) -> Iterator[None]:
+        with self.s.lock:
+            if self.handoff:
+                raise ClosedError(tr("画布已关闭，请在终端继续此会话"))
+            yield
+
+    def turn(self, text: str, explore: bool = False) -> None:
+        with self.active():
+            self.s.start(text, self.event, explore=explore)
+
+    def event(self, ev: core.Event) -> None:
+        if ev.kind == "start":
+            self.hub.publish(type="start", exploration=ev.exploration)
+        elif ev.kind == "completed":
+            self.hub.publish(
+                type="done", node=ev.node_id, dirty=self.s.dirty, exploration=ev.exploration
             )
-        return {
-            "session": s.log.path.stem,
-            "model": st.model,
-            "nodes": nodes,
-            "edges": [e.model_dump() for e in st.edges],
-            "trunk": t,
-            "pin": st.trunk_pin,
-            "leaf": s.leaf,
-            "pending": [e.model_dump() for e in s.pending],
-            "burden": ledger.trunk_burden(st),
-            "cost": ledger.total_cost(st, s.pricing),
-            "busy": self.busy,
-            "dirty": self.dirty,
-            "repo": self.repo,
-            "status": self.bar(),
-        }
+        elif ev.kind == "aborted":
+            n = self.s.log.state.nodes[ev.node_id]
+            self.hub.publish(
+                type="aborted",
+                node=n.id,
+                leaf=self.s.leaf,
+                cost=f"{self.s.pricing.price(n.model).cost(n.usage):.4f}",
+            )
+        else:
+            rendered = views.event(self.s, ev)
+            if rendered:
+                kind, text = rendered
+                self.hub.publish(type=kind, text=views.plain(text) if kind == "ledger" else text)
 
-    def bar(self) -> dict[str, Any]:
-        """What the canvas puts in its status bar; the CLI prints the same numbers."""
-        s, st = self.s, self.s.log.state
-        spec = s.wanted_model()
-        price = s.pricing.price(spec)
-        who, model = s.pricing.split(spec)
-        saved = ledger.saved_by_kind(st, s.pricing)
-        return {
-            "provider": who,
-            "model": model,
-            "cwd": str(s.cwd),
-            "window": price.context,
-            "burden": ledger.trunk_burden(st),
-            "cost": ledger.total_cost(st, s.pricing),
-            "saved": {k: {"tokens": t, "cost": c} for k, (t, c) in saved.items()},
-        }
-
-    def preview(self, src: str, tools: list[str]) -> dict[str, Any]:
-        edge = ReferenceEdge(src_id=src, dst_id="", include_tool_outputs=tools)
-        st = self.s.log.state
-        sizes = ledger.graft_preview(st, self.s.leaf, edge, self.s.provider.count_tokens)
-        return {
-            "sizes": sizes,
-            "burden": ledger.trunk_burden(st),
-            "on_trunk": self.s.leaf == graph.trunk(st),
-        }
+    def request_handoff(self) -> None:
+        with self.active():
+            self.s.require_idle()
+            self.s.save()
+            self.handoff = True
+        self.hub.publish(type="handoff", to="cli")
+        self.on_handoff()
 
     def command(self, line: str) -> str:
         """A slash command typed into the canvas; returns what the CLI would have printed."""
-        argv = line.lstrip("/").split()
-        if not argv:
-            return ""
-        if argv[0] in ("cli", "quit", "exit"):
-            self.request_handoff()
-            return tr("handing the session back to the terminal")
-        if argv[0] == "canvas":
-            return tr("already on the canvas")
-        if argv[0] == "explore":  # a model turn: must stream, must not hold the lock
-            self.turn(" ".join(argv[1:]), explore=True)
-            return tr("exploration started")
-        with self.lock:
+        with self.active():
+            argv = line.lstrip("/").split()
+            if not argv:
+                return ""
+            if argv[0] in ("cli", "quit", "exit"):
+                self.request_handoff()
+                return tr("handing the session back to the terminal")
+            if argv[0] == "canvas":
+                return tr("already on the canvas")
+            if argv[0] == "explore":  # reserve here; the worker executes outside the lock
+                self.turn(" ".join(argv[1:]), explore=True)
+                return tr("exploration started")
+            self.s.require_idle()
             try:
-                out = cli.verb(self.s, argv)
+                out = views.verb(self.s, argv)
             except Exception as e:  # noqa: BLE001 - surfaced to the user verbatim
                 return tr("错误：{error}", error=e)
-            self.s.save()
-        if out is not None:
-            return "\n".join(out)
-        # The rest would ask something in the terminal; the canvas says what it can instead.
-        if argv[0] == "rewind" and len(argv) == 2:
-            return cli.rewind_preview(self.s, argv[1]) + tr(
-                "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
-            )
-        if argv[0] == "resume":
-            return "\n".join(line for _, line in cli.session_rows(self.s.cwd, self.s.log.path.name))
-        if argv[0] in {n for n, _, _ in cli.COMMANDS}:
-            return tr("/{v0} needs the terminal: /cli, then run it there", v0=argv[0])
-        return tr("unknown command /{v0}", v0=argv[0])
-
-    def turn(self, text: str, explore: bool = False) -> None:
-        with self.lock:
-            if self.busy:
-                raise RuntimeError(tr("a turn is already running"))
-            self.stopping.clear()
-            self.busy = True
-        threading.Thread(target=self._run, args=(text, explore), daemon=True).start()
-
-    def _run(self, text: str, explore: bool) -> None:
-        st = self.s.log.state
-        exploration = graph.is_exploration(st, self.s.leaf, force=explore)
-        self.hub.publish(type="start", exploration=exploration)
-        try:
-            nid, dirty = cli.run_input(
-                self.s,
-                text,
-                hook=lambda k, t: self.hub.publish(type=k, text=t),
-                explore=explore,
-                stop=self.stopping,
-            )
-            self.dirty = dirty
-            self.s.save()
-            self.hub.publish(type="done", node=nid, dirty=dirty, exploration=exploration)
-        except (agent.Interrupted, agent.Failed):
-            dead = next(
-                n for n in reversed(list(self.s.log.state.nodes.values())) if n.status == "aborted"
-            )
-            self.dirty = dead.guard_dirty
-            self.s.save()
-            self.hub.publish(
-                type="aborted",
-                node=dead.id,
-                leaf=self.s.leaf,
-                cost=f"${self.s.pricing.price(dead.model).cost(dead.usage):.4f}",
-            )
-        except Exception as e:  # noqa: BLE001
-            self.hub.publish(type="error", text=str(e))
-        finally:
-            self.busy = False
-
-    def request_handoff(self) -> None:
-        self.handoff = True
-        self.hub.publish(type="handoff", to="cli")
-        self.on_handoff()
+            if out is not None:
+                return views.plain("\n".join(out))
+            # Interactive commands still need the terminal.
+            if argv[0] == "rewind" and len(argv) == 2:
+                return views.rewind_preview(self.s, argv[1]) + tr(
+                    "\nuse the node's right-click menu, or /rewind <id> both|code|conversation"
+                )
+            if argv[0] == "resume":
+                return "\n".join(
+                    line for _, line in views.session_rows(self.s.cwd, self.s.log.path.name)
+                )
+            if argv[0] in {n for n, _, _ in views.COMMANDS}:
+                return tr("/{v0} needs the terminal: /cli, then run it there", v0=argv[0])
+            return tr("unknown command /{v0}", v0=argv[0])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -298,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             self._get()
-        except (ValueError, KeyError, typer.BadParameter) as e:
+        except (ValueError, KeyError) as e:
             self._json({"error": str(e)}, 400)
 
     def _get(self) -> None:
@@ -313,18 +243,17 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif url.path == "/api/state":
-            with c.lock:
-                self._json(c.state())
+            self._json(c.s.state())
         elif url.path.startswith("/api/node/"):
             nid = c.s.resolve(url.path.rsplit("/", 1)[1])
             self._json(transcript(c.s.log.state.nodes[nid]))
         elif url.path == "/api/preview":
             tools = [t for t in q.get("tools", [""])[0].split(",") if t]
-            self._json(c.preview(c.s.resolve(q["src"][0]), tools))
+            self._json(c.s.preview(q["src"][0], tools))
         elif url.path == "/api/rewind":
             nid = c.s.resolve(q["id"][0])
             n = c.s.log.state.nodes[nid]
-            self._json({"paths": cli.rewind_paths(c.s.log.state, nid), "tree": bool(n.tree)})
+            self._json({"paths": core.rewind_paths(c.s.log.state, nid), "tree": bool(n.tree)})
         elif url.path == "/api/events":
             self._events()
         else:
@@ -362,58 +291,60 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._json({"error": tr("请求过大；原始附件总大小最多 40 MiB")}, 413)
             return
-        body: dict[str, Any] = json.loads(self.rfile.read(n) or b"{}")
         path = urlparse(self.path).path
         try:
+            body: dict[str, Any] = json.loads(self.rfile.read(n) or b"{}")
+            with c.active():
+                position = c.s.log, c.s.leaf, list(c.s.pending)
+                if path not in ("/api/attachments", "/api/handoff", "/api/stop"):
+                    c.s.require_idle()
+            result: dict[str, Any] = {"ok": True}
+            status = 200
+            # Decoding files can be slow. Keep both parsing and socket writes outside the gate.
             if path == "/api/attachments":
                 items = [
                     attachments.Attachment.model_validate(item) for item in body["attachments"]
                 ]
                 attachments.validate(items)
-                self._json({"attachments": [item.describe() for item in items]})
-                return
-            if path == "/api/handoff":
-                c.request_handoff()
-                self._json({"ok": True})
-                return
-            if path == "/api/stop":  # allowed while busy: it is the only thing that is
-                c.stopping.set()
-                self._json({"ok": True})
-                return
-            if c.busy and path != "/api/pending":
-                self._json({"error": tr("a turn is running")}, 409)
-                return
-            with c.lock:
-                if path == "/api/turn":
-                    items = [
-                        attachments.Attachment.model_validate(item)
-                        for item in body.get("attachments", [])
-                    ]
-                    text = (
-                        attachments.Input(str(body["text"]), items) if items else str(body["text"])
-                    )
-                    if not text.strip():
-                        raise ValueError(tr("请输入问题或添加附件"))
-                    c.turn(text, bool(body.get("explore")))
-                elif path == "/api/command":
-                    self._json({"output": c.command(str(body["line"]))})
-                    return
-                elif path in ID_VERBS:
-                    ID_VERBS[path](c.s, str(body["id"]))
-                elif path == "/api/rewind":
-                    mode = str(body.get("mode", "both"))
-                    cli.cmd_rewind(c.s, str(body["id"]), mode)
-                    c.dirty = False
-                elif path == "/api/pending":
-                    c.s.pending = [ReferenceEdge(**e) for e in body["edges"]]
-                elif path == "/api/reset":
-                    guard.reset(c.s.cwd)
-                    c.dirty = False
+                result = {"attachments": [item.describe() for item in items]}
+            elif path == "/api/turn":
+                text = core.input_text(str(body["text"]), body.get("attachments", []))
+                if not text.strip():
+                    raise ValueError(tr("请输入问题或添加附件"))
+            with c.active():
+                if path in ("/api/attachments", "/api/turn") and position != (
+                    c.s.log,
+                    c.s.leaf,
+                    c.s.pending,
+                ):
+                    raise core.BusyError(tr("会话位置已变化，请重新发送"))
+                if path == "/api/attachments":
+                    pass  # draft inspection never mutates a session
+                elif path == "/api/handoff":
+                    c.request_handoff()
+                elif path == "/api/stop":
+                    c.s.stop()
                 else:
-                    self._json({"error": tr("not found")}, 404)
-                    return
-                c.s.save()
-            self._json({"ok": True})
+                    c.s.require_idle()
+                    if path == "/api/turn":
+                        c.turn(text, bool(body.get("explore")))
+                    elif path == "/api/command":
+                        result = {"output": c.command(str(body["line"]))}
+                    elif path in ID_VERBS:
+                        ID_VERBS[path](c.s, str(body["id"]))
+                    elif path == "/api/rewind":
+                        c.s.rewind(str(body["id"]), str(body.get("mode", "both")))
+                    elif path == "/api/pending":
+                        c.s.stage([ReferenceEdge(**e) for e in body["edges"]])
+                    elif path == "/api/reset":
+                        c.s.reset()
+                    else:
+                        result, status = {"error": tr("not found")}, 404
+            self._json(result, status)
+        except ClosedError as e:
+            self._json({"error": str(e)}, 410)
+        except core.BusyError as e:
+            self._json({"error": str(e)}, 409)
         except Exception as e:  # noqa: BLE001
             self._json({"error": str(e)}, 400)
 
@@ -427,18 +358,20 @@ class KaipiServer(ThreadingHTTPServer):
         self.token = token or secrets.token_urlsafe(32)
 
 
-def serve(s: cli.Session, port: int = 0, *, open_browser: bool = True) -> str:
+def serve(s: core.Session, port: int = 0, *, open_browser: bool = True) -> str:
     """Run the canvas until it hands the session back (or Ctrl-C). Returns the URL used."""
     canvas = Canvas(s, Hub())
     httpd = KaipiServer(canvas, port)
     canvas.on_handoff = lambda: threading.Thread(target=httpd.shutdown, daemon=True).start()
     url = f"http://127.0.0.1:{httpd.server_address[1]}/?t={httpd.token}"
-    cli.set_lock(s.cwd, "canvas", url)
+    core.set_lock(s.cwd, "canvas", url)
     if open_browser:
         webbrowser.open(url)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
+        s.stop()
+        s.idle.wait()
         canvas.request_handoff()
     finally:
         httpd.server_close()

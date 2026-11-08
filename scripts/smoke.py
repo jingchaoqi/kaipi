@@ -32,6 +32,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from kaipi import core, views
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from kaipi import cli, context, graph, guard, ledger, titles  # noqa: E402
@@ -204,7 +206,7 @@ def make_repo(root: Path) -> None:
 
 
 def turn(
-    session: cli.Session, provider: Tally, text: str, *, explore: bool = False
+    session: core.Session, provider: Tally, text: str, *, explore: bool = False
 ) -> tuple[str, bool]:
     exploring = graph.is_exploration(session.log.state, session.leaf, force=explore)
     label = "exploration" if exploring else "trunk"
@@ -224,10 +226,9 @@ def turn(
     first = len(provider.replies)
     nid, dirty = cli.run_input(session, text, hook, explore=explore)
     provider.turns[nid] = provider.replies[first:]
-    session.save()
     n = session.log.state.nodes[nid]
     print(
-        f"    {DIM}node {cli.short(nid)}  usage {n.usage.model_dump()}  "
+        f"    {DIM}node {views.short(nid)}  usage {n.usage.model_dump()}  "
         f"ctx {n.context_tokens}  burden {ledger.trunk_burden(session.log.state)}{RESET}"
     )
     return nid, dirty
@@ -286,7 +287,7 @@ def main() -> int:
     if args.model:
         os.environ["KAIPI_MODEL"] = args.model
 
-    session = cli.Session(root, new=True)
+    session = core.Session(root, new=True)
     model = session.log.state.model
     price = session.pricing.models.get(model)
     provider_name = price.provider if price else str(args.model or model).partition("/")[0]
@@ -337,12 +338,10 @@ def main() -> int:
     )
 
     # --- two explorations from the same fork point ----------------------------------------
-    cli.cmd_go(session, n1)
-    session.save()
+    views.cmd_go(session, n1)
     e1, _ = turn(session, tally, "Only look: is there any other hard-coded number in the repo?")
     fork_ctx = session.log.state.nodes[n1].context_tokens
-    cli.cmd_go(session, n1)
-    session.save()
+    views.cmd_go(session, n1)
     e2, _ = turn(
         session, tally, "Only look: do the tests cover the boundary value exactly at LIMIT?"
     )
@@ -373,7 +372,7 @@ def main() -> int:
     c.add(
         graph.fork_point(session.log.state, e2) == n1,
         "the fork point is where both explorations branch",
-        cli.short(graph.fork_point(session.log.state, e2) or "-"),
+        views.short(graph.fork_point(session.log.state, e2) or "-"),
     )
     c.add(
         guard.snapshot(root) == session.log.state.nodes[n2].tree,
@@ -413,8 +412,7 @@ def main() -> int:
     )
     c.add(ledger.cache_color(session.log.state)[0] == "green", "the session stays cache-green")
 
-    cli.cmd_go(session, n2)
-    session.save()
+    views.cmd_go(session, n2)
     edge = ReferenceEdge(src_id=e2, dst_id="", depth="leaf+summary")
     preview = ledger.graft_preview(session.log.state, session.leaf, edge, tally.count_tokens)
     print(f"\n{DIM}graft preview: {preview}{RESET}")
@@ -463,7 +461,7 @@ def main() -> int:
 
     # --- rewind ---------------------------------------------------------------------------
     (root / "mine.txt").write_text("a file the agent never touched\n")
-    restored = cli.rewind_code(session.log.state, root, n1)
+    restored = core.rewind_code(session.log.state, root, n1)
     c.add(
         (root / "mine.txt").exists(),
         "rewind leaves files the agent never touched alone",

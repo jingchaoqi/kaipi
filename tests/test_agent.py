@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from kaipi import agent, context, graph, guard, summarize
+from kaipi import agent, context, core, graph, guard, summarize
 from kaipi.model import Message, ReferenceEdge, Usage
 from kaipi.providers import Reply
 from kaipi.providers.openai_compat import from_openai, to_openai, usage_from
@@ -469,7 +469,6 @@ def test_anthropic_request_shape() -> None:
 
 
 def test_rewind_restores_only_agent_touched_files(log: Log, tmp_path: Path) -> None:
-    from kaipi import cli
 
     _git_repo(tmp_path)
     (tmp_path / "mine.txt").write_text("user v1")
@@ -487,9 +486,9 @@ def test_rewind_restores_only_agent_touched_files(log: Log, tmp_path: Path) -> N
     st = log.state
     assert st.nodes[n1].paths == ["a.txt"] and st.nodes[n1].tree
     assert st.nodes[n2].paths == ["a.txt", "sub/c.txt"]
-    assert cli.rewind_paths(st, n1) == ["a.txt", "sub/c.txt"]
-    assert cli.rewind_paths(st, n2) == []
-    restored = cli.rewind_code(st, tmp_path, n1)
+    assert core.rewind_paths(st, n1) == ["a.txt", "sub/c.txt"]
+    assert core.rewind_paths(st, n2) == []
+    restored = core.rewind_code(st, tmp_path, n1)
     assert restored == ["a.txt", "sub/c.txt"]
     assert (tmp_path / "a.txt").read_text() == "one"
     assert not (tmp_path / "sub" / "c.txt").exists()
@@ -528,7 +527,6 @@ def test_guard_notices_a_commit_on_an_exploration(log: Log, tmp_path: Path) -> N
 
 
 def test_rewind_from_a_subdirectory_restores_at_the_repo_root(log: Log, tmp_path: Path) -> None:
-    from kaipi import cli
 
     _git_repo(tmp_path)
     sub = tmp_path / "sub"
@@ -540,7 +538,7 @@ def test_rewind_from_a_subdirectory_restores_at_the_repo_root(log: Log, tmp_path
     n1 = agent.run_turn(log, p, None, [], "one", exploration=False, cwd=sub)
     n2 = agent.run_turn(log, p, n1, [], "two", exploration=False, cwd=sub)
     assert log.state.nodes[n2].paths == ["sub/f.txt"]  # repo-root relative
-    cli.rewind_code(log.state, sub, n1)
+    core.rewind_code(log.state, sub, n1)
     assert (sub / "f.txt").read_text() == "v1"
     assert not (sub / "sub").exists()  # no stray sub/sub/f.txt
 

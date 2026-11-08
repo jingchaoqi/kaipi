@@ -24,13 +24,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from kaipi import core
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import mockapi  # noqa: E402
 import smoke  # noqa: E402
 
-from kaipi import cli, server  # noqa: E402
+from kaipi import server  # noqa: E402
 
 CHECKS = smoke.Checks()  # same reporter (and same PASS/FAIL/SKIP wording) as the smoke test
 
@@ -74,7 +76,7 @@ def main() -> int:
     smoke.make_repo(root)
     os.chdir(root)
 
-    s = cli.Session(root, new=True)
+    s = core.Session(root, new=True)
     canvas = server.Canvas(s, server.Hub())
     httpd = server.KaipiServer(canvas, args.port)
     canvas.on_handoff = lambda: threading.Thread(target=httpd.shutdown, daemon=True).start()

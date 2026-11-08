@@ -15,7 +15,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import Label, TextArea
 
-from kaipi import cli
+from kaipi import cli, core, views
 from kaipi.i18n import tr
 
 QUERIES = {"help", "status", "version", "ledger", "raw"}
@@ -76,7 +76,7 @@ def wait_for_back() -> None:
     prompt.prompt(tr("Esc 或回车返回"))
 
 
-def run(s: cli.Session, argv: list[str]) -> bool:
+def run(s: core.Session, argv: list[str]) -> bool:
     if not argv:
         return True
     name, *args = argv
@@ -87,7 +87,7 @@ def run(s: cli.Session, argv: list[str]) -> bool:
         if name in {"tree", "go", "rewind"} and not args and not s.log.state.nodes:
             view("/" + name, [tr("还没有可选择的节点")])
         elif name in QUERIES or (name == "trunk" and not args):
-            view("/" + name, cli.verb(s, argv) or [])
+            view("/" + name, views.verb(s, argv) or [])
         elif (
             name in {"provider", "model", "config", "statusline", "update"}
             or (name in {"tree", "go", "resume"} and not args)

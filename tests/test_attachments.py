@@ -10,7 +10,7 @@ from prompt_toolkit.application import create_app_session
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from kaipi import agent, attachments, cli, context, providers, tui
+from kaipi import agent, attachments, context, core, providers, tui
 from kaipi.attachments import Attachment, Input
 from kaipi.model import Message, Usage
 from kaipi.providers import Reply, gemini, openai_compat, openai_responses
@@ -84,7 +84,7 @@ def test_attachment_snapshot_is_frozen_and_history_survives_deleted_source(tmp_p
     items = [Attachment.read(source), image()]
     question = Input("检查这个问题 [file1] [image1]", items)
     source.write_text('print("after")\n')
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     requests: list[list[Message]] = []
 
     class Inspect:
@@ -185,7 +185,7 @@ def test_terminal_paste_keys_snapshot_and_remove_attachments(
     path.write_bytes(PNG)
     monkeypatch.setattr(attachments, "clipboard", lambda: ([image()], ""))
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
         if paste == "clipboard":
             pipe.send_text("看看这个 \x16\r")
         elif paste == "raw":
@@ -211,7 +211,7 @@ def test_terminal_paste_keys_snapshot_and_remove_attachments(
 
 def test_attachment_drafts_remain_separate_across_submissions(tmp_path: Path) -> None:
     with create_app_session(output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
         terminal.session.validate_while_typing = False
         terminal.session.default_buffer.auto_suggest = None
         terminal.add_attachments([image()])
@@ -246,7 +246,7 @@ def test_multiple_clipboard_pastes_accumulate_while_loading(
 
     monkeypatch.setattr(attachments, "clipboard", clipboard)
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
 
         async def submit() -> str:
             async def keys() -> None:
@@ -287,7 +287,7 @@ def test_deleting_an_attachment_does_not_renumber_remaining_markers(
 ) -> None:
     monkeypatch.setenv("TERM", "xterm-256color")
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
         terminal.session.validate_while_typing = False
         terminal.session.default_buffer.auto_suggest = None
         terminal.add_attachments([image(), image().model_copy(update={"name": "second.png"})])
@@ -308,7 +308,7 @@ def test_failed_file_batch_keeps_existing_draft(tmp_path: Path) -> None:
     bad = tmp_path / "b.bin"
     bad.write_bytes(b"\xff\x00")
     with create_app_session(output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
         terminal.session.validate_while_typing = False
         terminal.session.default_buffer.auto_suggest = None
         terminal.session.default_buffer.text = "original question"
@@ -434,7 +434,7 @@ def test_failed_clipboard_paste_keeps_question_and_does_not_auto_send(
 
     monkeypatch.setattr(attachments, "clipboard", fail)
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
 
         async def submit() -> str:
             async def keys() -> None:

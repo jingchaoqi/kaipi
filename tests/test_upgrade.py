@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from kaipi import cli, context, providers
+from kaipi import cli, context, core, providers
 from kaipi.store import Log
 from tests.test_cli import Echo
 
@@ -30,7 +30,7 @@ def test_old_session_remains_readable_and_append_only(
     config = 'model = "openai/gpt-5.6-terra"\n[providers.openai]\napi_key = "synthetic"\n'
     auth.write_text(config)
 
-    s = cli.Session(tmp_path)
+    s = core.Session(tmp_path)
     assert s.leaf == "n3" and s.log.state.name == "手动标题"
     assert bool(s.log.state.titles) == (version == "0.1.2")
     completed = {
@@ -51,7 +51,7 @@ def test_old_session_remains_readable_and_append_only(
     s._provider = Echo()
     nid, _ = cli.run_input(s, "继续", lambda kind, text: None)
     s.save()
-    reopened = cli.Session(tmp_path)
+    reopened = core.Session(tmp_path)
     assert reopened.leaf == nid
     assert path.read_bytes().startswith(raw) and auth.read_text() == config
     for old_id, node in before.items():

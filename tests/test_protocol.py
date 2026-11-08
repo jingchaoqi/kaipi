@@ -15,6 +15,8 @@ from typing import Any
 
 import pytest
 
+from kaipi import core
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import mockapi  # noqa: E402
@@ -52,7 +54,7 @@ def session_on(url: str, model: str, provider_env: str, path: str = "/v1") -> tu
     if preset and preset.api_key_env:
         os.environ[preset.api_key_env] = "mock-key"
     os.environ["KAIPI_MODEL"] = model
-    s = cli.Session(root, new=True)
+    s = core.Session(root, new=True)
     tally = smoke.Tally(s._build(model))
     s._provider = tally
     s._cheap = tally
