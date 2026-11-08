@@ -10,7 +10,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from typer.testing import CliRunner
 
-from kaipi import catalog, cli, configuration, ledger, providers
+from kaipi import catalog, cli, configuration, core, ledger, providers
 
 CATALOG = """
 [models."deepseek-flash"]
@@ -198,7 +198,7 @@ def test_refresh_preserves_price_overrides(configured: None, online: None) -> No
 def test_slash_refresh_reloads_current_session(
     configured: None, online: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     before = session.pricing.price("deepseek-anthropic/deepseek-flash").input
     answers = iter([5, 1, ""])
     monkeypatch.setattr(configuration, "prompt", lambda *a, **k: next(answers))

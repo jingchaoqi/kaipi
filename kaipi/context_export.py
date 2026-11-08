@@ -9,17 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from kaipi import context, graph
-
 if TYPE_CHECKING:
-    from kaipi.cli import Session
+    from kaipi.core import Session
 
 
 def export(s: Session, placeholder: str) -> Path:
     state = s.log.state
-    ctx = context.build(
-        state, s.leaf, s.pending, placeholder, guard=graph.is_exploration(state, s.leaf)
-    )
+    ctx = s.inspect_context(placeholder)
     title = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]', "_", state.name or "未命名").strip(" .")
     title = title.encode("utf-8")[:120].decode("utf-8", errors="ignore") or "未命名"
     stem = f"{datetime.now():%Y%m%d%H%M%S}-{title}-{s.name(s.leaf)}-context"

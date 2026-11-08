@@ -529,11 +529,10 @@ def refresh(
 ) -> None:
     typer.echo(tr("{DIM}正在读取 kaipi 在线模型与价格目录…{RESET}", DIM=DIM, RESET=RESET))
     try:
-        prices = catalog.fetch(name)
+        prices, ids = catalog.preview(name, saved_models)
     except (OSError, ValueError, httpx.HTTPError):
         report(tr("{RED}刷新失败，原配置和价格已保留；请稍后重试{RESET}", RED=RED, RESET=RESET))
         return
-    ids = list(dict.fromkeys([*saved_models, *catalog.model_ids(prices)]))
     added = [m for m in ids if m not in saved_models]
     typer.echo(
         tr(

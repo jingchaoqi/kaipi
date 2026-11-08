@@ -9,7 +9,7 @@ from prompt_toolkit.application import Application, create_app_session
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from kaipi import attachments, cli, context, ledger, summarize, titles, tui
+from kaipi import attachments, cli, context, core, ledger, summarize, titles, tui, views
 from kaipi.model import Depth, Message, ReferenceEdge, SessionRenamed, SessionTitleGenerated, Usage
 from kaipi.providers import Reply
 from kaipi.store import Log, fold
@@ -18,18 +18,18 @@ from tests.test_cli import Echo
 
 
 @pytest.fixture
-def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> cli.Session:
+def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> core.Session:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KAIPI_MODEL", "claude-opus-5")
     monkeypatch.setenv("TERM", "xterm-256color")
     (tmp_path / "AGENTS.md").write_text("Private project instructions")
-    s = cli.Session(tmp_path, new=True)
+    s = core.Session(tmp_path, new=True)
     s._provider = Echo()
     s._cheap = Echo()
     return s
 
 
-def test_title_is_isolated_billed_persisted_and_only_generated_once(session: cli.Session) -> None:
+def test_title_is_isolated_billed_persisted_and_only_generated_once(session: core.Session) -> None:
     calls: list[tuple[str, list[Message], list[int]]] = []
     usage = Usage(input_uncached=27, cache_read=4, output=9)
 
@@ -68,8 +68,8 @@ def test_title_is_isolated_billed_persisted_and_only_generated_once(session: cli
         ledger.total_cost(without_title, session.pricing)
         + session.pricing.price(Title.model).cost(usage)
     )
-    assert "排查登录超时" in cli.session_rows(session.cwd)[0][1]
-    cli.cmd_rename(session, "手动名称")
+    assert "排查登录超时" in views.session_rows(session.cwd)[0][1]
+    views.cmd_rename(session, "手动名称")
     cli.run_input(session, "继续", lambda k, t: None)
     session.leaf = None  # even a new root branch must not rename this conversation
     cli.run_input(session, "另一个话题", lambda k, t: None)
@@ -83,7 +83,7 @@ def test_title_is_isolated_billed_persisted_and_only_generated_once(session: cli
 
 @pytest.mark.parametrize("outcome", ["error", "empty", "tool_use", "refusal", "renamed"])
 def test_title_failure_or_manual_name_never_breaks_the_answer(
-    session: cli.Session, outcome: str
+    session: core.Session, outcome: str
 ) -> None:
     calls = 0
 
@@ -101,7 +101,7 @@ def test_title_failure_or_manual_name_never_breaks_the_answer(
 
     session._cheap = Title()
     if outcome == "renamed":
-        cli.cmd_rename(session, "已经命名")
+        views.cmd_rename(session, "已经命名")
     cli.run_input(session, "question", lambda k, t: None)
     st = session.log.state
     assert st.nodes[session.leaf or ""].completed
@@ -109,10 +109,10 @@ def test_title_failure_or_manual_name_never_breaks_the_answer(
     assert st.name == ("已经命名" if outcome == "renamed" else "")
     assert len(st.titles) == (0 if outcome in ("renamed", "error") else 1)
     if not st.name:
-        assert cli.session_title(st) == "question"
+        assert core.session_title(st) == "question"
 
 
-def test_title_only_receives_text_not_attachment_contents(session: cli.Session) -> None:
+def test_title_only_receives_text_not_attachment_contents(session: core.Session) -> None:
     import base64
 
     class Title(Echo):
@@ -155,7 +155,7 @@ def test_title_only_receives_text_not_attachment_contents(session: cli.Session) 
     ],
 )
 def test_invalid_title_is_not_saved_or_displayed_on_exit(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     response: str,
@@ -172,8 +172,8 @@ def test_invalid_title_is_not_saved_or_displayed_on_exit(
     cli.run_input(session, "你好", lambda *_: None)
     assert not session.log.state.name
     assert session.log.state.titles == [(Title.model, Usage(output=7))]
-    assert cli.session_title(session.log.state) == "你好"
-    assert "你好" in cli.session_rows(session.cwd)[0][1]
+    assert core.session_title(session.log.state) == "你好"
+    assert "你好" in views.session_rows(session.cwd)[0][1]
     monkeypatch.setattr(cli, "interactive", lambda _: "quit")
     cli.run_surfaces(session, "cli")
     output = capsys.readouterr().out
@@ -181,7 +181,7 @@ def test_invalid_title_is_not_saved_or_displayed_on_exit(
 
 
 def test_title_metadata_never_enters_history_branches_grafts_or_summaries(
-    session: cli.Session,
+    session: core.Session,
 ) -> None:
     builder = Builder(session.log)
     root = builder.node(None, "opening question")
@@ -230,7 +230,7 @@ def test_title_metadata_never_enters_history_branches_grafts_or_summaries(
 
 
 def test_answer_is_visible_before_title_request(
-    session: cli.Session, capsys: pytest.CaptureFixture[str]
+    session: core.Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         terminal = tui.Terminal(session)
@@ -247,7 +247,7 @@ def test_answer_is_visible_before_title_request(
     "keys,offset", [("\r", 0), ("\x1b[A\r", 1), ("\x1b[A\x1b[B\r", 0), ("\x1b", None)]
 )
 def test_resume_menu_highlights_scrolls_and_selects(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch, keys: str, offset: int | None
+    session: core.Session, monkeypatch: pytest.MonkeyPatch, keys: str, offset: int | None
 ) -> None:
     paths = [session.log.path]
     for _ in range(11):
@@ -292,7 +292,7 @@ def test_resume_menu_highlights_scrolls_and_selects(
 
 
 def test_resume_slash_routes_to_keyboard_menu(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     old = session.log.path
     new = session._start().path

@@ -13,7 +13,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.input.base import PipeInput
 from prompt_toolkit.output.vt100 import Vt100_Output
 
-from kaipi import catalog, cli, command_ui, ledger, providers, settings, tui
+from kaipi import catalog, cli, command_ui, core, ledger, providers, settings, tui, views
 from tests.conftest import Builder
 
 ENTER, LEAVE = "\x1b[?1049h", "\x1b[?1049l"
@@ -33,8 +33,8 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[PipeInput, io.St
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> cli.Session:
-    s = cli.Session(tmp_path)
+def session(tmp_path: Path) -> core.Session:
+    s = core.Session(tmp_path)
     s.leaf = Builder(s.log).node(None, "original question")
     s.pricing.models["fake"] = ledger.Price(input=1, output=2)
     s.save()
@@ -53,7 +53,7 @@ def primary_screen(stream: io.StringIO) -> str:
 
 @pytest.mark.parametrize("command", sorted(command_ui.MENUS))
 def test_cancel_menu_leaves_no_conversation_output(
-    session: cli.Session, command: str, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, command: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
         before = session.log.path.read_bytes(), providers.auth_file().read_bytes(), session.leaf
@@ -72,12 +72,12 @@ def test_cancel_menu_leaves_no_conversation_output(
 
 @pytest.mark.parametrize("command", [*sorted(command_ui.QUERIES), "trunk"])
 def test_query_scrolls_and_closes_without_residue(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
     command: str,
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
-        monkeypatch.setattr(cli, "verb", lambda *_: [f"query row {n}" for n in range(100)])
+        monkeypatch.setattr(views, "verb", lambda *_: [f"query row {n}" for n in range(100)])
         pipe.send_text("\x1b[6~\x1b[6~\x1b")
         assert command_ui.run(session, [command])
         assert "query row" in stream.getvalue()
@@ -86,7 +86,7 @@ def test_query_scrolls_and_closes_without_residue(
 
 
 def test_model_success_keeps_only_result(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
         pipe.send_text("\r")
@@ -97,7 +97,7 @@ def test_model_success_keeps_only_result(
 
 
 def test_provider_refresh_keeps_only_result(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
@@ -117,7 +117,7 @@ def test_provider_refresh_keeps_only_result(
 
 
 def test_rewind_cancel_after_preview_restores_screen_and_state(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
         before = session.log.path.read_bytes(), session.leaf
@@ -128,7 +128,7 @@ def test_rewind_cancel_after_preview_restores_screen_and_state(
 
 
 def test_settings_save_without_leaking_menu(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
         pipe.send_text("\x1b[D\x1b")
@@ -138,7 +138,7 @@ def test_settings_save_without_leaking_menu(
 
 
 def test_command_failure_restores_screen(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
@@ -154,18 +154,18 @@ def test_command_failure_restores_screen(
 
 
 def test_export_path_remains_on_primary_screen(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
-        monkeypatch.setattr(cli, "verb", lambda *_: ["exported /workspace/context.md"])
+        monkeypatch.setattr(views, "verb", lambda *_: ["exported /workspace/context.md"])
         assert command_ui.run(session, ["inspect-context"])
         assert ENTER not in stream.getvalue()
         assert "/workspace/context.md" in stream.getvalue()
 
 
 def test_slash_commands_do_not_echo_but_questions_do(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with terminal(monkeypatch) as (pipe, stream):
         t = tui.Terminal(session)

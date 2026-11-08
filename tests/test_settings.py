@@ -14,7 +14,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from typer.testing import CliRunner
 
-from kaipi import cli, configuration, settings, tui, update
+from kaipi import cli, configuration, core, settings, tui, update, views
 
 
 def test_preference_persists_and_explicit_choice_overrides_legacy_default(
@@ -98,12 +98,12 @@ def test_config_command_slash_help_and_completion(
     result = CliRunner().invoke(cli.app, ["config"])
     assert result.exit_code == 0 and calls == [True]
     assert not (tmp_path / ".kaipi").exists()
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     assert cli.slash(session, ["config"])
     assert calls == [True, True]
     completions = tui.SlashCompleter(session).get_completions(Document("/conf"), CompleteEvent())
     assert [item.text for item in completions] == ["/config"]
-    assert any("/config" in line for line in cli.cmd_help(session))
+    assert any("/config" in line for line in views.cmd_help(session))
 
 
 def test_disable_suppresses_in_flight_notice_and_enable_works_immediately(
@@ -287,12 +287,12 @@ def test_statusline_directory_and_context_modes(
 
     from kaipi import ledger
 
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     session.cwd = tmp_path / "project"
     monkeypatch.setattr(ledger, "trunk_burden", lambda state: used)
     monkeypatch.setattr(ledger.Pricing, "price", lambda self, spec: ledger.Price(context=limit))
     settings.save({"statusline": dict.fromkeys(settings.STATUSLINE_ITEMS, "off") | {field: mode}})
-    assert fragment_list_to_text(to_formatted_text(ANSI(session.status(300)))) == expected
+    assert fragment_list_to_text(to_formatted_text(ANSI(views.status(session, 300)))) == expected
 
 
 @pytest.mark.parametrize("field", list(settings.STATUSLINE_ITEMS))
@@ -307,10 +307,10 @@ def test_statusline_elements_are_independently_visible(
     from kaipi.model import SessionRenamed
 
     monkeypatch.setenv("KAIPI_MODEL", "openai/example-model")
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     session.log.append(SessionRenamed(name="对话名字"))
     settings.save({"statusline": {key: key == field for key in settings.STATUSLINE_ITEMS}})
-    shown = fragment_list_to_text(to_formatted_text(ANSI(session.status(300))))
+    shown = fragment_list_to_text(to_formatted_text(ANSI(views.status(session, 300))))
     expected = {
         "provider": "openai",
         "model": "example-model",
@@ -328,20 +328,20 @@ def test_all_hidden_keeps_activity_row_and_does_not_change_status_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = cli.Session(tmp_path)
-    report = cli.cmd_status(session)
+    session = core.Session(tmp_path)
+    report = views.cmd_status(session)
     settings.save({"statusline": dict.fromkeys(settings.STATUSLINE_ITEMS, False)})
-    assert session.status() == "" and cli.cmd_status(session) == report
+    assert views.status(session) == "" and views.cmd_status(session) == report
     with create_app_session(output=DummyOutput()):
         terminal = tui.Terminal(session)
         calls = 0
 
-        def status(width: int = 120) -> str:
+        def status(s: core.Session, width: int = 120) -> str:
             nonlocal calls
             calls += 1
             return ""
 
-        monkeypatch.setattr(session, "status", status)
+        monkeypatch.setattr(views, "status", status)
         first = terminal.toolbar()
         second = terminal.toolbar()
         assert "就绪" in "".join(fragment[1] for fragment in first.__pt_formatted_text__())
@@ -360,7 +360,7 @@ def test_statusline_dispatch_completion_and_immediate_bar_refresh(
     monkeypatch.setattr(configuration, "statusline", lambda: calls.append(True))
     assert CliRunner().invoke(cli.app, ["statusline"]).exit_code == 0
     assert calls == [True] and not (tmp_path / ".kaipi").exists()
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     fake = SimpleNamespace(_bar_at=99.0)
     count = 0
 

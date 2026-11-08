@@ -64,3 +64,9 @@ def save(name: str, models: list[str], prices: dict[str, ledger.Price]) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def preview(name: str, saved_models: list[str]) -> tuple[dict[str, ledger.Price], list[str]]:
+    """Prepare a refresh without saving it; interfaces decide when to confirm."""
+    prices = fetch(name)
+    return prices, list(dict.fromkeys([*saved_models, *model_ids(prices)]))

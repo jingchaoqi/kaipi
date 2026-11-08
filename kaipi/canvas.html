@@ -633,7 +633,7 @@ $('#stop').onclick = async () => {
 };
 
 async function handoff() {
-  try { await api.post('/api/handoff', {}); } catch (e) { /* server is going away */ }
+  try { await api.post('/api/handoff', {}); } catch (e) { toast(e.message); return; }
   $('#overlay').classList.add('show');
 }
 const es = new EventSource(withToken('/api/events'));  // EventSource cannot set headers

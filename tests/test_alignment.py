@@ -11,7 +11,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
-from kaipi import catalog, cli, configuration, ledger, providers, settings
+from kaipi import catalog, configuration, core, ledger, providers, settings, views
 from kaipi.display import columns
 from kaipi.i18n import tr
 
@@ -153,9 +153,9 @@ def test_refresh_price_list_aligns(
 @pytest.mark.parametrize("lang", ["zh", "en"])
 def test_help_descriptions_still_align(lang: str, tmp_path: Path) -> None:
     settings.save({"language": lang})
-    rows = cli.cmd_help(cli.Session(tmp_path))
+    rows = views.cmd_help(core.Session(tmp_path))
     starts = [
         cell_at(row, tr(command[2]))
-        for row, command in zip(rows[: len(cli.COMMANDS)], cli.COMMANDS, strict=True)
+        for row, command in zip(rows[: len(views.COMMANDS)], views.COMMANDS, strict=True)
     ]
     assert len(set(starts)) == 1

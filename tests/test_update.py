@@ -13,7 +13,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from kaipi import cli, tui, update
+from kaipi import cli, core, tui, update, views
 
 
 @pytest.fixture
@@ -207,13 +207,13 @@ def test_version_and_handoff_save_before_install(
     monkeypatch.setattr(update, "current", lambda: "0.1.3")
     assert CliRunner().invoke(cli.app, ["version"]).output.strip() == "kaipi 0.1.3"
     assert not (tmp_path / ".kaipi").exists()
-    s = cli.Session(tmp_path, new=True)
-    assert cli.verb(s, ["version"]) == ["kaipi 0.1.3"]
+    s = core.Session(tmp_path, new=True)
+    assert views.verb(s, ["version"]) == ["kaipi 0.1.3"]
     plan = update.Plan("uv", Path("/tool/kaipi"), Path("/cache/test.whl"), "v0.1.3")
     monkeypatch.setattr(update, "prepare", lambda emit: plan)
 
-    def surface(session: cli.Session) -> str:
-        cli.set_lock(session.cwd, "cli")
+    def surface(session: core.Session) -> str:
+        core.set_lock(session.cwd, "cli")
         cli.slash(session, ["update"])
         return "quit"
 
@@ -240,7 +240,7 @@ def test_queued_update_preserves_unsent_draft(
         _pasting = False
         session = SimpleNamespace(default_buffer=SimpleNamespace(text="未发送的草稿"))
 
-        def __init__(self, s: cli.Session) -> None:
+        def __init__(self, s: core.Session) -> None:
             pass
 
         def echo(self, line: str) -> None:
@@ -255,5 +255,5 @@ def test_queued_update_preserves_unsent_draft(
 
     monkeypatch.setattr(tui, "Terminal", Terminal)
     monkeypatch.setattr(update, "prepare", lambda emit: pytest.fail("must retain the draft"))
-    assert tui.loop(cli.Session(tmp_path)) == "quit"
+    assert tui.loop(core.Session(tmp_path)) == "quit"
     assert prompts == ["", "未发送的草稿"]

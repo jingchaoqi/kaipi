@@ -19,7 +19,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 from typer.testing import CliRunner
 
-from kaipi import cli, configuration, context, i18n, providers, server, settings, tui
+from kaipi import cli, configuration, context, core, i18n, providers, server, settings, tui, views
 from tests.conftest import Builder
 
 
@@ -50,7 +50,7 @@ def test_catalog_is_complete_and_parameters_match() -> None:
                 and isinstance(node.args[0], ast.Constant)
             ):
                 assert node.args[0].value in catalog, (path.name, node.lineno, node.args[0].value)
-    for _, args, description in cli.COMMANDS:
+    for _, args, description in views.COMMANDS:
         assert not args or args in catalog
         assert description in catalog
     for phase in tui.PHASES:
@@ -126,9 +126,9 @@ def test_config_language_switch_updates_help_and_completion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arrow: str
 ) -> None:
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     completer = tui.SlashCompleter(session)
-    assert "显示这份清单" in "\n".join(cli.cmd_help(session))
+    assert "显示这份清单" in "\n".join(views.cmd_help(session))
     for lang in ["en", "zh"]:
         with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
             pipe.send_text("\x1b[B" + arrow + "\x1b")
@@ -138,9 +138,9 @@ def test_config_language_switch_updates_help_and_completion(
         assert completion.display_meta_text == (
             "Show this list" if lang == "en" else "显示这份清单"
         )
-        assert ("context " if lang == "en" else "上下文 ") in session.status(300)
+        assert ("context " if lang == "en" else "上下文 ") in views.status(session, 300)
         assert ("Show this list" if lang == "en" else "显示这份清单") in "\n".join(
-            cli.cmd_help(session)
+            views.cmd_help(session)
         )
 
 
@@ -148,7 +148,7 @@ def test_config_language_switch_updates_help_and_completion(
 def test_all_phases_keep_separators_fixed(tmp_path: Path, lang: str) -> None:
     settings.save({"language": lang})
     with create_app_session(output=DummyOutput()):
-        terminal = tui.Terminal(cli.Session(tmp_path))
+        terminal = tui.Terminal(core.Session(tmp_path))
         positions = []
         for phase in tui.PHASES:
             terminal.phase = phase
@@ -161,7 +161,7 @@ def test_all_phases_keep_separators_fixed(tmp_path: Path, lang: str) -> None:
 
 
 def test_language_does_not_change_model_context_or_history(tmp_path: Path) -> None:
-    session = cli.Session(tmp_path)
+    session = core.Session(tmp_path)
     builder = Builder(session.log)
     root = builder.node(None, "未知 /help", answer="等待模型")
     leaf = builder.node(root, "Explain context", answer="context 12.5%")

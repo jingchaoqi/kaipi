@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from kaipi import context, graph
+from kaipi import context, graph, views
 from kaipi.model import blocks
 
 if TYPE_CHECKING:
-    from kaipi.cli import Session
+    from kaipi.core import Session
 
 
 def replay(
@@ -31,4 +31,4 @@ def replay(
                     emit("text", block["text"])
                 elif block.get("type") == "tool_use":
                     emit("cmd", str(block.get("input", {}).get("command", "")))
-        emit("ledger", session.turn_line(node.id))
+        emit("ledger", views.turn_line(session, node.id))

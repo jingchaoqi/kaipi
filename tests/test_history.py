@@ -12,7 +12,7 @@ from prompt_toolkit.application import create_app_session
 from prompt_toolkit.output import DummyOutput
 from typer.testing import CliRunner
 
-from kaipi import cli, context, history, ledger, settings, tui, update
+from kaipi import cli, context, core, history, ledger, settings, tui, update
 from kaipi.attachments import TAG as ATTACHMENT_TAG
 from kaipi.model import NodeCompleted, TrunkPinned, Usage
 from kaipi.store import Log
@@ -20,12 +20,12 @@ from tests.conftest import Builder
 
 
 @pytest.fixture
-def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> cli.Session:
+def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> core.Session:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KAIPI_MODEL", "claude-opus-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-    monkeypatch.setattr(cli.Session, "_build", lambda *_: pytest.fail("history called a model"))
-    s = cli.Session(tmp_path, new=True)
+    monkeypatch.setattr(core.Session, "_build", lambda *_: pytest.fail("history called a model"))
+    s = core.Session(tmp_path, new=True)
     builder = Builder(s.log)
     root = builder.node(None, "first question", answer="**first answer**")
     leaf = builder.node(
@@ -42,7 +42,7 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> cli.Session:
     return s
 
 
-def test_replay_is_read_only_and_follows_the_saved_branch(session: cli.Session) -> None:
+def test_replay_is_read_only_and_follows_the_saved_branch(session: core.Session) -> None:
     before = session.log.path.read_bytes(), session.cursor_path.read_bytes()
     state = session.log.state.model_copy(deep=True)
     usage = ledger.report(state, session.pricing).usage
@@ -70,7 +70,7 @@ def test_replay_is_read_only_and_follows_the_saved_branch(session: cli.Session) 
 @pytest.mark.parametrize("language", ["zh", "en"])
 @pytest.mark.parametrize("branch", [False, True])
 def test_replay_summary_uses_each_nodes_saved_usage(
-    session: cli.Session, language: str, branch: bool
+    session: core.Session, language: str, branch: bool
 ) -> None:
     settings.save({"language": language})
     node = session.log.state.nodes[session.leaf or ""]
@@ -105,7 +105,9 @@ def test_replay_summary_uses_each_nodes_saved_usage(
 
 
 @pytest.mark.parametrize("args", [["-c"], ["-r"]])
-def test_resume_cli_prints_history_before_the_prompt(session: cli.Session, args: list[str]) -> None:
+def test_resume_cli_prints_history_before_the_prompt(
+    session: core.Session, args: list[str]
+) -> None:
     before = session.log.path.read_bytes()
     if args == ["-r"]:
         args = [*args, session.log.path.stem]
@@ -119,7 +121,7 @@ def test_resume_cli_prints_history_before_the_prompt(session: cli.Session, args:
 
 
 def test_terminal_history_reuses_message_and_markdown_rendering(
-    session: cli.Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    session: core.Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     questions: list[tuple[str, str | None]] = []
     answers: list[str] = []
@@ -146,13 +148,13 @@ def test_terminal_history_reuses_message_and_markdown_rendering(
 
 @pytest.mark.parametrize("interactive", [False, True])
 def test_resume_inside_session_renders_selected_history(
-    session: cli.Session,
+    session: core.Session,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     interactive: bool,
 ) -> None:
     old = session.log.path
-    fresh = cli.Session(session.cwd, new=True)
+    fresh = core.Session(session.cwd, new=True)
     fresh.save()
     if interactive:
         inputs = iter([f"/resume {old.stem}", "/quit"])
@@ -168,7 +170,7 @@ def test_resume_inside_session_renders_selected_history(
     assert "other branch question" not in output
 
 
-def test_attachment_data_and_thinking_are_not_replayed(session: cli.Session) -> None:
+def test_attachment_data_and_thinking_are_not_replayed(session: core.Session) -> None:
     node = session.log.state.nodes[session.leaf or ""]
     payload = node.model_copy(deep=True).payload
     payload[0]["content"].extend(
@@ -192,12 +194,12 @@ def test_legacy_session_payloads_can_be_replayed(
     tmp_path: Path, version: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = Path(__file__).parent / "fixtures" / f"{version}.jsonl"
-    s = cli.Session(tmp_path, new=True)
+    s = core.Session(tmp_path, new=True)
     s.log.path.write_bytes(fixture.read_bytes())
     s.log = Log(s.log.path)
     s._place()
     events: list[str] = []
-    monkeypatch.setattr(cli.Session, "_build", lambda *_: pytest.fail("history called a model"))
+    monkeypatch.setattr(core.Session, "_build", lambda *_: pytest.fail("history called a model"))
     history.replay(s, lambda _, text: events.append(text), lambda _, text: events.append(text))
     assert events and events[-1].startswith("[N")
     assert s.log.path.read_bytes() == fixture.read_bytes()
@@ -206,7 +208,7 @@ def test_legacy_session_payloads_can_be_replayed(
 @pytest.mark.skipif(not hasattr(os, "openpty"), reason="requires a terminal")
 @pytest.mark.parametrize("option", ["-r", "-c", "update"])
 def test_real_terminal_resume_shows_transcript_before_input(
-    session: cli.Session, option: str
+    session: core.Session, option: str
 ) -> None:
     import fcntl
     import select

@@ -3,6 +3,27 @@
 Everything here used to live in the README. It is the detail you need when you are
 running kaipi against a real endpoint, or working on kaipi itself.
 
+## Application boundary
+
+The `kaipi` distribution contains the core and the built-in CLI. Canvas remains bundled,
+using the same core rather than calling CLI internals. Future clients can wrap the product
+without implementing their own agent loop or session format.
+
+- `core.py`: `Session`, synchronous `run_input`, background `Session.start`, stop,
+  structured events, snapshots and persisted session operations.
+- Existing domain modules: context, graph, providers, attachments, ledger and storage.
+- `views.py`: shared slash syntax and text rendering; no direct state writes.
+- `cli.py`, `tui.py`, `configuration.py`: terminal entry points and interaction.
+- `server.py`, `canvas.html`: HTTP/SSE and browser interaction.
+
+Core operations return data, not terminal output. For example, `session.go("N1")` moves
+and saves the cursor; the CLI formats a confirmation and Canvas refreshes its state.
+The same stored session can be reopened by either interface. `core.Event` carries model
+and tool text or semantic lifecycle events; each interface renders them in its own way.
+
+This is a module boundary within one installation and process. Independent process
+attachment, background-service lifetime and a versioned external protocol are future work.
+
 ## Local HTTP API
 
 The canvas is served by the same process that runs the session, on `127.0.0.1` with a
