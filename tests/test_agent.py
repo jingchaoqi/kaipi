@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import _thread
 import os
+import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -95,6 +97,51 @@ def test_graft_edges_are_recorded_and_snapshotted(log: Log, tmp_path: Path) -> N
 def test_truncate_keeps_head_and_tail() -> None:
     s = agent.truncate("a" * 100 + "b" * 100, limit=50)
     assert s.startswith("a" * 25) and s.endswith("b" * 25) and "omitted" in s
+
+
+@pytest.mark.parametrize("stream", [1, 2])
+def test_bash_handles_non_utf8_stdout_and_stderr(tmp_path: Path, stream: int) -> None:
+    payload = "正常文本 ".encode() + b"\x82\xff tail"
+    command = shlex.join(
+        [sys.executable, "-c", f"import os; os.write({stream}, {payload!r}); raise SystemExit(7)"]
+    )
+    output = agent.run_bash(command, tmp_path)
+    assert "正常文本 \ufffd\ufffd tail" in output
+    assert output.endswith("[exit 7]")
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_bash_binary_output_can_time_out_or_stop(tmp_path: Path, interrupt: bool) -> None:
+    command = shlex.join(
+        [sys.executable, "-c", "import os,time; os.write(1,b'\\x82'); time.sleep(30)"]
+    )
+    stop = threading.Event()
+    timer = threading.Timer(0.3, stop.set)
+    if interrupt:
+        timer.start()
+    try:
+        output = agent.run_bash(command, tmp_path, timeout=5 if interrupt else 0, stop=stop)
+    finally:
+        if interrupt:
+            timer.cancel()
+            timer.join()
+    assert "\ufffd" in output
+    assert "stopped by the user" in output if interrupt else "command timed out" in output
+
+
+def test_non_utf8_tool_output_completes_and_replays(log: Log, tmp_path: Path) -> None:
+    command = shlex.join([sys.executable, "-c", "import os; os.write(1,b'prefix \\x82 tail')"])
+    provider = FakeProvider([call("binary", command), text("done"), text("next")])
+    node = agent.run_turn(log, provider, None, [], "read output", exploration=False, cwd=tmp_path)
+    assert log.state.nodes[node].completed
+    assert "prefix \ufffd tail" in str(log.state.nodes[node].payload)
+    restored = Log(log.path)
+    assert restored.state.nodes[node].payload == log.state.nodes[node].payload
+    child = agent.run_turn(
+        restored, provider, node, [], "continue", exploration=False, cwd=tmp_path
+    )
+    assert restored.state.nodes[child].completed
+    assert "prefix \ufffd tail" in str(provider.requests[-1][0])
 
 
 def test_max_steps_and_refusal(log: Log, tmp_path: Path) -> None:

@@ -13,6 +13,11 @@ A node is one complete turn: one user input plus everything the model did until 
 stopped, **including every tool call and its output**. Nodes are the smallest unit of
 context. Tool calls are never nodes of their own.
 
+Command stdout and stderr are decoded as UTF-8. Undecodable bytes become the Unicode
+replacement character (U+FFFD), so binary or legacy-encoded output does not abort a
+turn. Valid UTF-8 text remains unchanged; credential redaction, output truncation,
+exit codes, timeouts and interruption still apply.
+
 Once the turn ends, the node's `payload` is frozen. Anything that looks like a change is
 a new node or a status change.
 

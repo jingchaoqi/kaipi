@@ -68,6 +68,8 @@ def run_bash(cmd: str, cwd: Path, timeout: int = 300, stop: threading.Event | No
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",  # command output can contain binary or legacy-encoded bytes
         start_new_session=True,
     )
     deadline, note = time.monotonic() + timeout, ""
