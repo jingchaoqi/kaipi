@@ -16,6 +16,12 @@ context. Tool calls are never nodes of their own.
 Once the turn ends, the node's `payload` is frozen. Anything that looks like a change is
 a new node or a status change.
 
+Command stdout and stderr are decoded as UTF-8 with replacement: invalid bytes become
+`�`, while valid UTF-8 text stays intact. Output encoding alone must not abort a turn.
+Decoded output follows the same credential redaction and truncation rules before being
+shown, stored or sent to the model. Exit codes, timeouts, user stops and process-group
+cleanup retain their existing behaviour.
+
 Status: `live` (part of context), `archived` (out of context, reversible; archiving a
 subtree is one atomic operation), `aborted` (the user stopped the turn: out of context
 for good, still billed), `tombstone` (permanent; one line remains).

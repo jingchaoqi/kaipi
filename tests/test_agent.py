@@ -97,6 +97,103 @@ def test_truncate_keeps_head_and_tail() -> None:
     assert s.startswith("a" * 25) and s.endswith("b" * 25) and "omitted" in s
 
 
+@pytest.mark.parametrize("exit_code", [0, 7])
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        (r"printf '12345678901234567890123456\202'", "12345678901234567890123456�"),
+        (r"printf '\202' >&2", "\n�"),
+        (r"printf '\202'; printf '\377' >&2", "�\n�"),
+        ("printf 'English 中文\\n'", "English 中文\n"),
+        ("printf 'English 中文\\n' >&2", "\nEnglish 中文\n"),
+    ],
+)
+def test_run_bash_decodes_output(
+    tmp_path: Path, command: str, expected: str, exit_code: int
+) -> None:
+    suffix = f"\n[exit {exit_code}]" if exit_code else ""
+    assert agent.run_bash(f"{command}; exit {exit_code}", tmp_path) == expected + suffix
+
+
+@pytest.mark.parametrize("reason", ["timeout", "stop"])
+def test_invalid_output_preserves_command_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    stop = threading.Event()
+    timer = threading.Timer(0.2, stop.set)
+    killed: list[subprocess.Popen[str]] = []
+    kill = agent._kill
+
+    def record_kill(process: subprocess.Popen[str]) -> None:
+        killed.append(process)
+        kill(process)
+
+    monkeypatch.setattr(agent, "_kill", record_kill)
+    if reason == "stop":
+        timer.start()
+    try:
+        out = agent.run_bash(
+            r"printf 'out\202'; printf 'err\377' >&2; sleep 30 & wait",
+            tmp_path,
+            timeout=1,
+            stop=stop if reason == "stop" else None,
+        )
+        note = "stopped by the user" if reason == "stop" else "command timed out after 1s"
+        assert out == f"out�\nerr�\n[kaipi: {note}]"
+        assert len(killed) == 1 and killed[0].poll() is not None
+        processes = subprocess.check_output(["ps", "-A", "-o", "pgid=,stat="], text=True)
+        assert not any(
+            row.split()[0] == str(killed[0].pid) and not row.split()[1].startswith("Z")
+            for row in processes.splitlines()
+        ), "command processes survived cancellation"
+    finally:
+        timer.cancel()
+        if timer.ident is not None:
+            timer.join()
+
+
+def test_invalid_output_is_still_redacted_and_truncated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "sk-output-regression-0123456789"
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    out = agent.run_bash(
+        rf"printf '\202{secret}'; printf '%020000d' 0; printf '{secret}\377' >&2",
+        tmp_path,
+    )
+    assert secret not in out
+    assert out.startswith("�[kaipi: API key redacted]")
+    assert out.endswith("[kaipi: API key redacted]�")
+    assert "chars omitted]" in out
+    assert len(out) < agent.MAX_TOOL_OUTPUT + 100
+
+
+def test_core_completes_and_reloads_history_after_invalid_command_output(tmp_path: Path) -> None:
+    s = core.Session(tmp_path, new=True)
+    s.rename("output decoding")  # title generation is unrelated to this regression
+    command = r"printf '12345678901234567890123456\202'; printf '中文\377' >&2"
+    expected = "12345678901234567890123456�\n中文�"
+    provider = FakeProvider([call("t1", command), text("完成"), text("继续完成")])
+    s._provider = provider
+    events: list[core.Event] = []
+    nid, _ = core.run_input(s, "执行命令", events.append)
+    assert not s.busy and events[-1].kind == "completed"
+    assert not any(ev.kind in ("aborted", "error") for ev in events)
+    assert ("out", expected) in [(ev.kind, ev.text) for ev in events]
+    assert provider.requests[1][0][-1]["content"][0]["content"] == expected
+
+    restored = core.Session(tmp_path, resume=s.log.path.stem)
+    node = restored.log.state.nodes[nid]
+    assert restored.leaf == nid and node.completed and node.status == "live"
+    assert node.payload == s.log.state.nodes[nid].payload
+    assert node.payload[2]["content"][0]["content"] == expected
+    assert context.final_answer(node) == "完成"
+    restored._provider = provider
+    child, _ = core.run_input(restored, "继续")
+    assert restored.log.state.nodes[child].parent_id == nid
+    assert provider.requests[2][0][:4] == node.payload
+
+
 def test_max_steps_and_refusal(log: Log, tmp_path: Path) -> None:
     seen: list[tuple[str, str]] = []
     p = FakeProvider([call("t1", "true"), call("t2", "true"), call("t3", "true")])
