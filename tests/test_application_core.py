@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from kaipi import context, core, server, summarize, views
+from kaipi import agent, context, core, server, summarize, views
 from kaipi.model import Message, Node, NodeAborted, NodeCreated, ReferenceEdge, Usage
 from kaipi.providers import Reply
 from kaipi.store import Log
@@ -170,7 +170,7 @@ def test_failure_before_node_creation_keeps_pending_grafts(
         raise ValueError("missing provider configuration")
 
     monkeypatch.setattr(s, "_build", fail)
-    with pytest.raises(ValueError, match="missing provider"):
+    with pytest.raises(agent.Failed, match="missing provider"):
         core.run_input(s, "continue")
     restored = core.Session(tmp_path, resume=s.log.path.stem)
     assert not s.busy and restored.pending == edges and restored.leaf == root
@@ -205,10 +205,12 @@ def test_final_event_precedes_next_turn_and_handoff(
     entered, release, attempting = threading.Event(), threading.Event(), threading.Event()
     events: list[str] = []
 
+    expected = "aborted" if outcome == "error" else outcome
+
     def emit(ev: core.Event) -> None:
         if ev.kind == "start" and outcome == "aborted":
             s.stop()
-        if ev.kind == outcome:
+        if ev.kind == expected:
             entered.set()
             assert release.wait(5)
             # Reentrant callbacks may read the result, but cannot change the session.
@@ -237,7 +239,7 @@ def test_final_event_precedes_next_turn_and_handoff(
         if second.ident is not None:
             second.join(5)
     assert not first.is_alive() and not second.is_alive()
-    assert events.index("first:" + outcome) < events.index("second:start")
+    assert events.index("first:" + expected) < events.index("second:start")
     assert events[-1] == "second:completed" and not s.busy
     canvas.request_handoff()
     assert canvas.handoff
@@ -360,11 +362,12 @@ def test_summary_preparation_failure_preserves_pending(
         if ev.kind == "summary_failed":
             raise RuntimeError("client callback failed before the turn")
 
-    with pytest.raises(failure):
+    with pytest.raises(agent.Interrupted if failure is KeyboardInterrupt else agent.Failed):
         core.run_input(s, "next", emit)
     restored = core.Session(tmp_path)
     assert s.pending == restored.pending == edges and not s.busy
-    assert s.leaf == restored.leaf == root and len(restored.log.state.nodes) == 2
+    assert s.leaf == restored.leaf == root and len(restored.log.state.nodes) == 3
+    assert restored.can_retry
     monkeypatch.setattr(summarize, "ensure_summary", original_summary)
     core.run_input(s, "retry")
     assert s.pending == [] and s.log.state.nodes[s.leaf or ""].grafts[0].src_id == side

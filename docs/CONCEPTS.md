@@ -103,6 +103,32 @@ the way a stop does: the node becomes `aborted`, so the tokens it already burned
 the bill, the cursor moves back to the parent, and the surface prints one sentence. A
 provider must never be able to take a session down with it.
 
+### 1.3 Retrying the latest turn
+
+`/retry` re-runs only the latest attempt in the current session, whether completed,
+failed or cancelled; it accepts no node argument. Failure/cancellation surfaces suggest
+the command, while success does not. Core exposes synchronous `Session.retry()` and
+background `Session.start_retry(emit)`, using the ordinary execution, stop and event
+lifecycle. Canvas exposes the same operation through `POST /api/retry {}` and `/retry`.
+
+Each new node records its original input blocks (including attachment snapshots),
+explicit graft selections, execution role and original trunk. Preparation failures also
+record an aborted attempt, so retry cannot accidentally repeat an earlier successful
+question. Retry creates a sibling under the original parent, never appends to or rewrites
+the old payload. Only the parent's live lineage and the original input/graft snapshots
+enter the new request; old replies, tool results and errors are excluded. Attachments
+are not re-read or parsed, and materialised grafts are not summarised again.
+
+An exploration retry leaves the trunk in place. A successful trunk retry pins the new
+node as trunk; failure leaves the previous valid trunk in place. The cursor follows the
+new result, or returns to the original parent on failure. Costs and historical attempts
+remain in the append-only log; filesystem changes are not automatically undone. Retry
+uses the currently selected model. A running turn, changed cursor/trunk or pending grafts,
+archived target, or missing original input is rejected before execution. Older nodes
+recover input, graft snapshots and execution role from their frozen payload and prior log
+state when available; incomplete crash records without an input cannot be retried.
+New optional event fields preserve reading and continuing older sessions.
+
 ## 2. Edges
 
 **Lineage**: every node has exactly one `parent_id` (roots excepted). This is the tree

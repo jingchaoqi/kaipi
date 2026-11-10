@@ -611,6 +611,13 @@ async function send() {
 }
 async function command(text) {
   const verb = text.split(/\s+/)[0];
+  if (verb === '/retry' && text.trim() === '/retry') {
+    if (attached.length || sending) { toast('{{js:请先处理附件草稿或等待提交完成}}'); return; }
+    liveBlock('/retry', false);
+    try { await api.post('/api/retry', {}); }
+    catch (e) { $('#transcript .live')?.remove(); toast(e.message); }
+    return;
+  }
   if (verb === '/cli' || verb === '/quit' || verb === '/exit') return handoff();
   try {
     const r = await api.post('/api/command', { line: text });
@@ -646,13 +653,23 @@ es.onmessage = ev => {
     $('#stop').hidden = true;
     $('#stop').disabled = false;
     sysLine(`{{js:已停止：这一轮作废（}}${e.cost}{{js:），不会进入之后的上下文；花掉的 token 已记账。下一条输入会成为它的兄弟节点。}}`);
+    if (e.error) sysLine('{{js:错误：}}' + e.error);
+    if (e.retryable) sysLine('{{js:输入 /retry 可重新运行上一轮。}}');
     refresh();
     return;
   }
   if (e.type === 'error') { $('#stop').hidden = true; if (live) live.querySelector('.thinking')?.remove(); sysLine('{{js:错误：}}' + e.text); refresh(); return; }
+  if (e.type === 'start') {
+    if (!live) liveBlock(e.text || '', e.exploration);
+    const active = $('#transcript .live');
+    if (e.text) active.querySelector('.q').textContent = e.text;
+    active.querySelector('.who .exp')?.remove();
+    if (e.exploration) active.querySelector('.who').insertAdjacentHTML('beforeend', '<span class="exp">{{js:探索}}</span>');
+    $('#send').disabled = true; $('#stop').hidden = false; $('#stop').disabled = false;
+    return;
+  }
   if (!live) return;
   const st = live.querySelector('.stream');
-  if (e.type === 'start') { $('#send').disabled = true; $('#stop').hidden = false; return; }
   if (['text', 'cmd', 'out', 'guard', 'stop', 'ledger'].includes(e.type)) {
     st.insertAdjacentHTML('beforeend', line({ kind: e.type, text: e.text }));
     $('#transcript').scrollTop = $('#transcript').scrollHeight;

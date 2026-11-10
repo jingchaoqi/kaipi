@@ -111,6 +111,14 @@ class Input(str):
         """The agent consumes snapshots; no decoder runs during context assembly."""
         return deepcopy(self._blocks)
 
+    @classmethod
+    def from_blocks(cls, message: dict[str, Any]) -> Input:
+        """Restore a saved submission without re-reading or re-parsing attachments."""
+        content = message["content"]
+        value = str.__new__(cls, content[0]["text"])
+        value._blocks, value.attachments = deepcopy(content[1:]), []
+        return value
+
 
 def pasted_paths(text: str) -> list[Path]:
     """Recognize an entire pasted file selection, never paths mentioned in a sentence."""

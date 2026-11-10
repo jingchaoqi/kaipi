@@ -15,11 +15,13 @@ from typing import Any
 from kaipi import context, guard
 from kaipi.model import (
     EdgeAdded,
+    GraftBlock,
     Message,
     NodeAborted,
     NodeCompleted,
     NodeCreated,
     ReferenceEdge,
+    TurnRequest,
     Usage,
     new_id,
 )
@@ -146,13 +148,15 @@ def run_turn(
     hook: Hook = lambda _k, _t: None,
     max_steps: int = MAX_STEPS,
     stop: threading.Event | None = None,
+    request: TurnRequest | None = None,
+    grafts: list[GraftBlock] | None = None,
 ) -> str:
     """Create, run and freeze one node under leaf_id. Returns the new node id.
     `stop` interrupts the turn at the next step boundary; so does Ctrl-C, at once."""
     state = log.state
-    ctx = context.build(state, leaf_id, edges, text, guard=exploration)
+    ctx = context.build(state, leaf_id, edges, text, guard=exploration, grafts=grafts)
     node_id = new_id()
-    log.append(NodeCreated(id=node_id, parent_id=leaf_id, model=provider.model))
+    log.append(NodeCreated(id=node_id, parent_id=leaf_id, model=provider.model, request=request))
     for e in edges:
         log.append(EdgeAdded(edge=e.model_copy(update={"dst_id": node_id})))
 
@@ -174,6 +178,7 @@ def run_turn(
                 id=node_id,
                 payload=messages[ctx.payload_start :],
                 usage=usage,
+                grafts=ctx.grafts,
                 tree=tree,
                 paths=guard.changed(cwd, tree0, tree),
                 guard_dirty=dirty or (baseline is not None and tree != tree0),

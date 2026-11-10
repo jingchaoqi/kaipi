@@ -77,7 +77,12 @@ def fold(events: list[Event]) -> State:
                 s.system_prompt = ev.system_prompt
             case NodeCreated():
                 s.nodes[ev.id] = Node(
-                    id=ev.id, parent_id=ev.parent_id, created_at=ev.ts, seq=ev.seq, model=ev.model
+                    id=ev.id,
+                    parent_id=ev.parent_id,
+                    created_at=ev.ts,
+                    seq=ev.seq,
+                    model=ev.model,
+                    request=ev.request,
                 )
             case NodeCompleted():
                 n = s.nodes[ev.id]
@@ -88,6 +93,7 @@ def fold(events: list[Event]) -> State:
             case NodeAborted():
                 n = s.nodes[ev.id]
                 n.payload, n.usage, n.status = ev.payload, ev.usage, "aborted"
+                n.grafts = ev.grafts
                 n.tree, n.paths, n.guard_dirty = ev.tree, list(ev.paths), ev.guard_dirty
             case EdgeAdded():
                 s.edges.append(ev.edge)

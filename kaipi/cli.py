@@ -163,13 +163,14 @@ def run_input(
     *,
     explore: bool = False,
     stop: threading.Event | None = None,
+    retry: bool = False,
 ) -> tuple[str, bool]:
     def emit(ev: core.Event) -> None:
         rendered = views.event(s, ev)
         if rendered:
             hook(*rendered)
 
-    return core.run_input(s, text, emit, explore=explore, stop=stop)
+    return core.run_input(s, text, emit, explore=explore, stop=stop, retry=retry)
 
 
 class EscWatcher:
@@ -220,6 +221,11 @@ class EscWatcher:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
 
+def retry_hint(s: core.Session) -> None:
+    if s.can_retry:
+        typer.echo(tr("输入 /retry 可重新运行上一轮。"))
+
+
 def after_failure(s: core.Session, err: agent.Failed) -> None:
     """A provider that refused ends the turn like a stop does: the node is aborted, the
     tokens it burned are billed, and the cursor is back on the parent to try again."""
@@ -232,6 +238,8 @@ def after_failure(s: core.Session, err: agent.Failed) -> None:
             RESET=RESET,
         )
     )
+
+    retry_hint(s)
 
 
 def after_interrupt(s: core.Session, stopped: agent.Interrupted) -> None:
@@ -257,6 +265,8 @@ def after_interrupt(s: core.Session, stopped: agent.Interrupted) -> None:
         )
     )
 
+    retry_hint(s)
+
 
 def after_turn(s: core.Session, nid: str, dirty: bool) -> None:
     if dirty:
@@ -268,10 +278,10 @@ def after_turn(s: core.Session, nid: str, dirty: bool) -> None:
             say(views.cmd_trunk(s, nid))
 
 
-def cli_turn(s: core.Session, text: str, *, explore: bool = False) -> None:
+def cli_turn(s: core.Session, text: str, *, explore: bool = False, retry: bool = False) -> None:
     try:
         with EscWatcher() as stop:
-            nid, dirty = run_input(s, text, explore=explore, stop=stop)
+            nid, dirty = run_input(s, text, explore=explore, stop=stop, retry=retry)
     except agent.Interrupted as stopped:
         after_interrupt(s, stopped)
         return
@@ -425,6 +435,10 @@ def slash(s: core.Session, argv: list[str], *, emit: Callable[[list[str]], None]
             plan = update.prepare(typer.echo)
             if plan:
                 raise update.Ready(plan)
+        case "retry":
+            if args:
+                raise ValueError(tr("用法：/retry（不带参数）"))
+            cli_turn(s, "", retry=True)
         case "explore":
             cli_turn(s, " ".join(args), explore=True)
         case "resume" if not args:

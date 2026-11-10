@@ -74,6 +74,31 @@ def _wait(canvas: server.Canvas) -> None:
     raise AssertionError("turn did not finish")
 
 
+def test_retry_http_and_slash_share_the_core(srv) -> None:  # type: ignore[no-untyped-def]
+    canvas, call, _, _ = srv
+    assert "error" in call("/api/retry", {})
+    assert call("/api/turn", {"text": "original question"}) == {"ok": True}
+    _wait(canvas)
+    old = canvas.s.leaf
+    assert call("/api/state")["retryable"] is True
+    assert call("/api/retry", {}) == {"ok": True}
+    _wait(canvas)
+    new = canvas.s.leaf
+    assert new != old and canvas.s.log.state.nodes[new].parent_id is None
+    assert "error" in call("/api/retry", {"id": old})
+    assert call("/api/command", {"line": "/retry"}) == {"output": ""}
+    _wait(canvas)
+    assert len(canvas.s.log.state.nodes) == 3 and canvas.s.leaf != new
+    canvas.s.claim()
+    try:
+        assert "error" in call("/api/retry", {})
+    finally:
+        canvas.s.idle.set()
+    canvas.request_handoff()
+    assert "error" in call("/api/retry", {})
+    assert len(canvas.s.log.state.nodes) == 3
+
+
 def test_canvas_flow(srv) -> None:  # type: ignore[no-untyped-def]
     canvas, call, base, token = srv
     html = urllib.request.urlopen(base + "/?t=" + token).read().decode()

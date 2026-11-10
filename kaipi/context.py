@@ -168,6 +168,7 @@ def build(
     text: str,
     *,
     guard: bool = False,
+    grafts: list[GraftBlock] | None = None,
 ) -> Context:
     messages: list[Message] = []
     points: set[int] = set()  # the two moving cache breakpoints: fork point, lineage end (§7)
@@ -187,7 +188,7 @@ def build(
     notice = (
         GUARD_TEXT if guard else (RELEASE_TEXT if standing and standing != RELEASE_TEXT else "")
     )
-    grafts = [render_graft(state, e, leaf_id) for e in edges]
+    grafts = [render_graft(state, e, leaf_id) for e in edges] if grafts is None else grafts
     payload_start = len(messages)
     if grafts:
         messages.append(graft_message(grafts))

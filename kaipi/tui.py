@@ -855,7 +855,7 @@ class Terminal:
             self.echo(line)
         return line
 
-    def turn(self, text: str, *, explore: bool = False) -> list[str]:
+    def turn(self, text: str, *, explore: bool = False, retry: bool = False) -> list[str]:
         """Run one turn in a worker thread, keeping the bottom area alive meanwhile.
         On normal completion the prompt stays alive until the next submission.
         Returns queued inputs, or that next submitted input, in order."""
@@ -865,7 +865,7 @@ class Terminal:
         def work() -> None:
             try:
                 outcome["ok"] = cli.run_input(
-                    self.s, text, hook=self.hook, explore=explore, stop=self.stop
+                    self.s, text, hook=self.hook, explore=explore, stop=self.stop, retry=retry
                 )
             except BaseException as e:  # noqa: BLE001 - re-raised on the main thread
                 outcome["err"] = e
@@ -1011,7 +1011,17 @@ def loop(s: core.Session) -> str:
                     continue
                 if line.split()[0] in ("/canvas", "/cli"):
                     return "canvas"
-                if line.split()[0] == "/explore":
+                if line.split()[0] == "/retry":
+                    if len(line.split()) != 1:
+                        raise ValueError(tr("用法：/retry（不带参数）"))
+                    node = s.retry_node()
+                    assert node.request is not None
+                    t.echo(
+                        str(attachments.Input.from_blocks(node.request.input)),
+                        label=s.name(node.parent_id) + "> ",
+                    )
+                    pending = t.turn("", retry=True) + pending
+                elif line.split()[0] == "/explore":
                     question = line[len("/explore") :].strip()
                     if isinstance(line, attachments.Input):
                         question = attachments.Input(question, line.attachments)

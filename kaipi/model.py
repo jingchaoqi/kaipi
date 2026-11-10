@@ -74,6 +74,15 @@ class ReferenceEdge(BaseModel):
     include_tool_outputs: list[str] = Field(default_factory=list)
 
 
+class TurnRequest(BaseModel):
+    """Original submission, independent of replies and tool results."""
+
+    input: Message
+    edges: list[ReferenceEdge] = Field(default_factory=list)
+    exploration: bool
+    trunk_id: str | None = None
+
+
 class Node(BaseModel):
     id: str
     parent_id: str | None
@@ -81,6 +90,7 @@ class Node(BaseModel):
     seq: int  # position of node_created in the log; ordering authority for invariant 2
     status: Status = "live"
     model: str
+    request: TurnRequest | None = None
     payload: list[Message] = Field(default_factory=list)
     grafts: list[GraftBlock] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)  # summed over every request of the turn
@@ -114,6 +124,7 @@ class NodeCreated(_Ev):
     id: str
     parent_id: str | None
     model: str
+    request: TurnRequest | None = None
 
 
 class NodeCompleted(_Ev):
@@ -137,6 +148,7 @@ class NodeAborted(_Ev):
     id: str
     payload: list[Message]  # kept for display only: never assembled into a request
     usage: Usage
+    grafts: list[GraftBlock] = Field(default_factory=list)
     tree: str | None = None  # it may have written files before it was stopped
     paths: list[str] = Field(default_factory=list)
     guard_dirty: bool = False

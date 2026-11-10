@@ -19,12 +19,19 @@ from kaipi import agent, attachments, context, graph, guard, ledger, providers, 
 from kaipi.i18n import tr
 from kaipi.model import (
     Depth,
+    GraftBlock,
+    Node,
+    NodeAborted,
     NodeArchived,
+    NodeCreated,
     NodeRestored,
     ReferenceEdge,
     SessionRenamed,
     SessionStarted,
     TrunkPinned,
+    TurnRequest,
+    Usage,
+    blocks,
     new_id,
 )
 from kaipi.providers import Provider
@@ -92,6 +99,7 @@ class Event:
     text: str = ""
     node_id: str = ""
     exploration: bool = False
+    retryable: bool = False
 
 
 Emit = Callable[[Event], None]
@@ -434,13 +442,93 @@ class Session:
             self.stopping = stop if stop is not None else threading.Event()
             self.idle.clear()
 
-    def start(self, text: str, emit: Emit, *, explore: bool = False) -> threading.Thread:
+    def retry_node(self) -> Node:
+        """Validate the latest attempt without changing the cursor or acquiring execution."""
+        with self.lock:
+            self.require_idle()
+            node = next(reversed(self.log.state.nodes.values()), None)
+            if node is None:
+                raise ValueError(tr("没有可重试的原始请求"))
+            node = node.model_copy(deep=True)
+            if node.request is None:
+                # Old logs already contain the submitted blocks and materialised graft text.
+                before = fold([e for e in self.log.events if e.seq < node.seq])
+                edges = [
+                    e.model_copy(update={"dst_id": ""}) for e in self.log.state.edges_into(node.id)
+                ]
+                for message in node.payload:
+                    content = blocks(message["content"])
+                    if message["role"] != "user" or not content or content[0].get("type") != "text":
+                        continue
+                    if context.classify(content[0]["text"]) == "graft":
+                        if not node.grafts and len(content) == len(edges):
+                            node.grafts = [
+                                GraftBlock(
+                                    src_id=e.src_id,
+                                    depth=e.depth,
+                                    include_tool_outputs=e.include_tool_outputs,
+                                    text=b["text"],
+                                )
+                                for e, b in zip(edges, content, strict=True)
+                            ]
+                        continue
+                    node.request = TurnRequest(
+                        input={
+                            "role": "user",
+                            "content": [
+                                b
+                                for b in content
+                                if b.get("type") != "text" or context.classify(b["text"]) != "guard"
+                            ],
+                        },
+                        edges=edges,
+                        exploration=any(b.get("text") == context.GUARD_TEXT for b in content),
+                        trunk_id=graph.trunk(before),
+                    )
+                    break
+                if node.request is None or (edges and not node.grafts):
+                    raise ValueError(tr("没有可重试的原始请求"))
+            request = node.request
+            position = node.id if node.completed else node.parent_id
+            trunk = node.id if node.completed and not request.exploration else request.trunk_id
+            pending = [] if node.completed else request.edges
+            if (
+                node.status not in ("live", "aborted", "tombstone")
+                or self.leaf != position
+                or graph.trunk(self.log.state) != trunk
+                or self.pending != pending
+            ):
+                raise ValueError(tr("会话位置或待嫁接内容已变化，无法重试上一轮"))
+            return node
+
+    @property
+    def can_retry(self) -> bool:
+        try:
+            self.retry_node()
+            return True
+        except ValueError:
+            return False
+
+    def retry(
+        self, emit: Emit = lambda _: None, *, stop: threading.Event | None = None
+    ) -> tuple[str, bool]:
+        """Re-run only the latest attempt, using the current selected model."""
+        return run_input(self, "", emit, stop=stop, retry=True)
+
+    def start_retry(self, emit: Emit) -> threading.Thread:
+        return self.start("", emit, retry=True)
+
+    def start(
+        self, text: str, emit: Emit, *, explore: bool = False, retry: bool = False
+    ) -> threading.Thread:
         """Reserve execution before returning, so another client cannot race the worker."""
-        self.claim()
+        with self.lock:
+            target = self.retry_node() if retry else None
+            self.claim()
 
         def work() -> None:
             try:
-                _execute(self, text, emit, explore=explore, stop=self.stopping)
+                _execute(self, text, emit, explore=explore, stop=self.stopping, retry=target)
             except Exception:  # noqa: BLE001 - _execute publishes failure before releasing idle
                 pass
 
@@ -506,6 +594,7 @@ class Session:
             "dirty": dirty,
             "repo": guard.is_repo(self.cwd),
             "status": status,
+            "retryable": self.can_retry,
         }
 
     def status_data(self, st: State | None = None) -> dict[str, Any]:
@@ -575,6 +664,7 @@ def _run_input(
     *,
     explore: bool = False,
     stop: threading.Event | None = None,
+    retry: Node | None = None,
 ) -> tuple[str, bool]:
     """Run one turn under the cursor. Returns (node id, working tree dirtied).
     `explore` forces an exploration even from the trunk leaf (the trunk is pinned in place).
@@ -585,50 +675,87 @@ def _run_input(
 
     st = s.log.state
     t = graph.trunk(st)
-    exploration = graph.is_exploration(st, s.leaf, force=explore)
-    emit(Event("start", exploration=exploration))
-    if s.pricing.find(s.wanted_model()) is None:
-        emit(Event("unpriced", s.wanted_model()))
-    with s.lock:
-        if exploration and s.leaf == t and st.trunk_pin != t:
-            s.log.append(TrunkPinned(node_id=t))
-    edges = s.pending
-    use: list[ReferenceEdge] = []  # only a successful turn consumes the staged grafts
-    for e in edges:
-        if e.depth == "leaf+summary":
-            try:
-                summarize.ensure_summary(s.log, s.cheap, e.src_id, s.leaf)
-            except Exception as err:  # noqa: BLE001 - the graft is the point, the summary a nicety
-                # The downgrade is for this attempt only: `edges` goes back to the cursor if
-                # the turn is stopped, and what the user staged is what they get on the retry.
-                e = e.model_copy(update={"depth": "leaf"})
-                why = providers.redact(str(err))  # a gateway can echo the key in its error
-                emit(Event("summary_failed", why, e.src_id))
-        use.append(e)
+    leaf = retry.parent_id if retry else s.leaf
+    if retry:
+        assert retry.request is not None
+        text = attachments.Input.from_blocks(retry.request.input)
+    exploration = (
+        retry.request.exploration
+        if retry and retry.request
+        else graph.is_exploration(st, leaf, force=explore)
+    )
+    edges = retry.request.edges if retry and retry.request else s.pending
+    request = TurnRequest(
+        input=context.input_message(text), edges=edges, exploration=exploration, trunk_id=t
+    )
     try:
+        emit(Event("start", str(text), exploration=exploration))
+        if s.pricing.find(s.wanted_model()) is None:
+            emit(Event("unpriced", s.wanted_model()))
+        with s.lock:
+            if exploration and leaf == t and st.trunk_pin != t:
+                s.log.append(TrunkPinned(node_id=t))
+        use: list[ReferenceEdge] = []
+        frozen = retry.grafts if retry and (retry.grafts or not edges) else None
+        for edge in edges:
+            if frozen is None and edge.depth == "leaf+summary":
+                try:
+                    summarize.ensure_summary(s.log, s.cheap, edge.src_id, leaf)
+                except Exception as err:  # noqa: BLE001 - a summary is optional
+                    edge = edge.model_copy(update={"depth": "leaf"})
+                    emit(Event("summary_failed", providers.redact(str(err)), edge.src_id))
+            use.append(edge)
         nid = agent.run_turn(
             s.log,
             s.provider,
-            s.leaf,
-            use,  # this attempt's edges; `edges` is what the cursor gets back if it is stopped
+            leaf,
+            use,
             text,
             exploration=exploration,
             cwd=s.cwd,
             hook=hook,
             stop=stop,
+            request=request,
+            grafts=frozen,
         )
-    except (agent.Interrupted, agent.Failed):
-        # Whether the user stopped it or the provider did, the turn is over: the cursor goes
-        # back to the parent so the next input opens a sibling rather than continuing from
-        # the wreck, and the grafts they staged are theirs, not the discarded turn's.
-        dead = next(n for n in reversed(list(s.log.state.nodes.values())) if n.status == "aborted")
+    except (Exception, KeyboardInterrupt) as err:
         with s.lock:
-            s.leaf, s.dirty = dead.parent_id, dead.guard_dirty
-        emit(Event("aborted", node_id=dead.id))
-        raise
+            dead = next(reversed(s.log.state.nodes.values()), None)
+            if dead is None or dead.seq < st.next_seq:
+                # Preparation failed before the agent could create its node.
+                nid = new_id()
+                s.log.append(
+                    NodeCreated(id=nid, parent_id=leaf, model=s.wanted_model(), request=request)
+                )
+                dead = s.log.state.nodes[nid]
+            if dead.status != "aborted":
+                s.log.append(
+                    NodeAborted(
+                        id=dead.id, payload=[request.input], usage=Usage(), guard_dirty=s.dirty
+                    )
+                )
+                dead = s.log.state.nodes[dead.id]
+            s.leaf, s.pending, s.dirty = dead.parent_id, list(request.edges), dead.guard_dirty
+        emit(
+            Event(
+                "aborted",
+                ""
+                if isinstance(err, (agent.Interrupted, KeyboardInterrupt))
+                else providers.redact(str(err)),
+                node_id=dead.id,
+                retryable=True,
+            )
+        )
+        if isinstance(err, (agent.Interrupted, agent.Failed)):
+            raise
+        if isinstance(err, KeyboardInterrupt):
+            raise agent.Interrupted(dead.id, dead.usage) from None
+        raise agent.Failed(
+            providers.redact(f"{type(err).__name__}: {err}").split("\n")[0][:300]
+        ) from None
     n = s.log.state.nodes[nid]
     with s.lock:
-        if not exploration and st.trunk_pin is not None and st.trunk_pin == s.leaf:
+        if not exploration and (retry or (st.trunk_pin is not None and st.trunk_pin == s.leaf)):
             s.log.append(TrunkPinned(node_id=nid))  # extending the pinned leaf moves the pin
         s.leaf, s.pending, s.dirty = nid, [], n.guard_dirty
     if (
@@ -648,7 +775,13 @@ def _run_input(
 
 
 def _execute(
-    s: Session, text: str, emit: Emit, *, explore: bool, stop: threading.Event
+    s: Session,
+    text: str,
+    emit: Emit,
+    *,
+    explore: bool,
+    stop: threading.Event,
+    retry: Node | None = None,
 ) -> tuple[str, bool]:
     finished: Event | None = None
 
@@ -660,9 +793,9 @@ def _execute(
             emit(ev)
 
     try:
-        if not text.strip():
+        if not text.strip() and retry is None:
             raise ValueError(tr("请输入问题或添加附件"))
-        return _run_input(s, text, forward, explore=explore, stop=stop)
+        return _run_input(s, text, forward, explore=explore, stop=stop, retry=retry)
     except Exception as err:
         if finished is None:
             finished = Event("error", providers.redact(str(err)))
@@ -689,9 +822,12 @@ def run_input(
     *,
     explore: bool = False,
     stop: threading.Event | None = None,
+    retry: bool = False,
 ) -> tuple[str, bool]:
-    s.claim(stop)
-    return _execute(s, text, emit, explore=explore, stop=s.stopping)
+    with s.lock:
+        target = s.retry_node() if retry else None
+        s.claim(stop)
+    return _execute(s, text, emit, explore=explore, stop=s.stopping, retry=target)
 
 
 def input_text(text: str, items: list[dict[str, Any]]) -> str:

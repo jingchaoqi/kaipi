@@ -114,7 +114,7 @@ class Canvas:
 
     def event(self, ev: core.Event) -> None:
         if ev.kind == "start":
-            self.hub.publish(type="start", exploration=ev.exploration)
+            self.hub.publish(type="start", text=ev.text, exploration=ev.exploration)
         elif ev.kind == "completed":
             self.hub.publish(
                 type="done", node=ev.node_id, dirty=self.s.dirty, exploration=ev.exploration
@@ -126,6 +126,8 @@ class Canvas:
                 node=n.id,
                 leaf=self.s.leaf,
                 cost=f"{self.s.pricing.price(n.model).cost(n.usage):.4f}",
+                retryable=ev.retryable,
+                error=ev.text,
             )
         else:
             rendered = views.event(self.s, ev)
@@ -152,6 +154,11 @@ class Canvas:
                 return tr("handing the session back to the terminal")
             if argv[0] == "canvas":
                 return tr("already on the canvas")
+            if argv[0] == "retry":
+                if len(argv) != 1:
+                    raise ValueError(tr("用法：/retry（不带参数）"))
+                self.s.start_retry(self.event)
+                return ""
             if argv[0] == "explore":  # reserve here; the worker executes outside the lock
                 self.turn(" ".join(argv[1:]), explore=True)
                 return tr("exploration started")
@@ -328,6 +335,10 @@ class Handler(BaseHTTPRequestHandler):
                     c.s.require_idle()
                     if path == "/api/turn":
                         c.turn(text, bool(body.get("explore")))
+                    elif path == "/api/retry":
+                        if body:
+                            raise ValueError(tr("用法：/retry（不带参数）"))
+                        c.s.start_retry(c.event)
                     elif path == "/api/command":
                         result = {"output": c.command(str(body["line"]))}
                     elif path in ID_VERBS:

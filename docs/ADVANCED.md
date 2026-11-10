@@ -21,6 +21,14 @@ and saves the cursor; the CLI formats a confirmation and Canvas refreshes its st
 The same stored session can be reopened by either interface. `core.Event` carries model
 and tool text or semantic lifecycle events; each interface renders them in its own way.
 
+`session.retry()` synchronously re-runs the latest attempt and returns `(node_id, dirty)`;
+`session.start_retry(emit)` reserves it immediately and returns a worker thread. Both use
+the current selected model, preserve the original submission/role and create a sibling.
+`session.stop()` interrupts either path. `session.can_retry` reports availability, while
+`session.retry_node()` validates and returns a detached snapshot for a client's preview.
+An aborted event has `retryable: true`; clients can suggest `/retry` after an unsuccessful
+attempt. No retry suggestion is emitted on success.
+
 This is a module boundary within one installation and process. Independent process
 attachment, background-service lifetime and a versioned external protocol are future work.
 
@@ -39,7 +47,9 @@ Endpoints: `GET /api/state`, `GET /api/node/<id>`, `GET /api/preview?src=&tools=
 `GET /api/rewind?id=`, `GET /api/events` (SSE), `POST /api/turn {text, explore}`,
 `/api/command {line}`, `/api/go`, `/api/archive`, `/api/restore`, `/api/pin`,
 `/api/rewind {id, mode}`, `/api/pending {edges}`, `/api/reset`, `/api/handoff`,
-`/api/stop`.
+`/api/stop`, `POST /api/retry {}`. The retry route accepts no node id or other parameters;
+`GET /api/state` includes `retryable`. Busy/changed-position requests return 409 and a
+closed Canvas returns 410. Original submissions are stored by the core, not the client.
 
 The canvas folds a command's output to its first four lines and expands it on a click; the
 terminal prints the same four and says how many it kept back, since scrollback cannot be
