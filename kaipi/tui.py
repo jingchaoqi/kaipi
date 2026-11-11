@@ -370,6 +370,7 @@ class Terminal:
         self._bar = ""
         self._bar_at = 0.0
         self._bar_width = 0
+        self._title = ""
         self._text: list[str] = []
         self._intent = ""
         self._tool_section = False
@@ -584,6 +585,7 @@ class Terminal:
             HSplit([Window(), CompletionsMenu(max_height=10, scroll_offset=1), prompt_layout]),
             floats,
         )
+        self.session.app.before_render += self.update_title
         self.session.default_buffer.on_text_changed += self.refresh_completions
         self.session.default_buffer.on_cursor_position_changed += self.refresh_completions
 
@@ -649,6 +651,12 @@ class Terminal:
             return int(self.session.output.get_size().columns)
         except Exception:  # noqa: BLE001 - no running app: a sane default
             return 80
+
+    def update_title(self, app: Application[str]) -> None:
+        title = cli.terminal_title(self.s)
+        if title != self._title:
+            app.output.set_title(title)
+            self._title = title
 
     def rule(self) -> str:
         return f"{cli.DIM}{'─' * self.columns()}{cli.RESET}"

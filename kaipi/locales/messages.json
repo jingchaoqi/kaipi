@@ -1974,5 +1974,9 @@
   "请先处理附件草稿或等待提交完成": {
     "zh": "请先处理附件草稿或等待提交完成",
     "en": "Handle the attachment draft or wait for submission to finish first"
+  },
+  "会话指令已冻结，请新建会话以应用不同的应用层指令": {
+    "zh": "会话指令已冻结，请新建会话以应用不同的应用层指令",
+    "en": "Session instructions are frozen; start a new session to use different application instructions"
   }
 }

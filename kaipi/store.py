@@ -36,6 +36,7 @@ class State(BaseModel):
     cwd: str = ""
     model: str = ""
     system_prompt: str = ""
+    app_instructions: str = ""
     nodes: dict[str, Node] = Field(default_factory=dict)  # insertion order == creation order
     edges: list[ReferenceEdge] = Field(default_factory=list)
     trunk_pin: str | None = None
@@ -75,6 +76,7 @@ def fold(events: list[Event]) -> State:
             case SessionStarted():
                 s.session_id, s.cwd, s.model = ev.session_id, ev.cwd, ev.model
                 s.system_prompt = ev.system_prompt
+                s.app_instructions = ev.app_instructions
             case NodeCreated():
                 s.nodes[ev.id] = Node(
                     id=ev.id,

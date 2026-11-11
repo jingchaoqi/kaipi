@@ -269,6 +269,15 @@ or pending grafts directly. Configuration prompts collect user choices; the shar
 provider, catalog and settings modules validate and persist them. Catalog refresh can be
 prepared without saving, so Esc still cancels the entire change.
 
+Applications may create a session with `Session(cwd, new=True, app_instructions=...)`.
+The optional text is appended to the base system prompt under `Application instructions`,
+before the workspace's `AGENTS.md`. The complete prompt and application text are frozen
+in `SessionStarted`; ordinary clients omit the parameter. Resume always uses the saved
+prompt; explicitly supplying different instructions when reopening is rejected before
+changing the session. `/new` retains the current session's application instructions while
+reading project instructions afresh. Older logs default to empty application instructions.
+These instructions apply to the main agent, not isolated title or summary generation.
+
 One core session admits one executing turn. State-changing operations are serialized and
 persisted by the core, and refused while execution is in progress (including draft graft
 changes). Stop remains available. Each cursor operation saves once; metadata and read-only
@@ -299,6 +308,13 @@ Ctrl-C in its hosting terminal stops and waits for the turn before returning to
 CLI. This phase keeps the existing in-process lifecycle,
 installation and on-disk formats. It adds no daemon, separate core distribution, remote
 client protocol or plugin framework.
+
+The interactive CLI sets the terminal title to `kaipi丨<conversation name>` on supporting
+terminals. Unnamed sessions show only `kaipi`.
+Generated titles, rename, new and resume update it; unchanged titles are not repeatedly
+written during animation. Whitespace is collapsed and control characters removed from
+the title. Plain TTY mode also updates it, while piped output contains no title escapes.
+This is terminal presentation only and never changes conversation data or model input.
 
 The session lives in one process and is open on exactly one surface at a time: the
 terminal or the canvas (a local web page served by the same process). The terminal keeps a

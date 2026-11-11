@@ -71,6 +71,12 @@ def clear_terminal() -> None:
         typer.echo("\033[2J\033[3J\033[H", nl=False)
 
 
+def terminal_title(s: core.Session) -> str:
+    name = " ".join(s.log.state.name.split())
+    name = "".join(c for c in name if c.isprintable())
+    return f"kaipi丨{name}" if name else "kaipi"
+
+
 def say(lines: list[str]) -> None:
     for line in lines:
         typer.echo(line)
@@ -308,8 +314,18 @@ def interactive(s: core.Session) -> str:
     typer.echo(f"kaipi  {views.status(s)}")
     history.replay(s, lambda node, text: typer.echo(f"{node}> {text}"), print_hook)
     exit_requested: float | None = None
+    title = ""
     while True:
         try:
+            next_title = terminal_title(s)
+            if (
+                sys.stdout.isatty()
+                and os.environ.get("TERM") not in ("dumb", "linux")
+                and next_title != title
+            ):
+                sys.stdout.write(f"\033]2;{next_title}\007")
+                sys.stdout.flush()
+                title = next_title
             line = input(f"{s.name(s.leaf)}> ").strip()
         except EOFError:
             return "quit"

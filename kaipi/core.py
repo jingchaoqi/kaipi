@@ -149,10 +149,19 @@ class Session:
     """Everything a command needs: the log, the cursor (current leaf + pending grafts),
     pricing and lazily built providers."""
 
-    def __init__(self, cwd: Path, *, new: bool = False, resume: str | None = None) -> None:
+    def __init__(
+        self,
+        cwd: Path,
+        *,
+        new: bool = False,
+        resume: str | None = None,
+        app_instructions: str | None = None,
+    ) -> None:
         """`new`: a fresh conversation (empty leftovers from earlier fresh starts are
         dropped rather than piled up). `resume`: a session id, or a prefix/suffix of one.
-        Neither: the most recent session, which is what the sub-commands act on."""
+        Neither: the most recent session, which is what the sub-commands act on.
+        `app_instructions` supplements new sessions; existing sessions retain their snapshot."""
+        app_instructions = app_instructions.strip() if app_instructions is not None else None
         self.cwd = cwd
         self.lock = threading.RLock()
         self.stopping = threading.Event()
@@ -166,15 +175,17 @@ class Session:
             for p in existing:
                 if not Log(p).state.nodes:
                     p.unlink()
-            self.log = self._start()
+            self.log = self._start(app_instructions or "")
         elif resume is not None:
             self.log = Log(find_session(cwd, resume))
         elif not existing:
-            self.log = self._start()
+            self.log = self._start(app_instructions or "")
         else:
             cur = self._cursor()
             path = sessions_dir(cwd) / (cur.session or existing[-1].name)
             self.log = Log(path if path.exists() else existing[-1])
+        if app_instructions is not None and app_instructions != self.log.state.app_instructions:
+            raise ValueError(tr("会话指令已冻结，请新建会话以应用不同的应用层指令"))
         self._place()
         self._provider: Provider | None = None
         self._provider_spec: str | None = None  # what it was built for; None if injected
@@ -213,16 +224,22 @@ class Session:
 
         return os.environ.get("KAIPI_MODEL") or active_model() or self.pricing.model
 
-    def _start(self) -> Log:
+    def _start(self, app_instructions: str = "") -> Log:
         model = self.wanted_model()
         system = BASE_PROMPT
+        if app_instructions:
+            system += "\n\n# Application instructions\n" + app_instructions
         agents_md = self.cwd / "AGENTS.md"
         if agents_md.exists():  # snapshotted: the system prompt is frozen for the session
             system += "\n\n# Project instructions (AGENTS.md)\n" + agents_md.read_text()
         log = Log(sessions_dir(self.cwd) / f"{new_id()}.jsonl")
         log.append(
             SessionStarted(
-                session_id=log.path.stem, cwd=str(self.cwd), model=model, system_prompt=system
+                session_id=log.path.stem,
+                cwd=str(self.cwd),
+                model=model,
+                system_prompt=system,
+                app_instructions=app_instructions,
             )
         )
         return log
@@ -382,7 +399,7 @@ class Session:
     @idle_operation
     def new(self) -> None:
         previous = self.log
-        self._switch(self._start().path)
+        self._switch(self._start(previous.state.app_instructions).path)
         if not previous.state.nodes:
             try:
                 previous.path.unlink(missing_ok=True)

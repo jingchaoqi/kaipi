@@ -21,6 +21,21 @@ and saves the cursor; the CLI formats a confirmation and Canvas refreshes its st
 The same stored session can be reopened by either interface. `core.Event` carries model
 and tool text or semantic lifecycle events; each interface renders them in its own way.
 
+Applications can supplement the system prompt when creating a session:
+
+```python
+from pathlib import Path
+from kaipi.core import Session
+
+session = Session(Path.cwd(), new=True, app_instructions="Describe changes in concise Chinese.")
+```
+
+The order is base instructions, application instructions, then project `AGENTS.md`.
+Application instructions are saved with the session and inherited by `session.new()`.
+To resume, omit `app_instructions` (or supply the same value); a different explicit value
+is rejected. Switching clients preserves the saved prompt. This parameter does not change
+the separate title/summary prompts or introduce another tool or configuration framework.
+
 `session.retry()` synchronously re-runs the latest attempt and returns `(node_id, dirty)`;
 `session.start_retry(emit)` reserves it immediately and returns a worker thread. Both use
 the current selected model, preserve the original submission/role and create a sibling.

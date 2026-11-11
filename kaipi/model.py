@@ -117,6 +117,7 @@ class SessionStarted(_Ev):
     cwd: str
     model: str
     system_prompt: str  # frozen for the whole session (AGENTS.md is snapshotted here)
+    app_instructions: str = ""
 
 
 class NodeCreated(_Ev):
