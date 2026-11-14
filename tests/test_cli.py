@@ -780,6 +780,14 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
                 if not accepted and not terminal.fading():
                     accepted = True
                     pipe.send_text("\r")
+            if (
+                outcome in {"stop", "fail"}
+                and terminal.phase == expected
+                and not terminal.fading()
+                and not accepted
+            ):
+                accepted = True
+                pipe.send_text("\r")
 
         terminal.session.app.after_render += rendered
         assert not terminal.session.refresh_interval

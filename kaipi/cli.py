@@ -227,16 +227,18 @@ class EscWatcher:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
 
 
-def retry_hint(s: core.Session) -> None:
+def retry_hint(s: core.Session, *, emit: Callable[[str], None] = typer.echo) -> None:
     if s.can_retry:
-        typer.echo(tr("输入 /retry 可重新运行上一轮。"))
+        emit(tr("输入 /retry 可重新运行上一轮。"))
 
 
-def after_failure(s: core.Session, err: agent.Failed) -> None:
+def after_failure(
+    s: core.Session, err: agent.Failed, *, emit: Callable[[str], None] = typer.echo
+) -> None:
     """A provider that refused ends the turn like a stop does: the node is aborted, the
     tokens it burned are billed, and the cursor is back on the parent to try again."""
-    typer.echo(tr("{RED}这一轮没能完成：{err}{RESET}", RED=RED, err=err, RESET=RESET))
-    typer.echo(
+    emit(tr("{RED}这一轮没能完成：{err}{RESET}", RED=RED, err=err, RESET=RESET))
+    emit(
         tr(
             "{DIM}已花掉的 token 记在账上；下一句从 {v1} 重新长出兄弟节点{RESET}",
             DIM=DIM,
@@ -245,13 +247,15 @@ def after_failure(s: core.Session, err: agent.Failed) -> None:
         )
     )
 
-    retry_hint(s)
+    retry_hint(s, emit=emit)
 
 
-def after_interrupt(s: core.Session, stopped: agent.Interrupted) -> None:
+def after_interrupt(
+    s: core.Session, stopped: agent.Interrupted, *, emit: Callable[[str], None] = typer.echo
+) -> None:
     """What the terminal says and asks once a turn has been stopped. Asked after the turn,
     on the main thread, so it never collides with a prompt that is still up."""
-    typer.echo(
+    emit(
         tr(
             "{RED}已停止。这一轮作废，不会进入之后的上下文；花掉的 token 已记账。{RESET}",
             RED=RED,
@@ -262,7 +266,7 @@ def after_interrupt(s: core.Session, stopped: agent.Interrupted) -> None:
         tr("被停掉的探索改动了工作树，回滚吗（git checkout -- . && git clean -fd）?"), default=False
     ):
         s.reset()
-    typer.echo(
+    emit(
         tr(
             "{DIM}下一句会从 {v1} 重新长出一个兄弟节点{RESET}",
             DIM=DIM,
@@ -271,7 +275,7 @@ def after_interrupt(s: core.Session, stopped: agent.Interrupted) -> None:
         )
     )
 
-    retry_hint(s)
+    retry_hint(s, emit=emit)
 
 
 def after_turn(s: core.Session, nid: str, dirty: bool) -> None:

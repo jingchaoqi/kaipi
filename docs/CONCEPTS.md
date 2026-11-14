@@ -329,7 +329,8 @@ remain intact. A full queue leaves the draft untouched. Up withdraws the newest 
 message and its attachments into the editor, replacing the current draft; repeated Up
 withdraws further messages, then falls back to normal history/completion navigation.
 Successful turns dispatch the oldest waiting message. Failure or cancellation pauses the
-queue: `/retry` reruns the failed turn and resumes after success; TUI-only `/continue`
+queue, keeping the editor alive so immediate input is not lost during a prompt restart:
+`/retry` reruns the failed turn and resumes after success; TUI-only `/continue`
 skips it and resumes the queue, preserving its exploration/trunk mode for the next turn
 (an explicit `/explore` still requests exploration). The next message is a sibling of the
 failed node; the failed payload stays outside its context. Other slash commands wait for

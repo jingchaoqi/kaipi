@@ -36,8 +36,9 @@ async def until(check: Callable[[], bool]) -> None:
     await asyncio.wait_for(wait(), timeout=3)
 
 
+@pytest.mark.parametrize("split_input", [False, True])
 def test_command_entered_during_failure_redraw_is_not_lost(
-    session: core.Session, monkeypatch: pytest.MonkeyPatch
+    session: core.Session, monkeypatch: pytest.MonkeyPatch, split_input: bool
 ) -> None:
     class Offline(Echo):
         def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
@@ -51,8 +52,12 @@ def test_command_entered_during_failure_redraw_is_not_lost(
         async def redraw(func: Callable[[], None]) -> None:
             await run_in_terminal(func)
             if t.paused and not t.running:
-                pipe.send_text("/retry\r")
-                await until(lambda: t.session.app.is_done)
+                if split_input:
+                    pipe.send_text("/re")
+                    asyncio.get_running_loop().call_later(0.1, lambda: pipe.send_text("try\r"))
+                else:
+                    pipe.send_text("/retry\r")
+                    await until(lambda: t.session.app.is_done)
 
         monkeypatch.setattr(tui, "run_in_terminal", redraw)
         assert t.turn("T") == "/retry"

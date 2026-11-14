@@ -1003,6 +1003,17 @@ class Terminal:
                 if isinstance(err, agent.Interrupted) or self.stop.is_set()
                 else "未完成"
             )
+            # Keep the editor alive on failure. Restarting it can lose keys typed
+            # between the final redraw and the next prompt, especially after Esc.
+            if isinstance(err, agent.Failed):
+                cli.after_failure(self.s, err, emit=self.write)
+                outcome["reported"] = True
+            elif (
+                isinstance(err, agent.Interrupted)
+                and not self.s.log.state.nodes[err.node_id].guard_dirty
+            ):
+                cli.after_interrupt(self.s, err, emit=self.write)
+                outcome["reported"] = True
 
         async def redraw(app: Application[str]) -> None:
             while self.running or self.fading():
@@ -1030,7 +1041,10 @@ class Terminal:
                         output.write_raw("\033[?2026l")
                         output.flush()
                 app.invalidate()
-                if finished and (self.pending or "err" in outcome or outcome["ok"][1]):
+                if finished and (
+                    ("err" in outcome and not outcome.get("reported"))
+                    or ("ok" in outcome and (self.pending or outcome["ok"][1]))
+                ):
                     app.exit(result="")
 
         def start() -> None:
@@ -1051,10 +1065,12 @@ class Terminal:
         if "err" in outcome:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
-                cli.after_interrupt(self.s, err)
+                if not outcome.get("reported"):
+                    cli.after_interrupt(self.s, err)
                 return line
             if isinstance(err, agent.Failed):
-                cli.after_failure(self.s, err)
+                if not outcome.get("reported"):
+                    cli.after_failure(self.s, err)
                 return line
             raise err
         nid, dirty = outcome["ok"]
