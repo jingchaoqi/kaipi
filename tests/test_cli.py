@@ -604,7 +604,9 @@ def test_slash_completion_offers_commands_then_node_ids(repo: Path) -> None:
 
     assert offers("hello") == []
     all_names = [d.split()[0] for d, _ in offers("/")]
-    assert all_names == ["/help"] + [f"/{n}" for n, _, _ in views.COMMANDS if n != "help"]
+    assert all_names == ["/help"] + [f"/{n}" for n, _, _ in views.COMMANDS if n != "help"] + [
+        "/continue"
+    ]
     assert offers("//") == [] and offers("/ ") == []
     names = [d.split()[0] for d, _ in offers("/r")]
     assert names == [f"/{n}" for n, _, _ in views.COMMANDS if n.startswith("r")]
@@ -783,7 +785,10 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
         assert not terminal.session.refresh_interval
         initial = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
         assert initial.count("\n") == 2, "reserve the activity row before the first turn"
-        assert terminal.turn("hello") == (["draft"] if outcome in {"ok", "queued"} else [])
+        assert terminal.turn("hello") == ("draft" if outcome == "ok" else "")
+        assert [item.text for item in terminal.pending] == (
+            ["draft"] if outcome == "queued" else []
+        )
         assert len(frames) >= 3, "animation must continue while the provider is blocked"
         assert not terminal.running and not terminal.session.refresh_interval
         if outcome == "ok":
@@ -799,7 +804,8 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
             assert terminal.s.leaf is None
             assert any(n.status == "aborted" for n in terminal.s.log.state.nodes.values())
         idle = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
-        assert expected in idle and "等待输入" in idle and "Esc 停止" not in idle
+        assert expected in idle and ("待发送 1/3" if outcome == "queued" else "等待输入") in idle
+        assert "Esc 停止" not in idle
         assert re.search(r" · \d+\.\d{3}s · ", idle)
         assert idle.count("\n") == initial.count("\n"), "completion must not change toolbar height"
         finished = terminal.finished_at
@@ -1045,7 +1051,7 @@ def test_new_discards_queued_old_inputs_and_recreates_terminal(
     from kaipi import tui
 
     s = core.Session(repo)
-    prompts = iter(["old question", "new question", "/quit"])
+    prompts = iter(["old question", "/new", "new question", "/quit"])
     terminals = []
     asked = []
 
@@ -1053,6 +1059,8 @@ def test_new_discards_queued_old_inputs_and_recreates_terminal(
         def __init__(self, session: core.Session) -> None:
             assert session is s
             terminals.append(self)
+            self.pending: list[tui.QueuedInput] = []
+            self.paused = False
             if len(terminals) > 1:
                 assert not s.log.state.nodes and s.leaf is None and not s.pending
 
@@ -1062,10 +1070,13 @@ def test_new_discards_queued_old_inputs_and_recreates_terminal(
         def echo(self, line: str) -> None:
             pass
 
-        def turn(self, text: str, *, explore: bool = False) -> list[str]:
+        def turn(self, text: str, *, explore: bool = False) -> str:
             asked.append(text)
             cli.run_input(s, text, hook=lambda *_: None)
-            return ["/new", "stale queued question"] if text == "old question" else []
+            if text == "old question":
+                self.pending.append(tui.QueuedInput("stale queued question", {}))
+                self.paused = True
+            return ""
 
     monkeypatch.setattr(tui, "Terminal", Terminal)
     assert tui.loop(s) == "quit"
@@ -1481,6 +1492,7 @@ def test_ctrl_c_requires_confirmation_without_losing_draft(
                 assert terminal.session.default_buffer.text == "draft"
                 if mode == "running":
                     assert terminal.stop.is_set() and terminal._exit_requested_at is None
+                    terminal.running = False  # the stopped worker has returned
                     pipe.send_text("\r")
                     return
                 assert "再按一次 Ctrl+C" in terminal.notice

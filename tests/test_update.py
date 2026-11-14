@@ -6,7 +6,6 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -238,7 +237,9 @@ def test_queued_update_preserves_unsent_draft(
     class Terminal:
         attachments: dict[str, object] = {}
         _pasting = False
-        session = SimpleNamespace(default_buffer=SimpleNamespace(text="未发送的草稿"))
+        pending: list[tui.QueuedInput] = []
+        paused = False
+        _draft = ""
 
         def __init__(self, s: core.Session) -> None:
             pass
@@ -247,11 +248,12 @@ def test_queued_update_preserves_unsent_draft(
             pass
 
         def prompt(self, *, default: str = "") -> str:
-            prompts.append(default)
+            prompts.append(self._draft)
             return "question" if len(prompts) == 1 else "/quit"
 
-        def turn(self, line: str) -> list[str]:
-            return ["/update"]
+        def turn(self, line: str) -> str:
+            self._draft = "未发送的草稿"
+            return "/update"
 
     monkeypatch.setattr(tui, "Terminal", Terminal)
     monkeypatch.setattr(update, "prepare", lambda emit: pytest.fail("must retain the draft"))

@@ -12,6 +12,7 @@ import asyncio
 import threading
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from functools import partial
 from io import StringIO
 from queue import Empty, SimpleQueue
@@ -76,6 +77,8 @@ PHASES = (
     "未完成",
 )
 PHASE_WIDTH = 8  # Chinese uses four full-width characters; English is measured at render time.
+QUEUE_LIMIT = 3
+QUEUE_COMMAND = ("continue", "", "跳过上一轮，继续待发送队列（仅终端）")
 
 
 def markdown(text: str, width: int, *, color: bool = True, indent: int = 0) -> str:
@@ -320,9 +323,9 @@ class SlashCompleter(Completer):
         head, _, rest = text[1:].partition(" ")
         if not _:  # still typing the command itself
             commands = (
-                sorted(views.COMMANDS, key=lambda command: command[0] != "help")
+                sorted([*views.COMMANDS, QUEUE_COMMAND], key=lambda command: command[0] != "help")
                 if text == "/"
-                else views.COMMANDS
+                else [*views.COMMANDS, QUEUE_COMMAND]
             )
             for name, args, what in commands:
                 if name.startswith(head):
@@ -357,10 +360,20 @@ class SlashCompleter(Completer):
                     )
 
 
+@dataclass
+class QueuedInput:
+    text: str
+    attachments: dict[str, attachments.Attachment]
+
+
 class Terminal:
     def __init__(self, s: core.Session) -> None:
         self.s = s
         self.running = False
+        self.pending: list[QueuedInput] = []
+        self.paused = False
+        self._continue_explore = False
+        self._draft = ""
         self.phase = "就绪"
         self.started_at = 0.0
         self.finished_at: float | None = None
@@ -476,6 +489,27 @@ class Terminal:
                 self._submit_after_paste = True
                 return
             buffer = event.current_buffer
+            state = buffer.complete_state
+            if state and state.current_completion:
+                # Enter accepts the highlighted command or argument before submitting.
+                self._selecting = True
+                try:
+                    buffer.apply_completion(state.current_completion)
+                finally:
+                    self._selecting = False
+            text = buffer.text.strip()
+            if not text:
+                if not self.running:
+                    buffer.validate_and_handle()
+                return
+            question = not text.startswith("/") or text.split()[0] == "/explore"
+            if self.running and not question:
+                self.notice = tr("请等待当前轮次结束后再执行命令；Esc 可停止")
+                return
+            queueing = question and (self.running or self.paused or bool(self.pending))
+            if queueing and len(self.pending) >= QUEUE_LIMIT:
+                self.notice = tr("待发送已满（3/3），输入已保留 · ↑ 撤回编辑")
+                return
             # Some terminal emulators insert dragged file paths without bracketed paste.
             # An entire file selection still counts as an explicit attachment gesture.
             if not any(marker in buffer.text for marker in self.attachments):
@@ -488,21 +522,17 @@ class Terminal:
                     )
                     self._submit_after_paste = True
                     return
-            state = buffer.complete_state
-            if state and state.current_completion:
-                # Enter accepts the highlighted command or argument before submitting.
-                # Arrow navigation itself leaves the user's prefix untouched.
-                self._selecting = True
-                try:
-                    buffer.apply_completion(state.current_completion)
-                finally:
-                    self._selecting = False
             if (
                 any(marker in buffer.text for marker in self.attachments)
                 and buffer.text.startswith("/")
                 and not buffer.text.startswith("/explore ")
             ):
                 self.notice = tr("附件请随问题发送；也可使用 /explore 问题")
+                return
+            if queueing:
+                items = {m: a for m, a in self.attachments.items() if m in text}
+                self.pending.append(QueuedInput(self.collect_input(text), items))
+                buffer.reset(append_to_history=True)
                 return
             buffer.validate_and_handle()
 
@@ -518,6 +548,26 @@ class Terminal:
                 index = (state.complete_index or 0) + step
                 state.go_to_index(max(0, min(len(state.completions) - 1, index)))
                 buffer.on_completions_changed.fire()
+
+        @kb.add("up", filter=Condition(lambda: bool(self.pending)), eager=True)
+        def _withdraw(event: Any) -> None:
+            if self._pasting:
+                return
+            item = self.pending.pop()
+            self.attachments = item.attachments
+            self._attachment_seq = {
+                kind: max(
+                    (
+                        int(m[len(kind) + 1 : -1])
+                        for m in self.attachments
+                        if m.startswith(f"[{kind}")
+                    ),
+                    default=0,
+                )
+                for kind in ("image", "file")
+            }
+            self.notice = ""
+            event.current_buffer.document = Document(str(item.text), len(item.text))
 
         @kb.add("tab", filter=has_candidates)
         def _tab(event: Any) -> None:
@@ -582,7 +632,21 @@ class Terminal:
                 floats.extend(f for f in container.floats if not f.ycursor)
                 container.floats = []
         self.session.layout.container = FloatContainer(
-            HSplit([Window(), CompletionsMenu(max_height=10, scroll_offset=1), prompt_layout]),
+            HSplit(
+                [
+                    Window(),
+                    CompletionsMenu(max_height=10, scroll_offset=1),
+                    Window(
+                        FormattedTextControl(self.queue_rows),
+                        height=lambda: (
+                            QUEUE_LIMIT
+                            if self.pending or self.session.default_buffer.complete_state is None
+                            else 0
+                        ),
+                    ),
+                    prompt_layout,
+                ]
+            ),
             floats,
         )
         self.session.app.before_render += self.update_title
@@ -667,6 +731,17 @@ class Terminal:
     def message(self) -> ANSI:
         return ANSI(f"{self.rule()}\n{self.label()}")
 
+    def queue_rows(self) -> FormattedText:
+        return FormattedText(
+            [
+                (
+                    "fg:#707a82",
+                    "  " + short_line(f"{i + 1}. {item.text}", self.columns() - 3) + "\n",
+                )
+                for i, item in enumerate(self.pending)
+            ]
+        )
+
     def toolbar(self) -> ANSI:
         now, width = time.monotonic(), self.columns()
         # The ledger folds are much slower than drawing a frame. Keep their refresh
@@ -722,6 +797,13 @@ class Terminal:
         padding = max(0, phase_width - get_cwidth(phase))
         shimmer = " " * (padding // 2) + shimmer + " " * (padding - padding // 2)
         hint = self.notice or (tr("Esc 停止") if self.running else tr("等待输入"))
+        if not self.notice and (self.pending or self.paused):
+            hint = (
+                tr("队列已暂停 · /retry 重试 · /continue 继续 · ↑ 撤回")
+                if self.paused
+                else tr("待发送 {count}/3 · ↑ 撤回编辑", count=len(self.pending))
+                + (tr(" · Esc 停止") if self.running else "")
+            )
         reserved = 14 + phase_width + get_cwidth(f" · {elapsed:.3f}s · ")
         hint = short_line(hint, max(1, width - reserved - 1))
         tail = paint(f" · {elapsed:.3f}s · {hint}", (220, 229, 231))
@@ -856,19 +938,28 @@ class Terminal:
                 get_app().create_background_task(self.fade_out(get_app()))
 
         with patch_stdout(raw=True):
-            line = self.collect_input(
-                self.session.prompt(default=default, pre_run=start_fade).strip()
-            )
+            line = self.read_prompt(start_fade, default=default)
         if line:
             self.echo(line)
         return line
 
-    def turn(self, text: str, *, explore: bool = False, retry: bool = False) -> list[str]:
+    def read_prompt(self, start: Callable[[], None], *, default: str = "") -> str:
+        line = self.session.prompt(default=default or self._draft, pre_run=start).strip()
+        self._draft = "" if line else self.session.default_buffer.text
+        return self.collect_input(line)
+
+    def turn(self, text: str, *, explore: bool = False, retry: bool = False) -> str:
         """Run one turn in a worker thread, keeping the bottom area alive meanwhile.
         On normal completion the prompt stays alive until the next submission.
-        Returns queued inputs, or that next submitted input, in order."""
+        Queued submissions stay in this terminal; returns an input submitted after completion."""
         outcome: dict[str, Any] = {}
-        queued: list[str] = []
+        explore = explore or self._continue_explore
+        node = self.s.retry_node() if retry else None
+        exploration = (
+            node.request.exploration
+            if node and node.request
+            else graph.is_exploration(self.s.log.state, self.s.leaf, force=explore)
+        )
 
         def work() -> None:
             try:
@@ -899,6 +990,8 @@ class Terminal:
 
         def finish() -> None:
             self.running = False
+            self.paused = "err" in outcome and (self.paused or bool(self.pending))
+            self._continue_explore = exploration if self.paused else False
             self.finished_at = time.monotonic()
             self._fade_started_at = self.finished_at
             self._bar_at = 0.0
@@ -914,7 +1007,7 @@ class Terminal:
         async def redraw(app: Application[str]) -> None:
             while self.running or self.fading():
                 await asyncio.sleep(1 / FPS)
-                finished = self.running and self.done.is_set()
+                finished = self.running and self.done.is_set() and not self._pasting
                 if finished:
                     finish()
                 if self._output is not None and not self._output.empty():
@@ -937,7 +1030,7 @@ class Terminal:
                         output.write_raw("\033[?2026l")
                         output.flush()
                 app.invalidate()
-                if finished and (queued or "err" in outcome or outcome["ok"][1]):
+                if finished and (self.pending or "err" in outcome or outcome["ok"][1]):
                     app.exit(result="")
 
         def start() -> None:
@@ -949,21 +1042,7 @@ class Terminal:
 
         try:
             with patch_stdout(raw=True):
-                while True:
-                    line = self.collect_input(self.session.prompt(pre_run=start).strip())
-                    if line:
-                        queued.append(line)
-                    if self.done.is_set():
-                        break
-                    if line:
-                        self.write(
-                            tr(
-                                "{v0}已排队，这一轮结束后执行：{line}{v2}",
-                                v0=cli.DIM,
-                                line=line,
-                                v2=cli.RESET,
-                            )
-                        )
+                line = self.read_prompt(start)
         finally:
             if self.finished_at is None:
                 finish()
@@ -973,14 +1052,14 @@ class Terminal:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
                 cli.after_interrupt(self.s, err)
-                return queued
+                return ""
             if isinstance(err, agent.Failed):
                 cli.after_failure(self.s, err)
-                return queued
+                return ""
             raise err
         nid, dirty = outcome["ok"]
         cli.after_turn(self.s, nid, dirty)
-        return queued
+        return line
 
 
 def loop(s: core.Session) -> str:
@@ -989,37 +1068,61 @@ def loop(s: core.Session) -> str:
     if s.leaf:
         t.replay()
     update.background(lambda text: print(f"\n{cli.DIM}{text}{cli.RESET}\n"))
-    pending: list[str] = []
-    draft = ""
+    line = ""
     while True:
         try:
-            from_queue = bool(pending)
-            if pending:
-                line = pending.pop(0)
-                t.echo(line)
+            if not line:
+                if t.pending and not t.paused:
+                    line = t.pending.pop(0).text
+                    t.notice = ""
+                    t.echo(line)
+                else:
+                    line = t.prompt()
             else:
-                line = t.prompt(default=draft) if draft else t.prompt()
-                draft = ""
+                t.echo(line)
         except (EOFError, KeyboardInterrupt):
             return "quit"
         if not line:
             continue
+        following = ""
         try:
             if line.startswith("/"):
                 previous = s.log.path
-                if line.split()[0] == "/update" and (
-                    pending
-                    or t.attachments
-                    or t._pasting
-                    or (from_queue and t.session.default_buffer.text.strip() not in ("", line))
+                head = line.split()[0]
+                if head == "/update" and (
+                    t.pending or t.attachments or t._pasting or t._draft.strip()
                 ):
-                    if from_queue and t.session.default_buffer.text.strip() != line:
-                        draft = t.session.default_buffer.text
                     print(tr("还有排队消息或附件草稿，请处理完后再输入 /update。"))
+                    line = ""
                     continue
-                if line.split()[0] in ("/canvas", "/cli"):
+                if head == "/continue":
+                    if len(line.split()) != 1:
+                        raise ValueError(tr("用法：/continue（不带参数）"))
+                    t.paused = False
+                    if not t.pending:
+                        t._continue_explore = False
+                        t.notice = tr("没有待发送消息")
+                    line = ""
+                    continue
+                if (t.pending or t.paused) and (
+                    head
+                    in {
+                        "/tree",
+                        "/go",
+                        "/graft",
+                        "/archive",
+                        "/restore",
+                        "/rewind",
+                        "/resume",
+                        "/canvas",
+                        "/cli",
+                    }
+                    or (head == "/trunk" and len(line.split()) > 1)
+                ):
+                    raise ValueError(tr("请先处理待发送队列，再切换会话或修改节点"))
+                if head in ("/canvas", "/cli"):
                     return "canvas"
-                if line.split()[0] == "/retry":
+                if head == "/retry":
                     if len(line.split()) != 1:
                         raise ValueError(tr("用法：/retry（不带参数）"))
                     node = s.retry_node()
@@ -1028,26 +1131,30 @@ def loop(s: core.Session) -> str:
                         str(attachments.Input.from_blocks(node.request.input)),
                         label=s.name(node.parent_id) + "> ",
                     )
-                    pending = t.turn("", retry=True) + pending
-                elif line.split()[0] == "/explore":
+                    following = t.turn("", retry=True)
+                elif head == "/explore":
                     question = line[len("/explore") :].strip()
                     if isinstance(line, attachments.Input):
                         question = attachments.Input(question, line.attachments)
-                    pending = t.turn(question, explore=True) + pending
+                    following = t.turn(question, explore=True)
+                elif head == "/help":
+                    command_ui.view(
+                        "/help", views.cmd_help(s, commands=[*views.COMMANDS, QUEUE_COMMAND])
+                    )
                 elif not command_ui.run(s, line[1:].split()):
                     return "quit"
-                elif line.split()[0] == "/new":
-                    pending.clear()
+                elif head == "/new":
                     t = Terminal(s)
                 elif s.log.path != previous:
                     cli.clear_terminal()
                     t = Terminal(s)
                     t.replay()
-                elif line.split()[0] == "/statusline":
+                elif head == "/statusline":
                     t._bar_at = 0.0
             else:
-                pending = t.turn(line) + pending
+                following = t.turn(line)
         except (EOFError, KeyboardInterrupt):
             return "quit"
         except (typer.BadParameter, ValueError) as e:
             print(f"{cli.RED}{e}{cli.RESET}")
+        line = following

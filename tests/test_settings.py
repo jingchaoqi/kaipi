@@ -361,7 +361,7 @@ def test_statusline_dispatch_completion_and_immediate_bar_refresh(
     assert CliRunner().invoke(cli.app, ["statusline"]).exit_code == 0
     assert calls == [True] and not (tmp_path / ".kaipi").exists()
     session = core.Session(tmp_path)
-    fake = SimpleNamespace(_bar_at=99.0)
+    fake = SimpleNamespace(_bar_at=99.0, pending=[], paused=False)
     count = 0
 
     def prompt() -> str:

@@ -320,8 +320,23 @@ The session lives in one process and is open on exactly one surface at a time: t
 terminal or the canvas (a local web page served by the same process). The terminal keeps a
 fixed area at the bottom - the input line with the status bar under it - and scrolls the
 agent's output above it; while a turn runs the area stays, the bar says so, Esc stops the
-turn and a line typed meanwhile is queued as the next input (`kaipi/tui.py`, on
-prompt_toolkit; without a tty a plain line loop takes over). `/canvas`
+turn (`kaipi/tui.py`, on prompt_toolkit; without a tty a plain line loop takes over).
+The TUI alone owns a FIFO queue of up to three waiting questions (including `/explore`),
+excluding the active turn. Three reserved rows above the input show one preview per message
+(slash completion may reuse this space when the queue is empty);
+long or multiline previews are shortened, while the submitted text and attachment snapshots
+remain intact. A full queue leaves the draft untouched. Up withdraws the newest waiting
+message and its attachments into the editor, replacing the current draft; repeated Up
+withdraws further messages, then falls back to normal history/completion navigation.
+Successful turns dispatch the oldest waiting message. Failure or cancellation pauses the
+queue: `/retry` reruns the failed turn and resumes after success; TUI-only `/continue`
+skips it and resumes the queue, preserving its exploration/trunk mode for the next turn
+(an explicit `/explore` still requests exploration). The next message is a sibling of the
+failed node; the failed payload stays outside its context. Other slash commands wait for
+the active turn to finish; switching sessions/surfaces or modifying nodes requires handling
+the queue first, while `/new` explicitly discards it. The queue creates no nodes until
+dispatch, is never persisted, and is not part of core or other clients. Unsent drafts
+survive automatic dispatch between turns. `/canvas`
 in the terminal opens the canvas and closes the prompt; `/cli` on the canvas closes the
 canvas and reopens the prompt. Both surfaces call the same verbs; the canvas adds
 gestures for them — drag a node onto the input to graft, onto the tray to archive.

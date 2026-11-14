@@ -611,10 +611,10 @@ def cmd_rename(s: Session, name: str) -> list[str]:
     return [tr("{GREEN}这个对话现在叫「{name}」{RESET}", GREEN=GREEN, name=name, RESET=RESET)]
 
 
-def cmd_help(s: Session) -> list[str]:
+def cmd_help(s: Session, *, commands: list[tuple[str, str, str]] | None = None) -> list[str]:
     rows = [
         (f"{BOLD}{f'/{name} {tr(args)}'.strip()}{RESET}", f"{DIM}{tr(what)}{RESET}")
-        for name, args, what in COMMANDS
+        for name, args, what in (COMMANDS if commands is None else commands)
     ]
     out = [f"  {row}" for row in columns(rows)]
     return [
