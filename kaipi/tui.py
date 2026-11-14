@@ -78,7 +78,8 @@ PHASES = (
 )
 PHASE_WIDTH = 8  # Chinese uses four full-width characters; English is measured at render time.
 QUEUE_LIMIT = 3
-QUEUE_COMMAND = ("continue", "", "跳过上一轮，继续待发送队列（仅终端）")
+QUEUE_COMMAND = ("continue", "", "跳过未完成轮次，执行排队消息（仅终端）")
+QUEUE_FULL = "最多可排队 3 条消息，当前输入已保留 · ↑ 撤回最新排队消息"
 
 
 def markdown(text: str, width: int, *, color: bool = True, indent: int = 0) -> str:
@@ -508,7 +509,7 @@ class Terminal:
                 return
             queueing = question and (self.running or self.paused or bool(self.pending))
             if queueing and len(self.pending) >= QUEUE_LIMIT:
-                self.notice = tr("待发送已满（3/3），输入已保留 · ↑ 撤回编辑")
+                self.notice = tr(QUEUE_FULL)
                 return
             # Some terminal emulators insert dragged file paths without bracketed paste.
             # An entire file selection still counts as an explicit attachment gesture.
@@ -639,7 +640,7 @@ class Terminal:
                     Window(
                         FormattedTextControl(self.queue_rows),
                         height=lambda: (
-                            QUEUE_LIMIT
+                            QUEUE_LIMIT + 1
                             if self.pending or self.session.default_buffer.complete_state is None
                             else 0
                         ),
@@ -692,6 +693,8 @@ class Terminal:
 
     def refresh_completions(self, buffer: Buffer) -> None:
         self.cancel_exit_confirmation()
+        if self.notice == tr(QUEUE_FULL):
+            self.notice = ""
         if self._selecting:
             return
         candidates = (
@@ -732,13 +735,19 @@ class Terminal:
         return ANSI(f"{self.rule()}\n{self.label()}")
 
     def queue_rows(self) -> FormattedText:
+        if not self.pending:
+            return FormattedText([])
+        title = tr("待发送 · 已暂停") if self.paused else tr("待发送 · 本轮结束后依次执行")
         return FormattedText(
             [
-                (
-                    "fg:#707a82",
-                    "  " + short_line(f"{i + 1}. {item.text}", self.columns() - 3) + "\n",
-                )
-                for i, item in enumerate(self.pending)
+                ("fg:#9ba4ab", "  " + short_line(title, self.columns() - 3) + "\n"),
+                *[
+                    (
+                        "fg:#707a82",
+                        "  " + short_line(f"{i + 1}. {item.text}", self.columns() - 3) + "\n",
+                    )
+                    for i, item in enumerate(self.pending)
+                ],
             ]
         )
 
@@ -799,10 +808,9 @@ class Terminal:
         hint = self.notice or (tr("Esc 停止") if self.running else tr("等待输入"))
         if not self.notice and (self.pending or self.paused):
             hint = (
-                tr("队列已暂停 · /retry 重试 · /continue 继续 · ↑ 撤回")
+                tr("/retry 重试本轮 · /continue 跳过本轮，执行排队消息 · ↑ 撤回最新排队消息")
                 if self.paused
-                else tr("待发送 {count}/3 · ↑ 撤回编辑", count=len(self.pending))
-                + (tr(" · Esc 停止") if self.running else "")
+                else tr("↑ 撤回最新排队消息") + (tr(" · Esc 停止") if self.running else "")
             )
         reserved = 14 + phase_width + get_cwidth(f" · {elapsed:.3f}s · ")
         hint = short_line(hint, max(1, width - reserved - 1))

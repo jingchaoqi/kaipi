@@ -1979,25 +1979,9 @@
     "zh": "会话指令已冻结，请新建会话以应用不同的应用层指令",
     "en": "Session instructions are frozen; start a new session to use different application instructions"
   },
-  "跳过上一轮，继续待发送队列（仅终端）": {
-    "zh": "跳过上一轮，继续待发送队列（仅终端）",
-    "en": "Skip the previous turn and continue the queue (terminal only)"
-  },
   "请等待当前轮次结束后再执行命令；Esc 可停止": {
     "zh": "请等待当前轮次结束后再执行命令；Esc 可停止",
     "en": "Wait for the current turn before running commands; Esc stops it"
-  },
-  "待发送已满（3/3），输入已保留 · ↑ 撤回编辑": {
-    "zh": "待发送已满（3/3），输入已保留 · ↑ 撤回编辑",
-    "en": "Queue full (3/3), draft kept · ↑ recall to edit"
-  },
-  "队列已暂停 · /retry 重试 · /continue 继续 · ↑ 撤回": {
-    "zh": "队列已暂停 · /retry 重试 · /continue 继续 · ↑ 撤回",
-    "en": "Queue paused · /retry retry · /continue resume · ↑ recall"
-  },
-  "待发送 {count}/3 · ↑ 撤回编辑": {
-    "zh": "待发送 {count}/3 · ↑ 撤回编辑",
-    "en": "Queued {count}/3 · ↑ recall to edit"
   },
   " · Esc 停止": {
     "zh": " · Esc 停止",
@@ -2014,5 +1998,29 @@
   "请先处理待发送队列，再切换会话或修改节点": {
     "zh": "请先处理待发送队列，再切换会话或修改节点",
     "en": "Handle the queued messages before switching sessions or modifying nodes"
+  },
+  "跳过未完成轮次，执行排队消息（仅终端）": {
+    "zh": "跳过未完成轮次，执行排队消息（仅终端）",
+    "en": "Skip the unfinished turn and run queued messages (terminal only)"
+  },
+  "最多可排队 3 条消息，当前输入已保留 · ↑ 撤回最新排队消息": {
+    "zh": "最多可排队 3 条消息，当前输入已保留 · ↑ 撤回最新排队消息",
+    "en": "Up to 3 messages can be queued; your input is kept · ↑ Recall the most recently queued message"
+  },
+  "待发送 · 已暂停": {
+    "zh": "待发送 · 已暂停",
+    "en": "Queued · Paused"
+  },
+  "待发送 · 本轮结束后依次执行": {
+    "zh": "待发送 · 本轮结束后依次执行",
+    "en": "Queued · Runs in order after this turn"
+  },
+  "/retry 重试本轮 · /continue 跳过本轮，执行排队消息 · ↑ 撤回最新排队消息": {
+    "zh": "/retry 重试本轮 · /continue 跳过本轮，执行排队消息 · ↑ 撤回最新排队消息",
+    "en": "/retry Retry this turn · /continue Skip this turn and run queued messages · ↑ Recall the most recently queued message"
+  },
+  "↑ 撤回最新排队消息": {
+    "zh": "↑ 撤回最新排队消息",
+    "en": "↑ Recall the most recently queued message"
   }
 }

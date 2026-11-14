@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 from prompt_toolkit.application import Application, run_in_terminal
-from prompt_toolkit.formatted_text import fragment_list_to_text
+from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text
 
 from kaipi import attachments, context, core, graph, ledger, tui
+from kaipi.i18n import tr
 from kaipi.model import Message
 from kaipi.providers import Reply
 from tests.conftest import Builder
@@ -88,10 +89,15 @@ def test_capacity_recall_attachments_and_original_up(
                 source.unlink()
                 t.add_attachments([item])
                 pipe.send_text("draft\r")
-                await until(lambda: "3/3" in t.notice)
+                await until(lambda: t.notice == tr(tui.QUEUE_FULL))
                 assert t.session.default_buffer.text == "[file1]draft"
                 assert t.attachments == {"[file1]": item}
                 assert len(session.log.state.nodes) == 1, "queuing must not create nodes"
+                pipe.send_text("x")
+                await until(lambda: not t.notice)
+                assert t.session.default_buffer.text == "[file1]draftx"
+                pipe.send_text("\r")
+                await until(lambda: t.notice == tr(tui.QUEUE_FULL))
 
                 pipe.send_text("\x1b[A")
                 await until(lambda: len(t.pending) == 2)
@@ -139,7 +145,8 @@ def test_queue_previews_are_single_lines_and_commands_cannot_queue(
                 assert t.pending[0].text == "/explore question"
                 t.pending.append(tui.QueuedInput("长行" * 200 + "\nsecond line", {}))
                 rows = fragment_list_to_text(t.queue_rows()).splitlines()
-                assert len(rows) == 2 and rows[-1].endswith("…")
+                assert len(rows) == 3 and rows[-1].endswith("…")
+                assert rows[0].strip() == tr("待发送 · 本轮结束后依次执行")
                 assert "second line" not in rows[-1]
                 # Queue recall takes precedence even when slash completion is open.
                 pipe.send_text("/go \x1b[A")
@@ -150,6 +157,55 @@ def test_queue_previews_are_single_lines_and_commands_cannot_queue(
                 await task
 
         asyncio.run(keys())
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_queue_header_and_pause_keep_input_position_without_capacity_counter(
+    session: core.Session, monkeypatch: pytest.MonkeyPatch, language: str
+) -> None:
+    from kaipi import settings
+
+    settings.save({"language": language})
+    with terminal(monkeypatch):
+        t = tui.Terminal(session)
+
+        async def check() -> None:
+            drawn = asyncio.Event()
+            t.session.app.after_render += lambda _: drawn.set()
+            task = asyncio.create_task(t.session.prompt_async())
+
+            async def position() -> int:
+                drawn.clear()
+                t.session.app.invalidate()
+                await asyncio.wait_for(drawn.wait(), 3)
+                screen = t.session.app.renderer.last_rendered_screen
+                assert screen is not None
+                return screen.get_cursor_position(t.session.layout.current_window).y
+
+            try:
+                await until(lambda: t.session.app.is_running)
+                initial = await position()
+                assert not fragment_list_to_text(t.queue_rows())
+                for count, paused in ((1, False), (3, False), (3, True), (0, True)):
+                    t.pending = [tui.QueuedInput(f"message {i}", {}) for i in range(count)]
+                    t.paused = paused
+                    assert await position() == initial
+                    rows = fragment_list_to_text(t.queue_rows())
+                    hint = fragment_list_to_text(to_formatted_text(t.toolbar()))
+                    assert all(f"{n}/3" not in rows + hint for n in range(4))
+                    if count:
+                        expected = (
+                            tr("待发送 · 已暂停") if paused else tr("待发送 · 本轮结束后依次执行")
+                        )
+                        assert rows.splitlines()[0].strip() == expected
+                        assert len(rows.splitlines()) == count + 1
+                    else:
+                        assert not rows
+            finally:
+                t.session.app.exit(result="")
+                await task
+
+        asyncio.run(check())
 
 
 def test_turn_completion_waits_for_attachment_draft(

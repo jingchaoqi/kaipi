@@ -322,11 +322,16 @@ fixed area at the bottom - the input line with the status bar under it - and scr
 agent's output above it; while a turn runs the area stays, the bar says so, Esc stops the
 turn (`kaipi/tui.py`, on prompt_toolkit; without a tty a plain line loop takes over).
 The TUI alone owns a FIFO queue of up to three waiting questions (including `/explore`),
-excluding the active turn. Three reserved rows above the input show one preview per message
-(slash completion may reuse this space when the queue is empty);
-long or multiline previews are shortened, while the submitted text and attachment snapshots
-remain intact. A full queue leaves the draft untouched. Up withdraws the newest waiting
-message and its attachments into the editor, replacing the current draft; repeated Up
+excluding the active turn. Four reserved rows above the input show a descriptive header
+and up to three message previews (slash completion may reuse this space when empty).
+The header says messages run in order after this turn, or that the queue is paused; no
+capacity counter is displayed. An empty queue hides its text while keeping the space.
+Long or multiline previews are shortened, while the submitted text and attachment snapshots
+remain intact. Submitting to a full queue shows the three-message limit in the existing
+hint area and leaves text and attachments untouched. Editing or freeing a slot clears
+this reminder without inserting conversation output or changing the layout height.
+Up withdraws the newest waiting message and its attachments into the editor, replacing
+the current draft; repeated Up
 withdraws further messages, then falls back to normal history/completion navigation.
 Successful turns dispatch the oldest waiting message. Failure or cancellation pauses the
 queue, keeping the editor alive so immediate input is not lost during a prompt restart:

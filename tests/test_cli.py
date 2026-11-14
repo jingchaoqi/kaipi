@@ -812,7 +812,10 @@ def test_turn_animates_while_waiting_without_polling_at_rest(
             assert terminal.s.leaf is None
             assert any(n.status == "aborted" for n in terminal.s.log.state.nodes.values())
         idle = fragment_list_to_text(to_formatted_text(terminal.toolbar()))
-        assert expected in idle and ("待发送 1/3" if outcome == "queued" else "等待输入") in idle
+        assert (
+            expected in idle
+            and ("↑ 撤回最新排队消息" if outcome == "queued" else "等待输入") in idle
+        )
         assert "Esc 停止" not in idle
         assert re.search(r" · \d+\.\d{3}s · ", idle)
         assert idle.count("\n") == initial.count("\n"), "completion must not change toolbar height"
