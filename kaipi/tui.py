@@ -1052,10 +1052,10 @@ class Terminal:
             err = outcome["err"]
             if isinstance(err, agent.Interrupted):
                 cli.after_interrupt(self.s, err)
-                return ""
+                return line
             if isinstance(err, agent.Failed):
                 cli.after_failure(self.s, err)
-                return ""
+                return line
             raise err
         nid, dirty = outcome["ok"]
         cli.after_turn(self.s, nid, dirty)

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from prompt_toolkit.application import Application
+from prompt_toolkit.application import Application, run_in_terminal
 from prompt_toolkit.formatted_text import fragment_list_to_text
 
 from kaipi import attachments, context, core, graph, ledger, tui
@@ -34,6 +34,29 @@ async def until(check: Callable[[], bool]) -> None:
             await asyncio.sleep(0.01)
 
     await asyncio.wait_for(wait(), timeout=3)
+
+
+def test_command_entered_during_failure_redraw_is_not_lost(
+    session: core.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Offline(Echo):
+        def complete(self, system: str, messages: list[Message], points: list[int]) -> Reply:
+            raise ConnectionError("offline")
+
+    session._provider = Offline()
+    with terminal(monkeypatch) as (pipe, _):
+        t = tui.Terminal(session)
+        t.pending.append(tui.QueuedInput("A", {}))
+
+        async def redraw(func: Callable[[], None]) -> None:
+            await run_in_terminal(func)
+            if t.paused and not t.running:
+                pipe.send_text("/retry\r")
+                await until(lambda: t.session.app.is_done)
+
+        monkeypatch.setattr(tui, "run_in_terminal", redraw)
+        assert t.turn("T") == "/retry"
+        assert t.paused and [i.text for i in t.pending] == ["A"]
 
 
 @pytest.mark.parametrize("paused", [False, True])
