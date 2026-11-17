@@ -41,4 +41,8 @@ jobs:
         run: |
           cd dist
           sha256sum *.whl *.tar.gz > SHA256SUMS
-          gh release create "$RELEASE_TAG" *.whl *.tar.gz SHA256SUMS --verify-tag --title "kaipi $RELEASE_TAG" --notes-file ../.github/RELEASE_NOTES.md --latest
+          release_notes=$(mktemp)
+          cat ../.github/RELEASE_NOTES.md > "$release_notes"
+          wheel_name=$(printf '%s\n' kaipi-*.whl)
+          printf '\n## 安装\n\n需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)。\n\n```sh\nuv tool install --force https://github.com/%s/releases/download/%s/%s\n```\n\n安装完成后，在项目目录打开终端运行 `kaipi`。\n' "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$wheel_name" >> "$release_notes"
+          gh release create "$RELEASE_TAG" *.whl *.tar.gz SHA256SUMS --verify-tag --title "kaipi $RELEASE_TAG" --notes-file "$release_notes" --latest

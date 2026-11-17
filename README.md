@@ -50,11 +50,11 @@ kaipi 能阅读代码、修改文件、执行命令和运行测试。你可以�
 需要 **Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)**。
 建议在 Git 仓库中使用，以启用代码快照、回退和探索时的工作区检查。
 
-从 [Releases](https://github.com/jingchaoqi/kaipi/releases/latest) 下载 `.whl` 安装包，然后执行：
+打开 [最新 Release](https://github.com/jingchaoqi/kaipi/releases/latest)，复制「安装」中的命令执行。
+
+安装完成后，在项目目录打开终端，运行：
 
 ```sh
-uv tool install --force ./kaipi-0.1.5-py3-none-any.whl
-cd /path/to/your/project
 kaipi
 ```
 
@@ -86,7 +86,7 @@ kaipi -r <会话id>    # 打开指定会话
 可在 `/config` 关闭。
 
 支持从任意历史正式版直接升级，保留已保存的会话、附件、配置和回退快照，不保证降级兼容。
-0.1.0–0.1.2 尚无更新命令，请下载新版 `.whl`，执行 `uv tool install --force <安装包.whl>` 后用 `kaipi -c` 继续。
+0.1.0–0.1.2 尚无更新命令，请按最新 Release 的安装说明升级，再用 `kaipi -c` 继续。
 
 ## 图片与文件
 
