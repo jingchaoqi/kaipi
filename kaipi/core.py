@@ -282,6 +282,13 @@ class Session:
             self._provider, self._provider_spec = self._build(spec), spec
         return self._provider
 
+    def billing_model(self, provider: Provider) -> str:
+        """Keep the catalog scope in the ledger while providers send a wire model ID."""
+        spec = self._provider_spec if provider is self._provider else self.pricing.summary_model
+        if spec and spec.partition("/")[2] == provider.model:
+            return spec
+        return provider.model
+
     def vendor(self, spec: str) -> str:
         """Who a model spec would be routed to, or "" when nothing says. Deliberately not
         `pricing.split`, whose fallback answers "anthropic" for an unlisted bare id - a
@@ -717,14 +724,18 @@ def _run_input(
         for edge in edges:
             if frozen is None and edge.depth == "leaf+summary":
                 try:
-                    summarize.ensure_summary(s.log, s.cheap, edge.src_id, leaf)
+                    cheap = s.cheap
+                    summarize.ensure_summary(
+                        s.log, cheap, edge.src_id, leaf, model_spec=s.billing_model(cheap)
+                    )
                 except Exception as err:  # noqa: BLE001 - a summary is optional
                     edge = edge.model_copy(update={"depth": "leaf"})
                     emit(Event("summary_failed", providers.redact(str(err)), edge.src_id))
             use.append(edge)
+        provider = s.provider
         nid = agent.run_turn(
             s.log,
-            s.provider,
+            provider,
             leaf,
             use,
             text,
@@ -734,6 +745,7 @@ def _run_input(
             stop=stop,
             request=request,
             grafts=frozen,
+            model_spec=s.billing_model(provider),
         )
     except (Exception, KeyboardInterrupt) as err:
         with s.lock:
@@ -784,7 +796,8 @@ def _run_input(
     ):
         try:
             hook("phase", "生成标题")
-            s.log.append(titles.generate(str(text), s.cheap))
+            cheap = s.cheap
+            s.log.append(titles.generate(str(text), cheap, model_spec=s.billing_model(cheap)))
         except Exception:  # noqa: BLE001 - optional metadata must never fail a completed turn
             pass
     emit(Event("completed", node_id=nid, exploration=exploration))

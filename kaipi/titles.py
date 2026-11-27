@@ -22,7 +22,9 @@ PROMPT = (
 )
 
 
-def generate(question: str, provider: Provider) -> SessionTitleGenerated:
+def generate(
+    question: str, provider: Provider, *, model_spec: str | None = None
+) -> SessionTitleGenerated:
     reply = provider.complete(
         PROMPT,
         [{"role": "user", "content": [{"type": "text", "text": str(question)[:4000]}]}],
@@ -41,4 +43,4 @@ def generate(question: str, provider: Provider) -> SessionTitleGenerated:
                 if 0 < len(title) <= 40 and title.isprintable():
                     name = title
     # Even an empty/refused title costs money. No request/response history is retained.
-    return SessionTitleGenerated(name=name, model=provider.model, usage=reply.usage)
+    return SessionTitleGenerated(name=name, model=model_spec or provider.model, usage=reply.usage)

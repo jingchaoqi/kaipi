@@ -14,7 +14,14 @@ PROMPT = (
 )
 
 
-def ensure_summary(log: Log, provider: Provider, node_id: str, leaf_id: str | None) -> str:
+def ensure_summary(
+    log: Log,
+    provider: Provider,
+    node_id: str,
+    leaf_id: str | None,
+    *,
+    model_spec: str | None = None,
+) -> str:
     node = log.state.nodes[node_id]
     if node.summary:  # truthiness, not `is not None`: an empty summary is worth retrying
         return node.summary
@@ -30,7 +37,9 @@ def ensure_summary(log: Log, provider: Provider, node_id: str, leaf_id: str | No
     # this node tries again instead of carrying "(no summary available)" for good. A model
     # that answers a summary prompt with a tool call and no prose is how this happens.
     log.append(
-        SummaryGenerated(node_id=node_id, summary=text, model=provider.model, usage=reply.usage)
+        SummaryGenerated(
+            node_id=node_id, summary=text, model=model_spec or provider.model, usage=reply.usage
+        )
     )
     if not text:
         raise ValueError("the summary model answered with no text")

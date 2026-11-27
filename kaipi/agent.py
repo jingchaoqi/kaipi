@@ -150,13 +150,18 @@ def run_turn(
     stop: threading.Event | None = None,
     request: TurnRequest | None = None,
     grafts: list[GraftBlock] | None = None,
+    model_spec: str | None = None,
 ) -> str:
     """Create, run and freeze one node under leaf_id. Returns the new node id.
     `stop` interrupts the turn at the next step boundary; so does Ctrl-C, at once."""
     state = log.state
     ctx = context.build(state, leaf_id, edges, text, guard=exploration, grafts=grafts)
     node_id = new_id()
-    log.append(NodeCreated(id=node_id, parent_id=leaf_id, model=provider.model, request=request))
+    log.append(
+        NodeCreated(
+            id=node_id, parent_id=leaf_id, model=model_spec or provider.model, request=request
+        )
+    )
     for e in edges:
         log.append(EdgeAdded(edge=e.model_copy(update={"dst_id": node_id})))
 

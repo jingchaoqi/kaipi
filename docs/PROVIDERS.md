@@ -106,27 +106,22 @@ quick retries are not enough on their own.
   retaining its own protocol, endpoint and credentials. The legacy Flash names
   `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are still accepted by DeepSeek
   and billed as `deepseek-flash`. Packaged prices follow the official USD peak rates
-  verified on 2026-11-02; off-peak is half price, so the fixed-rate ledger can overestimate
+  verified on 2026-11-27; off-peak is half price, so the fixed-rate ledger can overestimate
   actual charges. See [official pricing](https://api-docs.deepseek.com/quick_start/pricing/).
   Cache hits are reported as `prompt_cache_hit_tokens` on Chat and Anthropic-shaped
   usage on `/anthropic`; both feed the ledger.
-- **Kimi**: `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `kimi-k2.5` on the OpenAI-style
-  endpoint. On the Anthropic-style endpoint the 1M-context id is `kimi-k3[1m]`:
-  `KAIPI_MODEL=kimi-anthropic/kimi-k3[1m]`. The China platform is a separate endpoint with
-  separate keys and its own model list - a key from one does not work on the other - so it
-  is its own preset: pick `kimi-cn` or `kimi-anthropic-cn` in `/provider`, or
-  `MOONSHOT_CN_API_KEY=... KAIPI_MODEL=kimi-cn/kimi-k2.7-code`.
-  Verified live on 2026-09-05 against `api.moonshot.cn` with `kimi-k2.7-code`: requests,
-  the bash tool round-trip and the four usage counts all check out, and the endpoint returns
-  no cache fields at all on a short prompt, so the ledger reads 0 cache tokens rather than
-  guessing. Reasoning tokens arrive inside `completion_tokens`, so output is not
-  under-reported.
-- **GLM**: `glm-5.2`, `glm-5` pay-per-token; the Coding Plan is a flat subscription on the
-  Anthropic-style endpoint with ids like `glm-5.2[1m]`: `KAIPI_MODEL=glm-anthropic/glm-5.2[1m]`.
-- **OpenCode Go / Zen**: one key for many vendors. Go is a flat $10/month, so its models
-  are priced 0 in `pricing.toml` and the ledger reports tokens only. Model ids come from
-  `https://opencode.ai/zen/go/v1/models` (kimi-k3, deepseek-v4-pro, glm-5.3, gpt-5.6-luna,
-  minimax-m3, qwen3.8-max, …). Claude models on Zen go through `opencode-anthropic`.
+- **Kimi**: K3.1 Pro and K3 are available on the international and China platforms.
+  China uses separate credentials and RMB rates. The legacy K3 Messages ID
+  `kimi-k3[1m]` can also be entered manually.
+- **GLM**: GLM-5.3 and GLM-5.3-Flash use separate China and international prices.
+  Coding Plan has its own points quota. Some Coding Plan accounts can use only the
+  Chat Completions protocol for GLM-5.3.
+- **OpenCode Go / Zen**: Zen uses pay-as-you-go pricing. Go's per-token rates measure
+  how much of a subscription allowance is used. The local dollar estimate excludes
+  the subscription fee and optional Extra Usage.
+- **OpenRouter**: packaged numbers are a public catalog snapshot. The platform charges
+  the actual routed backend's rates.
+- **Ollama**: enter the IDs of the models installed locally. Local usage has no API rate.
 - **Anthropic-compatible gateways** (`*-anthropic`): the client passes only `api_key`
   as an SDK credential, with `Authorization: Bearer` in the ordinary request headers.
   Passing the same key as both `api_key` and `auth_token` is rejected by newer SDKs.

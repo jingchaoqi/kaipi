@@ -1362,12 +1362,41 @@ def test_raw_counts_the_tool_output_a_real_turn_is_mostly_made_of(
     )
 
 
+def test_session_uses_provider_scoped_prices_for_turns_and_metadata(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = "groq/openai/gpt-oss-120b"
+    monkeypatch.setenv("KAIPI_MODEL", spec)
+    wire = Echo()
+    wire.model = "openai/gpt-oss-120b"
+    monkeypatch.setattr(core.Session, "_build", lambda self, model: wire)
+
+    session = core.Session(repo)
+    root, _ = cli.run_input(session, "first", lambda *_: None)
+    branch, _ = cli.run_input(session, "explore", lambda *_: None, explore=True)
+    session.go(root)
+    session.graft(branch, "leaf+summary", [])
+    cli.run_input(session, "continue", lambda *_: None)
+
+    reopened = core.Session(repo)
+    state = reopened.log.state
+    assert {node.model for node in state.nodes.values()} == {spec}
+    assert [model for model, _ in state.titles] == [spec]
+    assert [model for model, _ in state.summaries] == [spec]
+    assert ledger.total_cost(state, reopened.pricing) > 0
+
+
 @pytest.mark.parametrize(
     ("who", "expected"),
     [
         ("deepseek", "deepseek-flash"),
         ("deepseek-anthropic", "deepseek-flash"),
-        ("kimi-anthropic", "kimi-k2.6"),
+        ("kimi-anthropic", "kimi-k3.1-pro"),
+        ("kimi-anthropic-cn", "kimi-k3.1-pro"),
+        ("glm-anthropic-cn", "glm-5.3"),
+        ("opencode-anthropic", "kimi-k3.1-pro"),
+        ("groq", "openai/gpt-oss-120b"),
+        ("openrouter", "deepseek/deepseek-v4-pro"),
         ("opencode-go-anthropic", "deepseek-v4-pro"),
     ],
 )
@@ -1382,10 +1411,11 @@ def test_provider_setup_shares_model_catalog_without_changing_route(
     assert result.exit_code == 0, result.output
     saved = providers.auth()["providers"][who]
     catalog = providers.BUILTIN[who].model_catalog or who
+    pricing = ledger.Pricing.load()
     expected_ids = [
         m.removeprefix(f"{p.provider}/")
-        for m, p in ledger.Pricing.load().models.items()
-        if p.provider == catalog
+        for m, p in pricing.models.items()
+        if p.provider == catalog and m not in pricing.legacy_models
     ]
     assert saved["models"] == expected_ids and expected in expected_ids
     assert len(saved["models"]) > 1

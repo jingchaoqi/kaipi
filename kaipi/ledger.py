@@ -61,6 +61,7 @@ class Pricing(BaseModel):
     model: str = "claude-opus-5"
     summary_model: str = "claude-haiku-4-5"
     models: dict[str, Price] = Field(default_factory=dict)
+    legacy_models: set[str] = Field(default_factory=set)
     providers: dict[str, Any] = Field(default_factory=dict)  # [providers.<name>] overrides
 
     @classmethod
@@ -84,7 +85,13 @@ class Pricing(BaseModel):
             refreshed = catalog_prices()
             # Explicit local prices win; downloaded rows only supersede packaged defaults.
             models = models | refreshed if chosen == PACKAGED_PRICING else refreshed | models
-        return cls(**raw.get("defaults", {}), models=models, providers=providers)
+        legacy = raw.get("legacy_models", {})
+        return cls(
+            **raw.get("defaults", {}),
+            models=legacy | models,
+            legacy_models=set(legacy),
+            providers=providers,
+        )
 
     def find(self, spec: str) -> Price | None:
         """A spec is a model id listed here, or `<provider>/<model id>`. Prices belong to the

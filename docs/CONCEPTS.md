@@ -607,14 +607,25 @@ The model-id prompt defaults to every model listed
 for that provider in the pricing table: Enter accepts all, while a comma-separated
 input selects a subset or supplies custom ids. The pricing table takes precedence
 over a saved subset; if it has no models for the provider, the saved list is used.
+Rows under `[legacy_models]` retain historical rates for earlier models and are omitted
+from setup suggestions.
 
 Provider setup obtains default model ids from its configured pricing catalog. A preset
 may explicitly share another preset's catalog (for example `deepseek-anthropic` uses
 `deepseek`), without changing the selected protocol, endpoint or credentials. Qualified
 price keys are stripped to model ids in setup; the model selector resolves prices through
 the same `Pricing.find(provider/model)` lookup as requests and the ledger. Unrelated
-regions and subscription plans keep distinct catalogs. DeepSeek's packaged rates are
-fixed peak USD rates; time-of-day discounts are not modelled.
+regions and subscription plans keep distinct catalogs. Packaged estimates use fixed
+USD rates per token category: the standard short-context tier where applicable, peak
+rates for DeepSeek, and the regular list price for OpenCode Zen. Gemini 4 Carbon uses
+the permanent rate effective December 1, 2026. Pricing comments record alternate tiers.
+OpenCode Go tokens count toward usage. Its allowance rates are documented separately
+from the local dollar estimate, which excludes subscriptions and optional Extra Usage.
+OpenRouter rates are catalog estimates because the price varies by routed backend.
+Turns, titles and graft summaries store the configured provider-qualified model when
+present, so their costs use the selected region or platform's price. Requests use the
+underlying model ID. Existing events keep the model identifiers they originally stored.
+Cache write rates apply only when the provider adapter records writes separately.
 
 Selecting an already configured provider offers model/price refresh by default, editing
 its endpoint, key and model list, or clearing its configuration. Refresh reads only model rows from kaipi's

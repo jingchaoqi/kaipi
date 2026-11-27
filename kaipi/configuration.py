@@ -438,10 +438,11 @@ def provider(*, report: Callable[[str], None] = typer.echo) -> None:
         default="" if saved_key else None,
         show_default=False,
     ).strip()
+    pricing = ledger.Pricing.load()
     known = [
         m.removeprefix(f"{pr.provider}/")
-        for m, pr in ledger.Pricing.load().models.items()
-        if pr.provider in {name, cfg.model_catalog}
+        for m, pr in pricing.models.items()
+        if pr.provider in {name, cfg.model_catalog} and m not in pricing.legacy_models
     ]
     if known:
         typer.echo(
